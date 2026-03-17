@@ -12,6 +12,16 @@
 
 A local desktop + service toolkit for managing Codex-compatible accounts, usage, platform keys, and a built-in local gateway.
 
+## Disclaimer
+
+- This project is for learning and development purposes only.
+
+- Users must comply with the terms of service of all relevant platforms (e.g., OpenAI, Anthropic).
+
+- The author does not provide or distribute any accounts, API keys, or proxy services, and is not responsible for how this software is used.
+
+- Do not use this project to bypass rate limits or service restrictions
+
 ## Landing Guide
 | What you want to do | Go here |
 | --- | --- |
@@ -22,15 +32,12 @@ A local desktop + service toolkit for managing Codex-compatible accounts, usage,
 
 ## Recent Changes
 - Current latest version: `v0.1.9` (2026-03-18)
-- This release rolls up the latest protocol compatibility work, login-path alignment, gateway error handling, desktop interaction fixes, Web auth hardening, and long-term maintainability refactors; see [CHANGELOG.md](CHANGELOG.md) for full history.
-- The dashboard now adds an account-pool view as well: the new aggregate remaining-usage card for 5-hour / 7-day windows is computed on the backend and wired into both startup snapshot loading and the auto-refresh path, so it keeps updating even as the account pool grows.
-- The Codex login-account request path is now closer to upstream behavior: ChatGPT-backed turns now use `access_token` directly, no longer mixing in `api_key_access_token` semantics, and the default `https://api.openai.com/v1` fallback has been removed so local fallback errors no longer rewrite upstream challenge / `403` outcomes.
-- The `401` recovery chain is now in place as well: when a ChatGPT login-account request returns `401`, CodexManager refreshes the local `access_token` with the stored `refresh_token` and retries the current request once, replacing the older stateless `401` retry behavior.
-- Gateway runtime and diagnostics are stronger: synthetic gateway failures now return structured OpenAI-style `error.message / error.type / error.code` payloads while keeping trace and error-code headers, long-running SSE turns are more resilient to idle disconnects, and the Settings page now exposes upstream stream timeout and SSE keepalive controls with runtime hot reload.
-- Desktop behavior was tightened as well: startup now restores dashboard / account / request-log snapshots earlier, successful login refreshes the accounts table automatically, and platform-key creation plus upstream-proxy save flows were cleaned up.
-- The Web auth flow is safer: `codexmanager-web` still persists the password, but authenticated sessions are now scoped to the current Web process, so old cookies do not survive a full close-and-reopen cycle.
-- The project is also undergoing long-term maintainability refactoring: the frontend entry/runtime layers, settings flow, request-log UI, Tauri command surface, service lifecycle, gateway protocol adapter, HTTP bridge, and upstream execution flow have all been split further into clearer module boundaries.
-- The release pipeline stays consolidated under `release-all.yml` for one-click Windows / macOS / Linux publishing, with local frontend build fallback when prebuilt artifacts are unavailable.
+- This release is centered on a full UI refresh and consolidation under the new `apps` frontend: the old frontend was removed, while Accounts, Platform Keys, Request Logs, Settings, the top status bar, and the sidebar were all rebuilt into a denser desktop-first layout with cleaner filtering, dialogs, and summary cards.
+- The request path was further aligned to actual Codex behavior, but only where it affects real request delivery: login / callback / workspace validation, refresh semantics, `/v1/responses` and `/v1/responses/compact` rewrites, thread anchors, `session_id` / `x-client-request-id` / `x-codex-turn-state`, request compression, and fallback diagnostics were all tightened.
+- Account routing and usability also improved: free / weekly-single-window accounts now consistently use the configured model override; preferred-account routing, failover behavior, inflight limits, and refresh-token false inactivation were all corrected, and request logs now expose both the initial account and the attempted chain.
+- Observability is much stronger: request logs now use backend pagination and backend summaries, while compact false-success bodies, HTML/challenge pages, `401 refresh` reasons, and `503 no available account` failures all produce clearer diagnostics instead of ambiguous generic errors.
+- Desktop stability and startup behavior were cleaned up as well: service startup false negatives, `/rpc` empty responses, stale usage-dialog data, first-switch lag, hydration mismatches, and misleading dev render indicators were all addressed, and the Web password setting now stays in sync between desktop and Web.
+- The release path was also normalized: the product version is now `0.1.9`, the Tauri Rust side and workflow Tauri CLI / pnpm versions are aligned again, and `release-all.yml` remains the single release entry for Windows / macOS / Linux. See [CHANGELOG.md](CHANGELOG.md) for the full history.
 
 ## Features
 - Account pool management: groups, tags, sorting, notes
@@ -105,11 +112,8 @@ A local desktop + service toolkit for managing Codex-compatible accounts, usage,
 
 ## Acknowledgements And References
 
+- Codex (OpenAI): this project references its implementation and source layout for request-path behavior, login semantics, and upstream compatibility <https://github.com/openai/codex>
 - CPA (CLIProxyAPI): this project references its protocol adaptation, request forwarding, and compatibility design <https://github.com/router-for-me/CLIProxyAPI>
-- Main reference areas:
-- `crates/service/src/gateway/protocol_adapter/request_mapping.rs`
-- `crates/service/src/gateway/protocol_adapter/response_conversion/`
-- `crates/service/src/gateway/upstream/`
 
 ## Contact Information
 - Official Account: 七线牛马

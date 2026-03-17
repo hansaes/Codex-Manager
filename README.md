@@ -12,6 +12,16 @@
 
 本地桌面端 + 服务进程的 Codex 账号池管理器，用于统一管理账号、用量与平台 Key，并提供本地网关能力。
 
+## 免责声明
+
+- 本项目仅用于学习与开发目的。
+
+- 使用者必须遵守相关平台的服务条款（例如 OpenAI、Anthropic）。
+
+- 作者不提供或分发任何账号、API Key 或代理服务，也不对本软件的具体使用方式负责。
+
+- 请勿使用本项目绕过速率限制或服务限制。
+
 ## 首页导览
 | 你要做什么 | 直接进入 |
 | --- | --- |
@@ -22,15 +32,12 @@
 
 ## 最近变更
 - 当前最新版本：`v0.1.9`（2026-03-18）
-- 本次发版已收敛最近一轮协议兼容、登录链路、网关错误响应、桌面交互、Web 安全和长期维护治理；完整历史请看 [CHANGELOG.md](CHANGELOG.md)。
-- 仪表盘继续补齐账号池视角：新增“账号池总剩余”卡片，5 小时 / 7 天剩余比例已下沉到后端聚合，并接入启动快照与自动刷新链路，账号规模上来后也能持续刷新。
-- Codex 登录账号链路继续对齐：ChatGPT 登录账号主请求已统一改为直接使用 `access_token`，不再混入 `api_key_access_token` 语义；默认 `https://api.openai.com/v1` fallback 已移除，challenge / 403 不再被本地硬改成额外的 fallback 错误。
-- 401 恢复链路已补齐：当 ChatGPT 登录账号请求命中 `401` 时，会使用本地 `refresh_token` 刷新 `access_token`，并对当前请求执行一次单次重试；不再继续沿用旧的 401 stateless retry。
-- 网关运行与诊断增强：gateway 自合成失败响应已改成结构化 OpenAI 风格 `error.message / error.type / error.code`，同时保留错误码与 trace 响应头；长输出场景的 SSE 空闲断流重连更稳定；设置页新增上游流式超时和 SSE keepalive 配置并支持热生效。
-- 桌面体验继续修正：启动后会优先恢复仪表盘 / 账号 / 请求日志快照；登录成功后账号表格会自动刷新；平台密钥创建与上游代理保存流程也做了收口。
-- Web 安全链路已补齐：`codexmanager-web` 的访问密码仍会持久化，但登录会话会绑定当前 Web 进程；关闭并重新打开后，旧 Cookie 不再继续生效，必须重新验证密码。
-- 项目内部也在持续做长期维护向重构：前端主入口、设置页、请求日志、Tauri 命令层、service 生命周期、gateway protocol adapter、HTTP bridge 和 upstream 流程都已继续拆分，目录边界和模块职责更清晰。
-- 发布体系继续收敛到单一入口：`release-all.yml` 统一负责 Windows / macOS / Linux 一键发布；当 `run_verify=false` 时会自动回退到本地前端构建，不再强依赖预构建工件。
+- 本次发版重点是把桌面端和 Web 管理界面整体重做并收口到新的 `apps` 前端：旧前端已移除，账号管理、平台密钥、请求日志、设置页、顶部状态栏和侧边导航都换成统一的桌面优先布局，列表密度、弹窗交互、筛选区和卡片区也做了整轮重构。
+- 请求链路继续按 Codex 实际行为收口，但只保留真正影响请求命中的部分：登录 / callback / workspace 校验、refresh 语义、`/v1/responses` 与 `/v1/responses/compact` 的请求体重写、线程锚点、`session_id` / `x-client-request-id` / `x-codex-turn-state`、请求压缩、错误摘要和 fallback 诊断都已补齐。
+- 账号策略与可用性也做了实用收口：free / 7 天单窗口账号现在会统一按设置里的模型发起请求；优先账号、失败回退、并发上限和 refresh token 误摘号问题都做了修正，请求日志也能看到首尝试账号与尝试链路。
+- 可观测性明显增强：请求日志改为后端分页与后端统计，compact 假成功体、HTML/challenge 页、`401 refresh` 原因、`503 no available account` 等失败场景都会写出更明确的诊断信息，网关磁盘日志也收敛成失败摘要导向。
+- 桌面稳定性和启动体验继续修过一轮：服务启动误判、`/rpc` 空响应、刷新用量弹窗不更新、首次切页卡顿、Hydration 不一致、开发态渲染指示误导等问题都已处理，Web 密码和桌面/Web 设置同步也已收口。
+- 发布链路也做了统一治理：版本已提升到 `0.1.9`，Tauri Rust 侧和 workflow 里的 Tauri CLI / pnpm 版本已重新对齐，`release-all.yml` 继续作为 Windows / macOS / Linux 的单一发布入口。完整历史请看 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 功能概览
 - 账号池管理：分组、标签、排序、备注
@@ -105,11 +112,8 @@
 
 ## 鸣谢与参考项目
 
+- Codex（OpenAI）：本项目在请求链路、登录语义与上游兼容行为上参考了该项目的实现与源码结构 <https://github.com/openai/codex>
 - CPA（CLIProxyAPI）：本项目在协议适配、请求转发与兼容行为上参考了该项目的实现思路 <https://github.com/router-for-me/CLIProxyAPI>
-- 重点参考区域：
-- `crates/service/src/gateway/protocol_adapter/request_mapping.rs`
-- `crates/service/src/gateway/protocol_adapter/response_conversion/`
-- `crates/service/src/gateway/upstream/`
 
 ## 联系方式
 - 公众号：七线牛马
