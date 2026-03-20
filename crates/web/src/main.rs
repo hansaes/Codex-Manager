@@ -64,9 +64,31 @@ fn normalize_addr(raw: &str) -> Option<String> {
     Some(value.to_string())
 }
 
+fn normalize_connect_addr(raw: &str) -> Option<String> {
+    let normalized = normalize_addr(raw)?;
+    let Some((host, port)) = normalized.rsplit_once(':') else {
+        return Some(normalized);
+    };
+    match host {
+        "0.0.0.0" | "::" | "[::]" => Some(format!("localhost:{port}")),
+        _ => Some(normalized),
+    }
+}
+
+fn browser_open_addr(raw: &str) -> Option<String> {
+    let normalized = normalize_addr(raw)?;
+    let Some((host, port)) = normalized.rsplit_once(':') else {
+        return Some(normalized);
+    };
+    match host {
+        "0.0.0.0" | "::" | "[::]" => Some(format!("127.0.0.1:{port}")),
+        _ => Some(normalized),
+    }
+}
+
 fn resolve_service_addr() -> String {
     read_env_trim("CODEXMANAGER_SERVICE_ADDR")
-        .and_then(|v| normalize_addr(&v))
+        .and_then(|v| normalize_connect_addr(&v))
         .unwrap_or_else(|| codexmanager_service::DEFAULT_ADDR.to_string())
 }
 
@@ -240,6 +262,9 @@ async fn async_main() {
     println!("codexmanager-web listening on {web_addr} (service={service_addr})");
 
     let open_url = format!("http://{}", web_addr.trim());
+    let open_url = browser_open_addr(&web_addr)
+        .map(|addr| format!("http://{addr}"))
+        .unwrap_or(open_url);
     if read_env_trim("CODEXMANAGER_WEB_NO_OPEN").is_none() {
         let _ = webbrowser::open(&open_url);
     }
@@ -285,5 +310,37 @@ mod tests {
         let actual = auth::parse_cookie_value(&headers, WEB_AUTH_COOKIE_NAME);
 
         assert_eq!(actual.as_deref(), Some("token-123"));
+    }
+
+    #[test]
+    fn normalize_connect_addr_maps_all_interfaces_to_localhost() {
+        assert_eq!(
+            normalize_connect_addr("0.0.0.0:48760").as_deref(),
+            Some("localhost:48760")
+        );
+        assert_eq!(
+            normalize_connect_addr("[::]:48760").as_deref(),
+            Some("localhost:48760")
+        );
+        assert_eq!(
+            normalize_connect_addr("192.168.1.8:48760").as_deref(),
+            Some("192.168.1.8:48760")
+        );
+    }
+
+    #[test]
+    fn browser_open_addr_maps_all_interfaces_to_loopback() {
+        assert_eq!(
+            browser_open_addr("0.0.0.0:48761").as_deref(),
+            Some("127.0.0.1:48761")
+        );
+        assert_eq!(
+            browser_open_addr("[::]:48761").as_deref(),
+            Some("127.0.0.1:48761")
+        );
+        assert_eq!(
+            browser_open_addr("192.168.1.8:48761").as_deref(),
+            Some("192.168.1.8:48761")
+        );
     }
 }

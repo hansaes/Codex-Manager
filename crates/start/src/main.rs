@@ -176,6 +176,28 @@ fn resolve_addr(var: &str, default: &str) -> String {
         .unwrap_or_else(|| default.to_string())
 }
 
+fn normalize_connect_addr(raw: &str) -> String {
+    let normalized = normalize_addr(raw).unwrap_or_else(|| raw.trim().to_string());
+    let Some((host, port)) = normalized.rsplit_once(':') else {
+        return normalized;
+    };
+    match host {
+        "0.0.0.0" | "::" | "[::]" => format!("localhost:{port}"),
+        _ => normalized,
+    }
+}
+
+fn browser_open_addr(raw: &str) -> String {
+    let normalized = normalize_addr(raw).unwrap_or_else(|| raw.trim().to_string());
+    let Some((host, port)) = normalized.rsplit_once(':') else {
+        return normalized;
+    };
+    match host {
+        "0.0.0.0" | "::" | "[::]" => format!("127.0.0.1:{port}"),
+        _ => normalized,
+    }
+}
+
 fn resolve_socket_addrs_best_effort(host_port: &str) -> Vec<SocketAddr> {
     // 优先处理 localhost（避免 DNS 差异/大小写问题）
     let trimmed = host_port.trim();
@@ -265,9 +287,11 @@ fn main() {
     load_env_from_exe_dir_best_effort();
 
     let dir = exe_dir();
-    let service_addr = resolve_addr("CODEXMANAGER_SERVICE_ADDR", DEFAULT_SERVICE_ADDR);
+    let configured_service_addr = resolve_addr("CODEXMANAGER_SERVICE_ADDR", DEFAULT_SERVICE_ADDR);
+    let service_addr = normalize_connect_addr(&configured_service_addr);
     let service_bind_addr = codexmanager_service::listener_bind_addr(&service_addr);
     let web_addr = resolve_addr("CODEXMANAGER_WEB_ADDR", DEFAULT_WEB_ADDR);
+    let web_open_addr = browser_open_addr(&web_addr);
 
     let service_bin = bin_path(&dir, "codexmanager-service");
     let web_bin = bin_path(&dir, "codexmanager-web");
@@ -282,7 +306,11 @@ fn main() {
 
     println!("CodexManager 启动器");
     println!("- service: {service_addr} (bind {service_bind_addr})");
-    println!("- web:     http://{web_addr}/");
+    if web_open_addr == web_addr {
+        println!("- web:     http://{web_addr}/");
+    } else {
+        println!("- web:     bind http://{web_addr}/, open http://{web_open_addr}/");
+    }
     println!("按 Ctrl+C 退出");
 
     if !web_bin.is_file() {
@@ -320,7 +348,7 @@ fn main() {
     // web 若已运行：直接打开浏览器，然后退出（避免占用端口再次启动失败）。
     if tcp_probe(&web_addr) {
         println!("web 已在运行，直接打开浏览器。");
-        let _ = webbrowser::open(&format!("http://{web_addr}/"));
+        let _ = webbrowser::open(&format!("http://{web_open_addr}/"));
         return;
     }
 
@@ -400,5 +428,30 @@ fn main() {
     let _ = web_child.kill();
     if let Some(mut child) = service_child {
         let _ = child.kill();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_connect_addr_maps_all_interfaces_to_localhost() {
+        assert_eq!(
+            normalize_connect_addr("0.0.0.0:48760"),
+            "localhost:48760"
+        );
+        assert_eq!(normalize_connect_addr("[::]:48760"), "localhost:48760");
+        assert_eq!(
+            normalize_connect_addr("192.168.1.8:48760"),
+            "192.168.1.8:48760"
+        );
+    }
+
+    #[test]
+    fn browser_open_addr_maps_all_interfaces_to_loopback() {
+        assert_eq!(browser_open_addr("0.0.0.0:48761"), "127.0.0.1:48761");
+        assert_eq!(browser_open_addr("[::]:48761"), "127.0.0.1:48761");
+        assert_eq!(browser_open_addr("192.168.1.8:48761"), "192.168.1.8:48761");
     }
 }

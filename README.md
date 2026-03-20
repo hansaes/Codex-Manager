@@ -78,6 +78,13 @@
 3. 如回调失败，粘贴回调链接手动完成解析。
 4. 刷新用量并确认账号状态。
 
+## 默认数据目录
+- 桌面端默认会把 SQLite 数据库写到应用数据目录下，文件名固定为 `codexmanager.db`。
+- Windows：`%APPDATA%\\com.codexmanager.desktop\\codexmanager.db`
+- macOS：`~/Library/Application Support/com.codexmanager.desktop/codexmanager.db`
+- Linux：`~/.local/share/com.codexmanager.desktop/codexmanager.db`
+- 如需调整数据库、代理、监听地址等运行配置，可继续查看 [环境变量与运行配置](docs/report/20260309195355187_环境变量与运行配置说明.md)。
+
 ## 页面展示
 ### 桌面端
 - 账号管理：集中导入、导出、刷新账号与用量，支持低配额 / 封禁筛选与重置时间展示

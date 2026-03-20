@@ -64,6 +64,8 @@ const ENV_DESCRIPTION_MAP: Record<string, string> = {
     "控制连接上游服务器时的超时时间，单位秒；主要影响握手和网络建立阶段。",
   CODEXMANAGER_UPSTREAM_BASE_URL:
     "控制默认上游地址；修改后，网关会把请求转发到新的目标地址。",
+  CODEXMANAGER_WEB_ADDR:
+    "控制 codexmanager-web / codexmanager-start 的监听地址；设置为 0.0.0.0 用于允许局域网访问，但浏览器应使用 127.0.0.1 或本机 IP 打开。该项需要重启相关进程；若同目录 codexmanager.env 已设置该变量，启动时会优先使用文件值。",
 };
 
 const THEMES = [

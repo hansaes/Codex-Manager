@@ -4,6 +4,9 @@ use tauri::Manager;
 
 use super::migration::maybe_migrate_legacy_db;
 
+const ENV_DB_PATH: &str = "CODEXMANAGER_DB_PATH";
+const ENV_RPC_TOKEN_FILE: &str = "CODEXMANAGER_RPC_TOKEN_FILE";
+const ENV_SERVICE_ADDR: &str = "CODEXMANAGER_SERVICE_ADDR";
 const QA_APP_IDENTIFIER: &str = "com.codexmanager.desktop.qa";
 const QA_DEFAULT_SERVICE_ADDR: &str = "localhost:48762";
 
@@ -12,11 +15,54 @@ pub(crate) fn resolve_rpc_token_path_for_db(db_path: &Path) -> PathBuf {
     parent.join("codexmanager.rpc-token")
 }
 
+fn env_non_empty(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn exe_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|value| value.to_path_buf()))
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn resolve_path_with_base(raw: &str, base_dir: &Path) -> PathBuf {
+    let path = PathBuf::from(raw.trim());
+    if path.is_absolute() {
+        path
+    } else {
+        base_dir.join(path)
+    }
+}
+
+fn resolve_env_db_path() -> Option<PathBuf> {
+    env_non_empty(ENV_DB_PATH).map(|raw| resolve_path_with_base(&raw, &exe_dir()))
+}
+
+fn resolve_runtime_rpc_token_path(db_path: &Path) -> PathBuf {
+    env_non_empty(ENV_RPC_TOKEN_FILE)
+        .map(|raw| resolve_path_with_base(&raw, &exe_dir()))
+        .unwrap_or_else(|| resolve_rpc_token_path_for_db(db_path))
+}
+
+fn default_app_data_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let mut data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "app data dir not found".to_string())?;
+    data_dir.push("codexmanager.db");
+    Ok(data_dir)
+}
+
 pub(crate) fn apply_runtime_storage_env(app: &tauri::AppHandle) {
     if let Ok(data_path) = resolve_db_path_with_legacy_migration(app) {
-        std::env::set_var("CODEXMANAGER_DB_PATH", &data_path);
-        let token_path = resolve_rpc_token_path_for_db(&data_path);
-        std::env::set_var("CODEXMANAGER_RPC_TOKEN_FILE", &token_path);
+        std::env::set_var(ENV_DB_PATH, &data_path);
+        let token_path = resolve_runtime_rpc_token_path(&data_path);
+        std::env::set_var(ENV_RPC_TOKEN_FILE, &token_path);
         maybe_seed_profile_service_addr(app);
         log::info!("db path: {}", data_path.display());
         log::info!("rpc token path: {}", token_path.display());
@@ -44,6 +90,9 @@ fn should_seed_profile_service_addr(
 }
 
 fn maybe_seed_profile_service_addr(app: &tauri::AppHandle) {
+    if env_non_empty(ENV_SERVICE_ADDR).is_some() {
+        return;
+    }
     let identifier = app.config().identifier.as_str();
     let current_saved_addr = codexmanager_service::current_saved_service_addr();
     let Some(profile_addr) = should_seed_profile_service_addr(identifier, &current_saved_addr)
@@ -74,23 +123,49 @@ fn maybe_seed_profile_service_addr(app: &tauri::AppHandle) {
 pub(crate) fn resolve_db_path_with_legacy_migration(
     app: &tauri::AppHandle,
 ) -> Result<PathBuf, String> {
-    let mut data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|_| "app data dir not found".to_string())?;
-    if let Err(err) = std::fs::create_dir_all(&data_dir) {
-        log::warn!("Failed to create app data dir: {}", err);
+    let data_path = resolve_env_db_path().unwrap_or(default_app_data_db_path(app)?);
+    if let Some(parent) = data_path.parent() {
+        if let Err(err) = std::fs::create_dir_all(parent) {
+            log::warn!("Failed to create db dir {}: {}", parent.display(), err);
+        }
     }
-    data_dir.push("codexmanager.db");
-    maybe_migrate_legacy_db(&data_dir);
-    Ok(data_dir)
+    maybe_migrate_legacy_db(&data_path);
+    Ok(data_path)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        profile_default_service_addr, should_seed_profile_service_addr, QA_DEFAULT_SERVICE_ADDR,
+        profile_default_service_addr, resolve_path_with_base, resolve_runtime_rpc_token_path,
+        should_seed_profile_service_addr, ENV_RPC_TOKEN_FILE, QA_DEFAULT_SERVICE_ADDR,
     };
+    use std::path::{Path, PathBuf};
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let previous = std::env::var(key).ok();
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = self.previous.as_deref() {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
 
     #[test]
     fn profile_default_service_addr_is_only_defined_for_qa_profile() {
@@ -132,5 +207,23 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn resolve_path_with_base_uses_base_for_relative_paths() {
+        let resolved =
+            resolve_path_with_base("./data/codexmanager.db", Path::new("D:/apps/CodexManager"));
+        assert_eq!(
+            resolved,
+            PathBuf::from("D:/apps/CodexManager").join("./data/codexmanager.db")
+        );
+    }
+
+    #[test]
+    fn runtime_rpc_token_path_prefers_env_relative_to_exe_dir() {
+        let _guard = EnvGuard::set(ENV_RPC_TOKEN_FILE, Some("./data/custom.rpc-token"));
+        let db_path = PathBuf::from("C:/Users/test/AppData/Roaming/com.codexmanager.desktop/codexmanager.db");
+        let expected = super::exe_dir().join("./data/custom.rpc-token");
+        assert_eq!(resolve_runtime_rpc_token_path(&db_path), expected);
     }
 }

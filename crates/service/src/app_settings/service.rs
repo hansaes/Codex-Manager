@@ -65,9 +65,11 @@ fn current_env_service_bind_mode() -> Option<String> {
 }
 
 pub fn current_service_bind_mode() -> String {
-    get_persisted_app_setting(SERVICE_BIND_MODE_SETTING_KEY)
-        .map(|value| normalize_service_bind_mode(Some(&value)).to_string())
-        .or_else(current_env_service_bind_mode)
+    current_env_service_bind_mode()
+        .or_else(|| {
+            get_persisted_app_setting(SERVICE_BIND_MODE_SETTING_KEY)
+                .map(|value| normalize_service_bind_mode(Some(&value)).to_string())
+        })
         .unwrap_or_else(|| SERVICE_BIND_MODE_LOOPBACK.to_string())
 }
 
@@ -130,9 +132,11 @@ pub fn listener_bind_addr(addr: &str) -> String {
 }
 
 pub fn current_saved_service_addr() -> String {
-    get_persisted_app_setting(APP_SETTING_SERVICE_ADDR_KEY)
-        .and_then(|value| normalize_saved_service_addr(Some(&value)).ok())
-        .or_else(current_env_service_addr)
+    current_env_service_addr()
+        .or_else(|| {
+            get_persisted_app_setting(APP_SETTING_SERVICE_ADDR_KEY)
+                .and_then(|value| normalize_saved_service_addr(Some(&value)).ok())
+        })
         .unwrap_or_else(|| DEFAULT_ADDR.to_string())
 }
 
