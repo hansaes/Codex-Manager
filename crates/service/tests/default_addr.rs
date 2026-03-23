@@ -62,10 +62,7 @@ fn default_web_addr_is_localhost() {
 
 #[test]
 fn default_web_bind_addr_is_all_interfaces() {
-    assert_eq!(
-        codexmanager_service::DEFAULT_WEB_BIND_ADDR,
-        "0.0.0.0:48761"
-    );
+    assert_eq!(codexmanager_service::DEFAULT_WEB_BIND_ADDR, "0.0.0.0:48761");
 }
 
 #[test]

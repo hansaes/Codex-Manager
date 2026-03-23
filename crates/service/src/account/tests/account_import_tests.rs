@@ -203,12 +203,10 @@ fn import_single_item_reuses_existing_login_account_by_scope_identity() {
     assert_eq!(accounts.len(), 1);
     assert_eq!(accounts[0].id, existing_id);
     assert_eq!(accounts[0].group_name, None);
-    assert!(
-        storage
-            .find_account_metadata(&accounts[0].id)
-            .expect("find metadata")
-            .is_none()
-    );
+    assert!(storage
+        .find_account_metadata(&accounts[0].id)
+        .expect("find metadata")
+        .is_none());
 
     let token = storage
         .find_token_by_account_id(&accounts[0].id)
@@ -293,9 +291,10 @@ fn import_account_auth_json_keeps_valid_items_when_one_content_is_invalid() {
     assert_eq!(result.created, 1);
     assert_eq!(result.updated, 0);
     assert_eq!(result.failed, 1);
-    assert!(result.errors.iter().any(|item| {
-        item.message.contains("invalid JSON object stream")
-    }));
+    assert!(result
+        .errors
+        .iter()
+        .any(|item| { item.message.contains("invalid JSON object stream") }));
 
     let storage = Storage::open(&db_path).expect("reopen storage");
     let accounts = storage.list_accounts().expect("list accounts");

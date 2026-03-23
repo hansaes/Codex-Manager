@@ -200,7 +200,9 @@ fn storage_account_metadata_roundtrip_and_delete_cleanup() {
     assert_eq!(metadata.note.as_deref(), Some("主账号"));
     assert_eq!(metadata.tags.as_deref(), Some("高频,团队A"));
 
-    storage.delete_account("acc-meta-1").expect("delete account");
+    storage
+        .delete_account("acc-meta-1")
+        .expect("delete account");
     assert!(storage
         .find_account_metadata("acc-meta-1")
         .expect("find metadata after delete")

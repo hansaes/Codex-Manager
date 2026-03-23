@@ -49,7 +49,8 @@ pub(crate) fn resolve_account_plan(
         return Some(plan);
     }
 
-    let usage_plan = snapshot.and_then(|value| extract_plan_type_from_credits_json(value.credits_json.as_deref()));
+    let usage_plan = snapshot
+        .and_then(|value| extract_plan_type_from_credits_json(value.credits_json.as_deref()));
     if let Some(plan) = usage_plan.as_deref().and_then(normalize_plan_type) {
         return Some(plan);
     }
@@ -64,7 +65,9 @@ pub(crate) fn resolve_account_plan(
     None
 }
 
-pub(crate) fn extract_plan_type_from_credits_json(raw_credits_json: Option<&str>) -> Option<String> {
+pub(crate) fn extract_plan_type_from_credits_json(
+    raw_credits_json: Option<&str>,
+) -> Option<String> {
     let Some(raw_credits_json) = raw_credits_json else {
         return None;
     };
@@ -156,9 +159,7 @@ fn normalize_plan_type(value: &str) -> Option<ResolvedAccountPlan> {
     let normalized = trimmed.to_ascii_lowercase();
     let known = if normalized.contains("free") {
         Some("free")
-    } else if normalized == "go"
-        || normalized.ends_with("_go")
-        || normalized.contains("chatgpt_go")
+    } else if normalized == "go" || normalized.ends_with("_go") || normalized.contains("chatgpt_go")
     {
         Some("go")
     } else if normalized.contains("plus") {
@@ -197,9 +198,8 @@ fn normalize_plan_type(value: &str) -> Option<ResolvedAccountPlan> {
 mod tests {
     use super::{
         extract_plan_type_from_credits_json, extract_plan_type_from_id_token,
-        is_free_or_single_window_account,
-        is_free_plan_from_credits_json, is_free_plan_type, is_single_window_long_usage_snapshot,
-        normalize_plan_type, resolve_account_plan,
+        is_free_or_single_window_account, is_free_plan_from_credits_json, is_free_plan_type,
+        is_single_window_long_usage_snapshot, normalize_plan_type, resolve_account_plan,
     };
     use codexmanager_core::storage::{now_ts, Account, Storage, Token, UsageSnapshotRecord};
 
@@ -355,18 +355,15 @@ mod tests {
     #[test]
     fn normalize_plan_type_maps_known_variants() {
         assert_eq!(
-            normalize_plan_type("ChatGPT_Free")
-                .map(|plan| (plan.normalized, plan.raw)),
+            normalize_plan_type("ChatGPT_Free").map(|plan| (plan.normalized, plan.raw)),
             Some(("free".to_string(), Some("ChatGPT_Free".to_string())))
         );
         assert_eq!(
-            normalize_plan_type("education")
-                .map(|plan| (plan.normalized, plan.raw)),
+            normalize_plan_type("education").map(|plan| (plan.normalized, plan.raw)),
             Some(("edu".to_string(), Some("education".to_string())))
         );
         assert_eq!(
-            normalize_plan_type("pro")
-                .map(|plan| (plan.normalized, plan.raw)),
+            normalize_plan_type("pro").map(|plan| (plan.normalized, plan.raw)),
             Some(("pro".to_string(), None))
         );
     }

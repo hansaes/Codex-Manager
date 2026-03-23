@@ -3,8 +3,8 @@ use std::path::Path;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-mod accounts;
 mod account_metadata;
+mod accounts;
 mod api_keys;
 mod conversation_bindings;
 mod events;

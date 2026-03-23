@@ -880,9 +880,7 @@ fn app_settings_set_service_listen_mode_overrides_loopback_env_snapshot() {
         .expect("save service listen mode");
 
         assert_eq!(
-            snapshot
-                .get("serviceAddr")
-                .and_then(|value| value.as_str()),
+            snapshot.get("serviceAddr").and_then(|value| value.as_str()),
             Some("localhost:49760")
         );
         assert_eq!(

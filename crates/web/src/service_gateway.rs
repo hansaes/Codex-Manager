@@ -161,16 +161,19 @@ pub(super) async fn ensure_service_running(
             match service_rpc_probe(service_addr, rpc_token).await {
                 Ok(()) => return None,
                 Err(err) => {
-                    last_probe_error =
-                        Some(format!("service became reachable but startup handshake failed: {err}"));
+                    last_probe_error = Some(format!(
+                        "service became reachable but startup handshake failed: {err}"
+                    ));
                 }
             }
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    Some(last_probe_error.unwrap_or_else(|| {
-        format!("service still not reachable at {service_addr} after spawn")
-    }))
+    Some(
+        last_probe_error.unwrap_or_else(|| {
+            format!("service still not reachable at {service_addr} after spawn")
+        }),
+    )
 }
 
 pub(super) async fn rpc_proxy(

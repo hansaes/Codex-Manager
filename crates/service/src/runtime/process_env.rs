@@ -268,6 +268,9 @@ mod tests {
 
         let resolved = rpc_token_file_path();
 
-        assert_eq!(resolved, exe_dir().join("data").join("codexmanager.rpc-token"));
+        assert_eq!(
+            resolved,
+            exe_dir().join("data").join("codexmanager.rpc-token")
+        );
     }
 }

@@ -479,10 +479,7 @@ mod tests {
 
     #[test]
     fn normalize_connect_addr_maps_all_interfaces_to_localhost() {
-        assert_eq!(
-            normalize_connect_addr("0.0.0.0:48760"),
-            "localhost:48760"
-        );
+        assert_eq!(normalize_connect_addr("0.0.0.0:48760"), "localhost:48760");
         assert_eq!(normalize_connect_addr("[::]:48760"), "localhost:48760");
         assert_eq!(
             normalize_connect_addr("192.168.1.8:48760"),

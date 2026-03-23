@@ -459,8 +459,16 @@ fn import_single_item(
     let existing_metadata = storage
         .find_account_metadata(&account_id)
         .map_err(|e| e.to_string())?;
-    let merged_note = note.or_else(|| existing_metadata.as_ref().and_then(|value| value.note.clone()));
-    let merged_tags = tags.or_else(|| existing_metadata.as_ref().and_then(|value| value.tags.clone()));
+    let merged_note = note.or_else(|| {
+        existing_metadata
+            .as_ref()
+            .and_then(|value| value.note.clone())
+    });
+    let merged_tags = tags.or_else(|| {
+        existing_metadata
+            .as_ref()
+            .and_then(|value| value.tags.clone())
+    });
     storage
         .upsert_account_metadata(&account_id, merged_note.as_deref(), merged_tags.as_deref())
         .map_err(|e| e.to_string())?;

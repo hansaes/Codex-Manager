@@ -201,7 +201,10 @@ impl Storage {
 
     pub fn delete_account(&mut self, account_id: &str) -> Result<()> {
         let tx = self.conn.transaction()?;
-        tx.execute("DELETE FROM account_metadata WHERE account_id = ?1", [account_id])?;
+        tx.execute(
+            "DELETE FROM account_metadata WHERE account_id = ?1",
+            [account_id],
+        )?;
         tx.execute("DELETE FROM tokens WHERE account_id = ?1", [account_id])?;
         tx.execute(
             "DELETE FROM usage_snapshots WHERE account_id = ?1",

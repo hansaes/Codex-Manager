@@ -322,7 +322,10 @@ fn rpc_account_list_supports_pagination() {
         items[0].get("status").and_then(|value| value.as_str()),
         Some("active")
     );
-    assert!(items[0].get("planType").is_some(), "missing planType field: {result}");
+    assert!(
+        items[0].get("planType").is_some(),
+        "missing planType field: {result}"
+    );
 }
 
 #[test]
@@ -740,7 +743,10 @@ fn rpc_account_delete_unavailable_free_removes_refresh_invalid_free_accounts() {
     assert_eq!(deleted_ids[0].as_str(), Some("acc-free-invalid"));
 
     let remaining = storage.list_accounts().expect("list accounts");
-    let remaining_ids = remaining.into_iter().map(|item| item.id).collect::<Vec<_>>();
+    let remaining_ids = remaining
+        .into_iter()
+        .map(|item| item.id)
+        .collect::<Vec<_>>();
     assert_eq!(remaining_ids, vec!["acc-pro-invalid"]);
 }
 

@@ -3,9 +3,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 use crate::account_availability::{evaluate_snapshot, Availability};
-use crate::account_plan::{
-    resolve_account_plan, ResolvedAccountPlan,
-};
+use crate::account_plan::{resolve_account_plan, ResolvedAccountPlan};
 use crate::storage_helpers::open_storage;
 
 #[derive(Debug, Serialize)]
