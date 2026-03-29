@@ -74,6 +74,7 @@ mod tests {
             id: 1.into(),
             method: method.to_string(),
             params: Some(params),
+            trace: None,
         }
     }
 

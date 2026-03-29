@@ -50,6 +50,7 @@ fn rpc_call_on_socket(
         id: 1.into(),
         method: method.to_string(),
         params,
+        trace: None,
     };
     let json = serde_json::to_string(&req).map_err(|e| e.to_string())?;
     let rpc_token = codexmanager_service::rpc_auth_token();

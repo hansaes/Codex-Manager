@@ -1,6 +1,8 @@
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response as AxumResponse};
-use codexmanager_core::rpc::types::{JsonRpcRequest, JsonRpcResponse};
+use codexmanager_core::rpc::types::{
+    JsonRpcError, JsonRpcErrorObject, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse,
+};
 use std::panic::AssertUnwindSafe;
 use tiny_http::Request;
 use tiny_http::Response;
@@ -52,16 +54,28 @@ fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
     "unknown panic payload".to_string()
 }
 
+fn jsonrpc_message_success(message: &JsonRpcMessage) -> bool {
+    match message {
+        JsonRpcMessage::Response(resp) => !rpc_response_failed(resp),
+        JsonRpcMessage::Notification(_) => true,
+        JsonRpcMessage::Error(_) => false,
+        JsonRpcMessage::Request(_) => true,
+    }
+}
+
 fn handle_parsed_rpc_request<F>(req: JsonRpcRequest, handler: F) -> (String, bool)
 where
-    F: FnOnce(JsonRpcRequest) -> JsonRpcResponse,
+    F: FnOnce(JsonRpcRequest) -> JsonRpcMessage,
 {
     let request_id = req.id.clone();
     let request_method = req.method.clone();
     match std::panic::catch_unwind(AssertUnwindSafe(|| handler(req))) {
-        Ok(resp) => {
-            let success = !rpc_response_failed(&resp);
-            let json = serde_json::to_string(&resp).unwrap_or_else(|_| "{}".to_string());
+        Ok(message) => {
+            let success = jsonrpc_message_success(&message);
+            let json = match message {
+                JsonRpcMessage::Notification(_) => String::new(),
+                _ => serde_json::to_string(&message).unwrap_or_else(|_| "{}".to_string()),
+            };
             (json, success)
         }
         Err(payload) => {
@@ -72,13 +86,15 @@ where
                 request_id,
                 panic_message
             );
-            let resp = JsonRpcResponse {
+            let message = JsonRpcMessage::Error(JsonRpcError {
                 id: request_id,
-                result: crate::error_codes::rpc_error_payload(format!(
-                    "internal_error: {panic_message}"
-                )),
-            };
-            let json = serde_json::to_string(&resp).unwrap_or_else(|_| "{}".to_string());
+                error: JsonRpcErrorObject {
+                    code: -32603,
+                    data: None,
+                    message: format!("internal_error: {panic_message}"),
+                },
+            });
+            let json = serde_json::to_string(&message).unwrap_or_else(|_| "{}".to_string());
             (json, false)
         }
     }
@@ -89,11 +105,17 @@ fn handle_rpc_body(body: &str) -> (u16, String, bool) {
         return (400, "{}".to_string(), false);
     }
 
-    let req: JsonRpcRequest = match serde_json::from_str(body) {
+    let msg: JsonRpcMessage = match serde_json::from_str(body) {
         Ok(v) => v,
         Err(_) => return (400, "{}".to_string(), false),
     };
-    let (json, success) = handle_parsed_rpc_request(req, crate::handle_request);
+    let (json, success) = match msg {
+        JsonRpcMessage::Request(req) => handle_parsed_rpc_request(req, crate::handle_request),
+        JsonRpcMessage::Notification(_) => (String::new(), true),
+        JsonRpcMessage::Response(_) | JsonRpcMessage::Error(_) => {
+            return (400, "{}".to_string(), false)
+        }
+    };
     (200, json, success)
 }
 
@@ -235,7 +257,9 @@ pub fn handle_rpc(mut request: Request) {
 #[cfg(test)]
 mod tests {
     use super::handle_parsed_rpc_request;
-    use codexmanager_core::rpc::types::{JsonRpcRequest, JsonRpcResponse};
+    use codexmanager_core::rpc::types::{
+        JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
+    };
 
     #[test]
     fn panicking_rpc_handler_returns_structured_json_error() {
@@ -243,6 +267,7 @@ mod tests {
             id: 7.into(),
             method: "account/usage/refresh".to_string(),
             params: None,
+            trace: None,
     };
 
         let (body, success) = handle_parsed_rpc_request(request, |_req| {
@@ -255,17 +280,17 @@ mod tests {
         assert_eq!(parsed.get("id").and_then(|value| value.as_u64()), Some(7));
         assert_eq!(
             parsed
-                .get("result")
-                .and_then(|value| value.get("error"))
+                .get("error")
+                .and_then(|value| value.get("message"))
                 .and_then(|value| value.as_str()),
             Some("internal_error: usage refresh boom")
         );
         assert_eq!(
             parsed
-                .get("result")
-                .and_then(|value| value.get("errorCode"))
-                .and_then(|value| value.as_str()),
-            Some("unknown_error")
+                .get("error")
+                .and_then(|value| value.get("code"))
+                .and_then(|value| value.as_i64()),
+            Some(-32603)
         );
     }
 
@@ -275,11 +300,14 @@ mod tests {
             id: 9.into(),
             method: "noop".to_string(),
             params: None,
+            trace: None,
     };
 
-        let (body, success) = handle_parsed_rpc_request(request, |req| JsonRpcResponse {
-            id: req.id,
-            result: serde_json::json!({ "ok": true }),
+        let (body, success) = handle_parsed_rpc_request(request, |req| {
+            JsonRpcMessage::Response(JsonRpcResponse {
+                id: req.id,
+                result: serde_json::json!({ "ok": true }),
+            })
         });
 
         assert!(success);
@@ -292,5 +320,25 @@ mod tests {
                 .and_then(|value| value.as_bool()),
             Some(true)
         );
+    }
+
+    #[test]
+    fn notification_handler_returns_empty_body() {
+        let request = JsonRpcRequest {
+            id: 11.into(),
+            method: "noop".to_string(),
+            params: None,
+            trace: None,
+        };
+
+        let (body, success) = handle_parsed_rpc_request(request, |_req| {
+            JsonRpcMessage::Notification(JsonRpcNotification {
+                method: "initialized".to_string(),
+                params: None,
+            })
+        });
+
+        assert!(success);
+        assert!(body.is_empty());
     }
 }

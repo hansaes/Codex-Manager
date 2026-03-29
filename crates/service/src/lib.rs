@@ -1,4 +1,4 @@
-use codexmanager_core::rpc::types::{JsonRpcRequest, JsonRpcResponse};
+use codexmanager_core::rpc::types::{JsonRpcMessage, JsonRpcRequest};
 
 mod account;
 mod account_identity;
@@ -118,7 +118,7 @@ pub(crate) fn test_env_guard() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-pub(crate) fn handle_request(req: JsonRpcRequest) -> JsonRpcResponse {
+pub(crate) fn handle_request(req: JsonRpcRequest) -> JsonRpcMessage {
     rpc_dispatch::handle_request(req)
 }
 

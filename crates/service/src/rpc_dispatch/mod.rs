@@ -1,4 +1,7 @@
-use codexmanager_core::rpc::types::{InitializeResult, JsonRpcRequest, JsonRpcResponse};
+use codexmanager_core::rpc::types::{
+    InitializeResult, JsonRpcError, JsonRpcErrorObject, JsonRpcMessage, JsonRpcRequest,
+    JsonRpcResponse,
+};
 use codexmanager_core::storage::{now_ts, Event};
 use serde::Serialize;
 use serde_json::Value;
@@ -69,7 +72,7 @@ pub(super) fn value_or_error<T: Serialize>(result: Result<T, String>) -> Value {
     }
 }
 
-pub(crate) fn handle_request(req: JsonRpcRequest) -> JsonRpcResponse {
+pub(crate) fn handle_request(req: JsonRpcRequest) -> JsonRpcMessage {
     if req.method == "initialize" {
         let _ = storage_helpers::initialize_storage();
         if let Some(storage) = storage_helpers::open_storage() {
@@ -87,39 +90,43 @@ pub(crate) fn handle_request(req: JsonRpcRequest) -> JsonRpcResponse {
             platform_family: std::env::consts::FAMILY.to_string(),
             platform_os: std::env::consts::OS.to_string(),
         };
-        return response(&req, as_json(result));
+        return JsonRpcMessage::Response(response(&req, as_json(result)));
     }
 
     if let Some(resp) = account::try_handle(&req) {
-        return resp;
+        return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = aggregate_api::try_handle(&req) {
-        return resp;
+        return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = apikey::try_handle(&req) {
-        return resp;
+        return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = app_settings::try_handle(&req) {
-        return resp;
+        return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = usage::try_handle(&req) {
-        return resp;
+        return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = service_config::try_handle(&req) {
-        return resp;
+        return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = startup::try_handle(&req) {
-        return resp;
+        return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = gateway::try_handle(&req) {
-        return resp;
+        return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = requestlog::try_handle(&req) {
-        return resp;
+        return JsonRpcMessage::Response(resp);
     }
 
-    response(
-        &req,
-        crate::error_codes::rpc_error_payload("unknown_method".to_string()),
-    )
+    JsonRpcMessage::Error(JsonRpcError {
+        id: req.id,
+        error: JsonRpcErrorObject {
+            code: -32601,
+            data: None,
+            message: "unknown_method".to_string(),
+        },
+    })
 }

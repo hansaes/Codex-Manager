@@ -303,6 +303,7 @@ fn rpc_initialize_roundtrip() {
         id: 1.into(),
         method: "initialize".to_string(),
         params: None,
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -323,6 +324,7 @@ fn rpc_account_list_empty_uses_default_pagination() {
         id: 2.into(),
         method: "account/list".to_string(),
         params: None,
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -354,6 +356,7 @@ fn rpc_account_list_supports_pagination() {
         id: 3.into(),
         method: "account/list".to_string(),
         params: Some(serde_json::json!({"page": 2, "pageSize": 3})),
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -433,6 +436,7 @@ fn rpc_account_list_includes_account_plan_type() {
         id: 76.into(),
         method: "account/list".to_string(),
         params: None,
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -477,6 +481,7 @@ fn rpc_account_update_profile_updates_label_note_tags_and_sort() {
             "tags": "高频,团队A",
             "sort": 7
         })),
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -511,6 +516,7 @@ fn rpc_app_settings_set_invalid_payload_returns_structured_error() {
         id: 30.into(),
         method: "appSettings/set".to_string(),
         params: Some(serde_json::json!("invalid-payload")),
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -550,6 +556,7 @@ fn rpc_app_settings_can_roundtrip_free_account_max_model() {
         params: Some(serde_json::json!({
             "freeAccountMaxModel": "gpt-5.3-codex"
         })),
+        trace: None,
     };
     let set_json = serde_json::to_string(&set_req).expect("serialize");
     let set_resp = post_rpc(&set_server.addr, &set_json);
@@ -566,6 +573,7 @@ fn rpc_app_settings_can_roundtrip_free_account_max_model() {
         id: 32.into(),
         method: "appSettings/get".to_string(),
         params: None,
+        trace: None,
     };
     let get_json = serde_json::to_string(&get_req).expect("serialize");
     let get_resp = post_rpc(&get_server.addr, &get_json);
@@ -633,6 +641,7 @@ fn rpc_account_list_active_filter_uses_backend_filtered_pagination() {
             "filter": "active",
             "groupFilter": "group-a"
         })),
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -671,6 +680,7 @@ fn rpc_account_delete_many_deletes_requested_accounts() {
         params: Some(serde_json::json!({
             "accountIds": ["acc-1", "acc-3", "missing"]
         })),
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -792,6 +802,7 @@ fn rpc_account_delete_unavailable_free_removes_refresh_invalid_free_accounts() {
         id: 77.into(),
         method: "account/deleteUnavailableFree".to_string(),
         params: None,
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize delete");
     let v = post_rpc(&server.addr, &json);
@@ -829,6 +840,7 @@ fn rpc_account_update_status_toggles_manual_enable_disable() {
             "accountId": "acc-0",
             "status": "disabled"
         })),
+        trace: None,
     };
     let disable_json = serde_json::to_string(&disable_req).expect("serialize");
     let disable_resp = post_rpc(&disable_server.addr, &disable_json);
@@ -853,6 +865,7 @@ fn rpc_account_update_status_toggles_manual_enable_disable() {
             "accountId": "acc-0",
             "status": "active"
         })),
+        trace: None,
     };
     let enable_json = serde_json::to_string(&enable_req).expect("serialize");
     let enable_resp = post_rpc(&enable_server.addr, &enable_json);
@@ -878,6 +891,7 @@ fn rpc_login_start_returns_url() {
         id: 4.into(),
         method: "account/login/start".to_string(),
         params: Some(serde_json::json!({"type": "chatgpt", "openBrowser": false})),
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -898,6 +912,7 @@ fn rpc_login_start_returns_api_key_variant() {
         id: 44.into(),
         method: "account/login/start".to_string(),
         params: Some(serde_json::json!({"type": "apiKey", "openBrowser": false})),
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -916,6 +931,7 @@ fn rpc_login_start_chatgpt_device_code_returns_user_code() {
         id: 4.into(),
         method: "account/login/start".to_string(),
         params: Some(serde_json::json!({"type": "chatgptDeviceCode", "openBrowser": false})),
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -973,6 +989,7 @@ fn rpc_login_start_chatgpt_device_code_returns_user_code() {
         id: 5.into(),
         method: "account/login/status".to_string(),
         params: Some(serde_json::json!({ "loginId": login_id })),
+        trace: None,
     };
     let status_json = serde_json::to_string(&status_req).expect("serialize status");
     let status_resp = post_rpc(&status_server.addr, &status_json);
@@ -1009,6 +1026,7 @@ fn rpc_chatgpt_auth_tokens_login_read_logout_roundtrip() {
             "chatgptAccountId": "org-embedded",
             "chatgptPlanType": "pro"
         })),
+        trace: None,
     };
     let login_json = serde_json::to_string(&login_req).expect("serialize login");
     let login_server = codexmanager_service::start_one_shot_server().expect("start server");
@@ -1023,6 +1041,7 @@ fn rpc_chatgpt_auth_tokens_login_read_logout_roundtrip() {
         id: 42.into(),
         method: "account/read".to_string(),
         params: Some(serde_json::json!({ "refreshToken": false })),
+        trace: None,
     };
     let read_json = serde_json::to_string(&read_req).expect("serialize read");
     let read_server = codexmanager_service::start_one_shot_server().expect("start server");
@@ -1049,6 +1068,7 @@ fn rpc_chatgpt_auth_tokens_login_read_logout_roundtrip() {
         id: 43.into(),
         method: "account/logout".to_string(),
         params: None,
+        trace: None,
     };
     let logout_json = serde_json::to_string(&logout_req).expect("serialize logout");
     let logout_server = codexmanager_service::start_one_shot_server().expect("start server");
@@ -1107,6 +1127,7 @@ fn rpc_chatgpt_auth_tokens_refresh_updates_access_token() {
             "refreshToken": "refresh-token-old",
             "chatgptAccountId": "org-refresh"
         })),
+        trace: None,
     };
     let login_json = serde_json::to_string(&login_req).expect("serialize login");
     let login_server = codexmanager_service::start_one_shot_server().expect("start server");
@@ -1124,6 +1145,7 @@ fn rpc_chatgpt_auth_tokens_refresh_updates_access_token() {
             "reason": "unauthorized",
             "previousAccountId": "org-refresh"
         })),
+        trace: None,
     };
     let refresh_json = serde_json::to_string(&refresh_req).expect("serialize refresh");
     let refresh_server = codexmanager_service::start_one_shot_server().expect("start server");
@@ -1175,6 +1197,7 @@ fn rpc_usage_read_empty() {
         id: 5.into(),
         method: "account/usage/read".to_string(),
         params: None,
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -1191,6 +1214,7 @@ fn rpc_login_status_pending() {
         id: 6.into(),
         method: "account/login/status".to_string(),
         params: Some(serde_json::json!({"loginId": "login-1"})),
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -1207,6 +1231,7 @@ fn rpc_usage_list_empty() {
         id: 7.into(),
         method: "account/usage/list".to_string(),
         params: None,
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -1289,6 +1314,7 @@ fn rpc_usage_aggregate_returns_backend_summary() {
         id: 71.into(),
         method: "account/usage/aggregate".to_string(),
         params: None,
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
@@ -1389,6 +1415,7 @@ fn rpc_requestlog_list_and_summary_support_pagination() {
             "pageSize": 1,
             "statusFilter": "5xx"
         })),
+        trace: None,
     };
     let list_json = serde_json::to_string(&list_req).expect("serialize requestlog list");
     let list_resp = post_rpc(&server.addr, &list_json);
@@ -1435,6 +1462,7 @@ fn rpc_requestlog_list_and_summary_support_pagination() {
         params: Some(serde_json::json!({
             "statusFilter": "5xx"
         })),
+        trace: None,
     };
     let summary_json = serde_json::to_string(&summary_req).expect("serialize requestlog summary");
     let summary_resp = post_rpc(&summary_server.addr, &summary_json);
@@ -1504,6 +1532,7 @@ fn rpc_apikey_update_model_updates_name_with_chinese() {
             "modelSlug": "gpt-5.4",
             "reasoningEffort": "medium"
         })),
+        trace: None,
     };
     let update_json = serde_json::to_string(&update_req).expect("serialize apikey update");
     let update_resp = post_rpc(&server.addr, &update_json);
@@ -1520,6 +1549,7 @@ fn rpc_apikey_update_model_updates_name_with_chinese() {
         id: 75.into(),
         method: "apikey/list".to_string(),
         params: None,
+        trace: None,
     };
     let list_json = serde_json::to_string(&list_req).expect("serialize apikey list");
     let list_resp = post_rpc(&list_server.addr, &list_json);
@@ -1553,6 +1583,7 @@ fn rpc_rejects_missing_token() {
         id: 8.into(),
         method: "initialize".to_string(),
         params: None,
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let (status, _) = post_rpc_raw(&server.addr, &json, &[("Content-Type", "application/json")]);
@@ -1568,6 +1599,7 @@ fn rpc_rejects_cross_site_origin() {
         id: 9.into(),
         method: "initialize".to_string(),
         params: None,
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let token = codexmanager_service::rpc_auth_token().to_string();
@@ -1593,6 +1625,7 @@ fn rpc_accepts_loopback_origin() {
         id: 10.into(),
         method: "initialize".to_string(),
         params: None,
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let token = codexmanager_service::rpc_auth_token().to_string();

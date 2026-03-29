@@ -38,6 +38,7 @@ fn e2e_initialize_writes_event() {
         id: 1.into(),
         method: "initialize".to_string(),
         params: None,
+        trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
     let buf = post_rpc(&server.addr, &json);

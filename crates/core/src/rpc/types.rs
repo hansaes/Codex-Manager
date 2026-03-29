@@ -62,6 +62,8 @@ pub struct JsonRpcRequest {
     pub method: String,
     #[serde(default)]
     pub params: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
