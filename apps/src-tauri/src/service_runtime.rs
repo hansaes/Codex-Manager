@@ -9,20 +9,26 @@ use crate::rpc_client::rpc_call;
 const ENV_SERVICE_ADDR: &str = "CODEXMANAGER_SERVICE_ADDR";
 
 pub(super) fn validate_initialize_response(v: &serde_json::Value) -> Result<(), String> {
-    // 连接探测必须确认对端确实是 codexmanager-service，避免端口被其他服务占用时误判“已连接”。
-    let server_name = v
+    // 连接探测必须确认对端确实是 CodexManager 服务，避免端口被其他服务占用时误判“已连接”。
+    let result = v
         .get("result")
-        .and_then(|r| r.get("serverName").or_else(|| r.get("server_name")))
+        .and_then(|r| r.as_object());
+    let user_agent = result
+        .and_then(|r| r.get("userAgent").or_else(|| r.get("user_agent")))
         .and_then(|s| s.as_str())
         .unwrap_or("");
-    if server_name == "codexmanager-service" {
+    let codex_home = result
+        .and_then(|r| r.get("codexHome").or_else(|| r.get("codex_home")))
+        .and_then(|s| s.as_str())
+        .unwrap_or("");
+    if user_agent.contains("codex_cli_rs/") && !codex_home.is_empty() {
         return Ok(());
     }
 
-    let hint = if server_name.is_empty() {
-        "missing serverName"
+    let hint = if user_agent.is_empty() {
+        "missing userAgent"
     } else {
-        server_name
+        user_agent
     };
     Err(format!(
         "Port is in use or unexpected service responded ({hint})"

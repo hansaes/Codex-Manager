@@ -78,7 +78,6 @@ pub(crate) fn handle_request(req: JsonRpcRequest) -> JsonRpcResponse {
             });
         }
         let result = InitializeResult {
-            server_name: "codexmanager-service".to_string(),
             version: codexmanager_core::core_version().to_string(),
             user_agent: crate::gateway::current_codex_user_agent(),
             codex_home: crate::process_env::db_dir().to_string_lossy().to_string(),

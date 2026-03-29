@@ -307,10 +307,11 @@ fn rpc_initialize_roundtrip() {
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
     let result = v.get("result").expect("result");
-    assert_eq!(result.get("serverName").unwrap(), "codexmanager-service");
+    assert!(result.get("serverName").is_none());
     assert!(result.get("codexHome").and_then(|value| value.as_str()).is_some());
     assert!(result.get("platformFamily").and_then(|value| value.as_str()).is_some());
     assert!(result.get("platformOs").and_then(|value| value.as_str()).is_some());
+    assert!(result.get("userAgent").and_then(|value| value.as_str()).is_some());
 }
 
 #[test]
@@ -889,7 +890,7 @@ fn rpc_login_start_returns_url() {
 }
 
 #[test]
-fn rpc_login_start_rejects_api_key_login() {
+fn rpc_login_start_returns_api_key_variant() {
     let _ctx = RpcTestContext::new("rpc-login-api-key");
     let server = codexmanager_service::start_one_shot_server().expect("start server");
 
@@ -901,11 +902,7 @@ fn rpc_login_start_rejects_api_key_login() {
     let json = serde_json::to_string(&req).expect("serialize");
     let v = post_rpc(&server.addr, &json);
     let result = v.get("result").expect("result");
-    let message = result.get("error").and_then(|value| value.as_str()).unwrap_or("");
-    assert!(
-        message.contains("apiKey login is not supported"),
-        "unexpected error payload: {result}"
-    );
+    assert_eq!(result.get("type").and_then(|value| value.as_str()), Some("apiKey"));
 }
 
 #[test]

@@ -39,13 +39,6 @@ export function normalizeServiceAddr(raw: string): string {
 
 export function readInitializeResult(payload: unknown): ServiceInitializationResult {
   const source = asRecord(payload);
-  const serverName =
-    typeof source.serverName === "string"
-      ? source.serverName
-      : typeof source.server_name === "string"
-        ? source.server_name
-        : "";
-  const version = typeof source.version === "string" ? source.version : "";
   const userAgent =
     typeof source.userAgent === "string"
       ? source.userAgent
@@ -70,11 +63,12 @@ export function readInitializeResult(payload: unknown): ServiceInitializationRes
       : typeof source.platform_os === "string"
         ? source.platform_os
         : "";
-  return { serverName, version, userAgent, codexHome, platformFamily, platformOs };
+  return { userAgent, codexHome, platformFamily, platformOs };
 }
 
 export function isExpectedInitializeResult(payload: unknown): boolean {
-  return readInitializeResult(payload).serverName === "codexmanager-service";
+  const result = readInitializeResult(payload);
+  return result.userAgent.includes("codex_cli_rs/") && result.codexHome.length > 0;
 }
 
 export function formatServiceError(error: unknown): string {
@@ -105,7 +99,7 @@ export function formatServiceError(error: unknown): string {
   if (lower.includes("port is in use") || lower.includes("unexpected service responded")) {
     return `端口已被占用或响应来源不是 CodexManager 服务（${LOOPBACK_PROXY_HINT}）`;
   }
-  if (lower.includes("missing server_name") || lower.includes("missing servername")) {
+  if (lower.includes("missing user_agent") || lower.includes("missing useragent")) {
     return `响应缺少服务标识（疑似非 CodexManager 服务，${LOOPBACK_PROXY_HINT}）`;
   }
   if (

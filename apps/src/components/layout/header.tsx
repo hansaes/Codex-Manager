@@ -72,11 +72,11 @@ export function Header() {
         await serviceClient.start(nextAddr);
         const initResult = await serviceClient.initialize(nextAddr);
         if (!isExpectedInitializeResult(initResult)) {
-          throw new Error("Port is in use or unexpected service responded (missing serverName)");
+          throw new Error("Port is in use or unexpected service responded (invalid initialize response)");
         }
         setServiceStatus({
           connected: true,
-          version: initResult.version,
+          version: "",
           addr: nextAddr,
         });
         toast.success("服务已启动");

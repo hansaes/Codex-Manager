@@ -294,8 +294,6 @@ export interface AppSettings {
 }
 
 export interface ServiceInitializationResult {
-  serverName: string;
-  version: string;
   userAgent: string;
   codexHome: string;
   platformFamily: string;

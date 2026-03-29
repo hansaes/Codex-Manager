@@ -17,7 +17,6 @@ pub struct JsonRpcResponse {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeResult {
-    pub server_name: String,
     pub version: String,
     pub user_agent: String,
     pub codex_home: String,

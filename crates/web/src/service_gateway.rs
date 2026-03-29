@@ -42,12 +42,18 @@ async fn service_rpc_probe(service_addr: &str, rpc_token: &str) -> Result<(), St
         .json::<serde_json::Value>()
         .await
         .map_err(|err| format!("probe response parse failed: {err}"))?;
-    let server_name = payload
+    let result = payload
         .get("result")
-        .and_then(|value| value.get("serverName").or_else(|| value.get("server_name")))
+        .and_then(|value| value.as_object());
+    let user_agent = result
+        .and_then(|value| value.get("userAgent").or_else(|| value.get("user_agent")))
         .and_then(|value| value.as_str())
         .unwrap_or("");
-    if server_name != "codexmanager-service" {
+    let codex_home = result
+        .and_then(|value| value.get("codexHome").or_else(|| value.get("codex_home")))
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    if !user_agent.contains("codex_cli_rs/") || codex_home.is_empty() {
         return Err("unexpected service on target port".to_string());
     }
     Ok(())

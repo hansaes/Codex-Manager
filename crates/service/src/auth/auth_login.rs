@@ -34,7 +34,7 @@ pub(crate) fn login_start(
     let originator = crate::gateway::current_wire_originator();
     let normalized_login_type = login_type.trim();
     if normalized_login_type.eq_ignore_ascii_case("apiKey") {
-        return Err("apiKey login is not supported in this project; use chatgpt auth flows instead.".to_string());
+        return Ok(LoginStartResult::ApiKey {});
     }
     if !is_supported_chatgpt_login_type(normalized_login_type) {
         return Err(format!("unsupported login type: {normalized_login_type}"));

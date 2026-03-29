@@ -90,7 +90,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
       try {
         const initializeResult = await serviceClient.initialize(addr);
         if (!isExpectedInitializeResult(initializeResult)) {
-          throw new Error("Port is in use or unexpected service responded (missing serverName)");
+          throw new Error("Port is in use or unexpected service responded (invalid initialize response)");
         }
         return initializeResult;
       } catch (serviceError: unknown) {
@@ -411,18 +411,17 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        let initializeResult;
         try {
-          initializeResult = await initializeService(addr, 1);
+          await initializeService(addr, 1);
         } catch (initializeError) {
           if (!desktopRuntime) {
             throw initializeError;
           }
-          initializeResult = await startAndInitializeService(addr);
+          await startAndInitializeService(addr);
         }
         await applyConnectedServiceState(
           addr,
-          initializeResult.version,
+          "",
           settings.lowTransparency,
           { blockOnDashboardSnapshot: shouldBlockOnDashboardSnapshot },
         );
@@ -470,10 +469,10 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
       applyAppearancePreset(settings.appearancePreset);
       
       setAppSettings(settings);
-      const initializeResult = await startAndInitializeService(addr);
+      await startAndInitializeService(addr);
       await applyConnectedServiceState(
         addr,
-        initializeResult.version,
+        "",
         settings.lowTransparency,
         {
           blockOnDashboardSnapshot:
