@@ -46,6 +46,39 @@ fn normalize_candidate_order(mut candidates: Vec<AggregateApi>) -> Vec<Aggregate
     candidates
 }
 
+pub(crate) fn apply_gateway_route_strategy_to_aggregate_candidates(
+    candidates: &mut [AggregateApi],
+    key_id: &str,
+    model: Option<&str>,
+    preferred_aggregate_api_id: Option<&str>,
+) {
+    if candidates.len() <= 1 {
+        return;
+    }
+    if crate::gateway::current_route_strategy() != "balanced" {
+        return;
+    }
+
+    let preferred_id = preferred_aggregate_api_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let preserves_head = preferred_id
+        .and_then(|preferred_id| candidates.first().map(|first| (preferred_id, first)))
+        .is_some_and(|(preferred_id, first)| first.id == preferred_id);
+
+    if preserves_head {
+        if candidates.len() > 1 {
+            super::super::super::route_hint::apply_balanced_round_robin(
+                &mut candidates[1..],
+                key_id,
+                model,
+            );
+        }
+    } else {
+        super::super::super::route_hint::apply_balanced_round_robin(candidates, key_id, model);
+    }
+}
+
 fn normalize_provider_type_value(value: &str) -> String {
     let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
     match normalized.as_str() {
@@ -534,6 +567,103 @@ pub(in super::super) fn proxy_aggregate_request(
     );
     respond_error(request, status_code, message.as_str(), Some(trace_id));
     Ok(())
+}
+
+#[cfg(test)]
+mod bridge_tests {
+    use super::*;
+
+    fn candidate(id: &str, sort: i64) -> AggregateApi {
+        AggregateApi {
+            id: id.to_string(),
+            provider_type: AGGREGATE_API_PROVIDER_CODEX.to_string(),
+            supplier_name: None,
+            sort,
+            url: format!("https://{id}.example.com"),
+            status: "active".to_string(),
+            created_at: sort,
+            updated_at: sort,
+            last_test_at: None,
+            last_test_status: None,
+            last_test_error: None,
+        }
+    }
+
+    fn ids(items: &[AggregateApi]) -> Vec<String> {
+        items.iter().map(|item| item.id.clone()).collect()
+    }
+
+    #[test]
+    fn balanced_route_strategy_rotates_aggregate_candidates() {
+        let _guard = crate::test_env_guard();
+        let previous = std::env::var("CODEXMANAGER_ROUTE_STRATEGY").ok();
+        std::env::set_var("CODEXMANAGER_ROUTE_STRATEGY", "balanced");
+        crate::gateway::reload_runtime_config_from_env();
+
+        let mut candidates = vec![candidate("agg-a", 0), candidate("agg-b", 1), candidate("agg-c", 2)];
+        apply_gateway_route_strategy_to_aggregate_candidates(
+            &mut candidates,
+            "gk-aggregate-route-strategy",
+            Some("gpt-5.4-mini"),
+            None,
+        );
+        assert_eq!(ids(&candidates), vec!["agg-a", "agg-b", "agg-c"]);
+
+        let mut second = vec![candidate("agg-a", 0), candidate("agg-b", 1), candidate("agg-c", 2)];
+        apply_gateway_route_strategy_to_aggregate_candidates(
+            &mut second,
+            "gk-aggregate-route-strategy",
+            Some("gpt-5.4-mini"),
+            None,
+        );
+        assert_eq!(ids(&second), vec!["agg-b", "agg-c", "agg-a"]);
+
+        if let Some(value) = previous {
+            std::env::set_var("CODEXMANAGER_ROUTE_STRATEGY", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_ROUTE_STRATEGY");
+        }
+        crate::gateway::reload_runtime_config_from_env();
+    }
+
+    #[test]
+    fn balanced_route_strategy_preserves_explicit_preferred_aggregate_api() {
+        let _guard = crate::test_env_guard();
+        let previous = std::env::var("CODEXMANAGER_ROUTE_STRATEGY").ok();
+        std::env::set_var("CODEXMANAGER_ROUTE_STRATEGY", "balanced");
+        crate::gateway::reload_runtime_config_from_env();
+
+        let mut candidates = vec![candidate("agg-preferred", 0), candidate("agg-b", 1), candidate("agg-c", 2)];
+        apply_gateway_route_strategy_to_aggregate_candidates(
+            &mut candidates,
+            "gk-aggregate-route-strategy-preferred",
+            Some("gpt-5.4-mini"),
+            Some("agg-preferred"),
+        );
+        assert_eq!(
+            ids(&candidates),
+            vec!["agg-preferred", "agg-b", "agg-c"]
+        );
+
+        let mut second = vec![candidate("agg-preferred", 0), candidate("agg-b", 1), candidate("agg-c", 2)];
+        apply_gateway_route_strategy_to_aggregate_candidates(
+            &mut second,
+            "gk-aggregate-route-strategy-preferred",
+            Some("gpt-5.4-mini"),
+            Some("agg-preferred"),
+        );
+        assert_eq!(
+            ids(&second),
+            vec!["agg-preferred", "agg-c", "agg-b"]
+        );
+
+        if let Some(value) = previous {
+            std::env::set_var("CODEXMANAGER_ROUTE_STRATEGY", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_ROUTE_STRATEGY");
+        }
+        crate::gateway::reload_runtime_config_from_env();
+    }
 }
 
 #[cfg(test)]

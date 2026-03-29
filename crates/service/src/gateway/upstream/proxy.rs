@@ -104,7 +104,7 @@ pub(in super::super) fn proxy_validated_request(
     super::super::trace_log::log_request_body_preview(trace_id.as_str(), body.as_ref());
 
     if rotation_strategy == ROTATION_AGGREGATE_API {
-        let aggregate_api_candidates = match super::protocol::aggregate_api::resolve_aggregate_api_rotation_candidates(
+        let mut aggregate_api_candidates = match super::protocol::aggregate_api::resolve_aggregate_api_rotation_candidates(
             &storage,
             protocol_type.as_str(),
             aggregate_api_id.as_deref(),
@@ -155,6 +155,13 @@ pub(in super::super) fn proxy_validated_request(
                 return Ok(());
             }
         };
+
+        super::protocol::aggregate_api::apply_gateway_route_strategy_to_aggregate_candidates(
+            &mut aggregate_api_candidates,
+            key_id.as_str(),
+            model_for_log.as_deref(),
+            aggregate_api_id.as_deref(),
+        );
 
         return super::protocol::aggregate_api::proxy_aggregate_request(
             request,

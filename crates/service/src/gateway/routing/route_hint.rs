@@ -72,13 +72,25 @@ pub(crate) fn apply_route_strategy(
 
     let mode = route_mode();
     if mode == ROUTE_MODE_BALANCED_ROUND_ROBIN {
-        let start = next_start_index(key_id, model, candidates.len());
-        if start > 0 {
-            candidates.rotate_left(start);
-        }
+        apply_balanced_round_robin(candidates, key_id, model);
     }
 
     apply_health_p2c(candidates, key_id, model, mode);
+}
+
+pub(crate) fn apply_balanced_round_robin<T>(
+    candidates: &mut [T],
+    key_id: &str,
+    model: Option<&str>,
+) {
+    ensure_route_config_loaded();
+    if candidates.len() <= 1 {
+        return;
+    }
+    let start = next_start_index(key_id, model, candidates.len());
+    if start > 0 {
+        candidates.rotate_left(start);
+    }
 }
 
 fn rotate_to_manual_preferred_account(candidates: &mut [(Account, Token)]) -> bool {
