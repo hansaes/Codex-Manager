@@ -26,7 +26,7 @@ import {
 import { ConfirmDialog } from "@/components/modals/confirm-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
@@ -113,13 +113,19 @@ function PermissionBadge({ permission }: { permission: string }) {
 
 function StatusBadge({ status }: { status: string }) {
   const normalized = status.toLowerCase();
+  const label =
+    normalized === "enabled"
+      ? "启用中"
+      : normalized === "broken"
+        ? "异常"
+        : "未知";
   const toneClass =
     normalized === "enabled"
       ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
       : normalized === "broken"
         ? "border-red-500/20 bg-red-500/10 text-red-600"
         : "border-amber-500/20 bg-amber-500/10 text-amber-600";
-  return <Badge className={toneClass}>{status}</Badge>;
+  return <Badge className={toneClass}>{label}</Badge>;
 }
 
 function formatDuration(value: number | null): string {
@@ -577,224 +583,223 @@ export default function PluginsPage() {
       <Dialog open={selectedPlugin !== null} onOpenChange={(open) => !open && setSelectedPlugin(null)}>
         <DialogContent
           showCloseButton={false}
-          className="glass-card max-h-[85vh] overflow-hidden border-none p-0 sm:max-w-[760px]"
+          className="glass-card max-h-[85vh] overflow-hidden border-none p-0 sm:max-w-[860px] lg:max-w-[920px]"
         >
           {selectedDetail ? (
             <div className="flex max-h-[85vh] flex-col">
-              <div className="border-b border-border/60 p-5">
-                <DialogHeader className="space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <DialogTitle className="text-xl">{selectedDetail.name}</DialogTitle>
-                      <DialogDescription className="mt-1 line-clamp-2">
-                        {selectedDetail.description || "暂无描述"}
-                      </DialogDescription>
-                    </div>
+              <div className="shrink-0 bg-muted/20 px-6 pt-6">
+                <div className="flex items-start justify-between gap-4">
+                  <DialogHeader className="mb-4 min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
+                      <DialogTitle className="text-xl">{selectedDetail.name}</DialogTitle>
                       <Badge variant="secondary">{selectedDetail.version}</Badge>
-                      {"status" in selectedDetail ? (
-                        <StatusBadge status={selectedDetail.status} />
-                      ) : null}
-                      <DialogClose
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                        type="button"
-                      >
-                        <X className="h-4 w-4" />
-                        <span className="sr-only">关闭</span>
-                      </DialogClose>
+                      {"status" in selectedDetail ? <StatusBadge status={selectedDetail.status} /> : null}
                     </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    {selectedDetail.author ? <span>作者：{selectedDetail.author}</span> : null}
-                    {selectedDetail.sourceUrl ? (
-                      <span>
-                        来源：
-                        {selectedDetail.sourceUrl === "builtin://codexmanager"
-                          ? "内置精选市场"
-                          : selectedDetail.sourceUrl}
-                      </span>
-                    ) : null}
-                    <span>权限 {selectedDetail.permissions.length}</span>
-                    {"taskCount" in selectedDetail ? (
-                      <span>任务 {selectedDetail.enabledTaskCount}/{selectedDetail.taskCount}</span>
-                    ) : (
-                      <span>任务 {selectedDetail.tasks.length}</span>
+                    <DialogDescription className="break-words text-sm">
+                      {selectedDetail.description || "暂无描述"}
+                    </DialogDescription>
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      {selectedDetail.author ? <span>作者：{selectedDetail.author}</span> : null}
+                      {selectedDetail.sourceUrl ? (
+                        <span>
+                          来源：
+                          {selectedDetail.sourceUrl === "builtin://codexmanager"
+                            ? "内置精选市场"
+                            : selectedDetail.sourceUrl}
+                        </span>
+                      ) : null}
+                      <span>权限 {selectedDetail.permissions.length}</span>
+                      {"taskCount" in selectedDetail ? (
+                        <span>任务 {selectedDetail.enabledTaskCount}/{selectedDetail.taskCount}</span>
+                      ) : (
+                        <span>任务 {selectedDetail.tasks.length}</span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <span>清单版本 {selectedDetail.manifestVersion}</span>
+                      <span>运行时 {formatRuntimeKind(selectedDetail.runtimeKind)}</span>
+                      {selectedDetail.category ? (
+                        <span>分类 {formatMarketCategory(selectedDetail.category)}</span>
+                      ) : null}
+                      {selectedDetail.tags.length > 0 ? (
+                        <span>标签 {selectedDetail.tags.join(" / ")}</span>
+                      ) : null}
+                    </div>
+                  </DialogHeader>
+                  <DialogClose
+                    className={cn(
+                      buttonVariants({ variant: "ghost", size: "icon-sm" }),
+                      "shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <span>清单版本 {selectedDetail.manifestVersion}</span>
-                    <span>运行时 {formatRuntimeKind(selectedDetail.runtimeKind)}</span>
-                    {selectedDetail.category ? (
-                      <span>分类 {formatMarketCategory(selectedDetail.category)}</span>
-                    ) : null}
-                    {selectedDetail.tags.length > 0 ? (
-                      <span>标签 {selectedDetail.tags.join(" / ")}</span>
-                    ) : null}
-                  </div>
-                </DialogHeader>
+                    type="button"
+                  >
+                    <X className="h-4 w-4" />
+                    <span className="sr-only">关闭</span>
+                  </DialogClose>
+                </div>
               </div>
 
-              <div className="grid gap-4 overflow-y-auto p-5">
-                <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                  <div className="mb-2 text-sm font-medium">权限</div>
-                  <div>
-                    {selectedDetail.permissions.length > 0 ? (
-                      selectedDetail.permissions.map((permission) => (
-                        <PermissionBadge key={permission} permission={permission} />
-                      ))
-                    ) : (
-                      <div className="text-sm text-muted-foreground">无需额外权限</div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                  <div className="mb-2 text-sm font-medium">任务</div>
-                  <div className="space-y-2">
-                    {selectedTasks.length > 0 ? (
-                      selectedTasks.map((task) => (
-                        <div
-                          key={task.id}
-                          className="rounded-xl border border-border/60 bg-background p-3 text-sm"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="font-medium">{task.name}</div>
-                              <div className="mt-1 text-xs text-muted-foreground">
-                                {task.scheduleKind === "manual"
-                                  ? "手动"
-                                  : `每 ${task.intervalSeconds || 0} 秒`}
-                                {" · "}
-                                {task.entrypoint}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline">{task.enabled ? "启用" : "禁用"}</Badge>
-                              {selectedPlugin?.kind === "installed" ? (
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  onClick={() => runTaskMutation.mutate(task.id)}
-                                >
-                                  <Play className="mr-1.5 h-3.5 w-3.5" />
-                                  运行
-                                </Button>
-                              ) : null}
-                            </div>
-                          </div>
-                          {task.description ? (
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              {task.scheduleKind === "manual"
-                                ? task.description
-                                : `每 ${task.intervalSeconds || 0} 秒自动执行一次。`}
-                            </div>
-                          ) : null}
-                          {task.lastError ? (
-                            <div className="mt-1 text-xs text-red-500">{task.lastError}</div>
-                          ) : null}
-                          {"scheduleKind" in task && task.scheduleKind !== "manual" ? (
-                            <div className="mt-3 grid gap-2 rounded-xl border border-border/60 bg-background/70 p-3">
-                              <div className="text-xs font-medium text-muted-foreground">
-                                自动执行间隔
-                              </div>
-                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                                <Input
-                                  type="number"
-                                  min={1}
-                                  step={1}
-                                  className="h-9 w-full sm:max-w-[180px]"
-                                  value={
-                                    taskIntervalDrafts[task.id] ??
-                                    String(task.intervalSeconds || 60)
-                                  }
-                                  onChange={(event) =>
-                                    setTaskIntervalDrafts((prev) => ({
-                                      ...prev,
-                                      [task.id]: event.target.value,
-                                    }))
-                                  }
-                                  disabled={updateTaskMutation.isPending}
-                                />
-                                <span className="text-xs text-muted-foreground">
-                                  秒
-                                </span>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="sm:ml-auto"
-                                  disabled={updateTaskMutation.isPending}
-                                  onClick={() => {
-                                    const raw =
-                                      taskIntervalDrafts[task.id] ??
-                                      String(task.intervalSeconds || 60);
-                                    const intervalSeconds = Number(raw);
-                                    if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) {
-                                      toast.error("请输入大于 0 的秒数");
-                                      return;
-                                    }
-                                    updateTaskMutation.mutate({
-                                      taskId: task.id,
-                                      intervalSeconds: Math.floor(intervalSeconds),
-                                    });
-                                  }}
-                                >
-                                  保存
-                                </Button>
-                              </div>
-                              <div className="text-[11px] text-muted-foreground">
-                                当前设置为每 {task.intervalSeconds || 0} 秒自动执行一次。
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-sm text-muted-foreground">暂无任务</div>
-                    )}
-                  </div>
-                </div>
-
-                {selectedPlugin?.kind === "installed" ? (
+              <div className="max-h-[calc(85vh-154px)] overflow-y-auto px-6 py-6">
+                <div className="grid gap-4">
                   <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                    <div className="mb-2 text-sm font-medium">最近运行</div>
-                    <div className="space-y-2">
-                      {selectedLogs.length > 0 ? (
-                        selectedLogs.slice(0, 5).map((log) => (
-                          <div
-                            key={log.id}
-                            className={cn(
-                              "rounded-xl border p-3 text-xs",
-                              log.status === "ok"
-                                ? "border-emerald-500/20 bg-emerald-500/5"
-                                : "border-red-500/20 bg-red-500/5",
-                            )}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="font-medium">
-                                {log.taskName || log.taskId || "未知任务"}
-                              </div>
-                              <Badge variant={log.status === "ok" ? "secondary" : "destructive"}>
-                                {log.status}
-                              </Badge>
-                            </div>
-                            <div className="mt-1 text-muted-foreground">
-                              {log.error || (log.output ? JSON.stringify(log.output) : "无输出")}
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                              <span>执行于 {formatTimestamp(log.startedAt)}</span>
-                              <span>耗时 {formatDuration(log.durationMs)}</span>
-                            </div>
-                          </div>
+                    <div className="mb-2 text-sm font-medium">权限</div>
+                    <div>
+                      {selectedDetail.permissions.length > 0 ? (
+                        selectedDetail.permissions.map((permission) => (
+                          <PermissionBadge key={permission} permission={permission} />
                         ))
                       ) : (
-                        <div className="text-sm text-muted-foreground">暂无日志</div>
+                        <div className="text-sm text-muted-foreground">无需额外权限</div>
                       )}
                     </div>
                   </div>
-                ) : null}
+
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                    <div className="mb-2 text-sm font-medium">任务</div>
+                    <div className="space-y-2">
+                      {selectedTasks.length > 0 ? (
+                        selectedTasks.map((task) => (
+                          <div
+                            key={task.id}
+                            className="rounded-xl border border-border/60 bg-background p-3 text-sm"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="font-medium">{task.name}</div>
+                                <div className="mt-1 break-words text-xs text-muted-foreground">
+                                  {task.scheduleKind === "manual"
+                                    ? "手动"
+                                    : `每 ${task.intervalSeconds || 0} 秒`}
+                                  {" · "}
+                                  {task.entrypoint}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline">{task.enabled ? "启用" : "禁用"}</Badge>
+                                {selectedPlugin?.kind === "installed" ? (
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => runTaskMutation.mutate(task.id)}
+                                  >
+                                    <Play className="mr-1.5 h-3.5 w-3.5" />
+                                    运行
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </div>
+                            {task.description ? (
+                              <div className="mt-1 break-words text-xs text-muted-foreground">
+                                {task.scheduleKind === "manual"
+                                  ? task.description
+                                  : `每 ${task.intervalSeconds || 0} 秒自动执行一次。`}
+                              </div>
+                            ) : null}
+                            {task.lastError ? (
+                              <div className="mt-1 break-words text-xs text-red-500">{task.lastError}</div>
+                            ) : null}
+                            {"scheduleKind" in task && task.scheduleKind !== "manual" ? (
+                              <div className="mt-3 grid gap-2 rounded-xl border border-border/60 bg-background/70 p-3">
+                                <div className="text-xs font-medium text-muted-foreground">
+                                  自动执行间隔
+                                </div>
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    step={1}
+                                    className="h-9 w-full sm:max-w-[180px]"
+                                    value={
+                                      taskIntervalDrafts[task.id] ??
+                                      String(task.intervalSeconds || 60)
+                                    }
+                                    onChange={(event) =>
+                                      setTaskIntervalDrafts((prev) => ({
+                                        ...prev,
+                                        [task.id]: event.target.value,
+                                      }))
+                                    }
+                                    disabled={updateTaskMutation.isPending}
+                                  />
+                                  <span className="text-xs text-muted-foreground">秒</span>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="sm:ml-auto"
+                                    disabled={updateTaskMutation.isPending}
+                                    onClick={() => {
+                                      const raw =
+                                        taskIntervalDrafts[task.id] ??
+                                        String(task.intervalSeconds || 60);
+                                      const intervalSeconds = Number(raw);
+                                      if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) {
+                                        toast.error("请输入大于 0 的秒数");
+                                        return;
+                                      }
+                                      updateTaskMutation.mutate({
+                                        taskId: task.id,
+                                        intervalSeconds: Math.floor(intervalSeconds),
+                                      });
+                                    }}
+                                  >
+                                    保存
+                                  </Button>
+                                </div>
+                                <div className="break-words text-[11px] text-muted-foreground">
+                                  当前设置为每 {task.intervalSeconds || 0} 秒自动执行一次。
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-sm text-muted-foreground">暂无任务</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {selectedPlugin?.kind === "installed" ? (
+                    <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                      <div className="mb-2 text-sm font-medium">最近运行</div>
+                      <div className="space-y-2">
+                        {selectedLogs.length > 0 ? (
+                          selectedLogs.slice(0, 5).map((log) => (
+                            <div
+                              key={log.id}
+                              className={cn(
+                                "rounded-xl border p-3 text-xs",
+                                log.status === "ok"
+                                  ? "border-emerald-500/20 bg-emerald-500/5"
+                                  : "border-red-500/20 bg-red-500/5",
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="font-medium">
+                                  {log.taskName || log.taskId || "未知任务"}
+                                </div>
+                                <Badge variant={log.status === "ok" ? "secondary" : "destructive"}>
+                                  {log.status}
+                                </Badge>
+                              </div>
+                              <div className="mt-1 break-words text-muted-foreground">
+                                {log.error || (log.output ? JSON.stringify(log.output) : "无输出")}
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                                <span>执行于 {formatTimestamp(log.startedAt)}</span>
+                                <span>耗时 {formatDuration(log.durationMs)}</span>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-sm text-muted-foreground">暂无日志</div>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
-              <DialogFooter className="border-t border-border/60 bg-muted/20 px-5 py-4">
+              <DialogFooter className="mx-0 mb-0 rounded-b-xl border-t border-border/60 bg-muted/20 px-6 py-4 sm:items-center sm:justify-end">
                 {selectedPlugin?.kind === "catalog" && selectedCatalogItem ? (
                   <Button
                     className="gap-2"
