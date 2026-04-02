@@ -99,6 +99,7 @@ fn codex_header_profile_sets_required_headers_for_stream() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-123",
+        chatgpt_account_id: Some("workspace-1"),
         incoming_session_id: None,
         incoming_client_request_id: Some("client-req-1"),
         incoming_subagent: Some("review"),
@@ -116,6 +117,10 @@ fn codex_header_profile_sets_required_headers_for_stream() {
     assert_eq!(
         find_header(&headers, "Authorization").as_deref(),
         Some("Bearer token-123")
+    );
+    assert_eq!(
+        find_header(&headers, "ChatGPT-Account-ID").as_deref(),
+        Some("workspace-1")
     );
     assert_eq!(
         find_header(&headers, "Content-Type").as_deref(),
@@ -179,6 +184,7 @@ fn codex_header_profile_uses_json_accept_for_non_stream() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-456",
+        chatgpt_account_id: None,
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
@@ -218,6 +224,7 @@ fn codex_compact_header_profile_matches_remote_compact_shape() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_compact_upstream_headers(CodexCompactUpstreamHeaderInput {
         auth_token: "token-compact",
+        chatgpt_account_id: Some("workspace-compact"),
         incoming_session_id: Some("session-compact"),
         incoming_subagent: Some("compact"),
         fallback_session_id: Some("fallback-session"),
@@ -230,6 +237,10 @@ fn codex_compact_header_profile_matches_remote_compact_shape() {
     assert_eq!(
         find_header(&headers, "Authorization").as_deref(),
         Some("Bearer token-compact")
+    );
+    assert_eq!(
+        find_header(&headers, "ChatGPT-Account-ID").as_deref(),
+        Some("workspace-compact")
     );
     assert_eq!(
         find_header(&headers, "Content-Type").as_deref(),
@@ -275,6 +286,7 @@ fn codex_compact_header_profile_omits_subagent_without_explicit_source() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_compact_upstream_headers(CodexCompactUpstreamHeaderInput {
         auth_token: "token-compact-default",
+        chatgpt_account_id: None,
         incoming_session_id: Some("session-compact-default"),
         incoming_subagent: None,
         fallback_session_id: Some("fallback-session"),
@@ -303,6 +315,7 @@ fn codex_compact_header_profile_omits_session_without_thread_anchor() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_compact_upstream_headers(CodexCompactUpstreamHeaderInput {
         auth_token: "token-compact-no-session",
+        chatgpt_account_id: None,
         incoming_session_id: None,
         incoming_subagent: None,
         fallback_session_id: None,
@@ -335,6 +348,7 @@ fn codex_header_profile_uses_dynamic_originator_and_residency_requirement() {
 
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-dynamic",
+        chatgpt_account_id: Some("workspace-dynamic"),
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
@@ -357,6 +371,10 @@ fn codex_header_profile_uses_dynamic_originator_and_residency_requirement() {
         find_header(&headers, "x-openai-internal-codex-residency").as_deref(),
         Some("us")
     );
+    assert_eq!(
+        find_header(&headers, "ChatGPT-Account-ID").as_deref(),
+        Some("workspace-dynamic")
+    );
     assert!(find_header(&headers, "User-Agent")
         .as_deref()
         .is_some_and(|value| value.contains("codex_cli_rs/0.101.0")));
@@ -378,6 +396,7 @@ fn codex_header_profile_regenerates_session_on_failover() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-789",
+        chatgpt_account_id: None,
         incoming_session_id: Some("sticky-session"),
         incoming_client_request_id: None,
         incoming_subagent: None,
@@ -420,6 +439,7 @@ fn codex_header_profile_uses_fallback_session_when_incoming_missing() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-fallback",
+        chatgpt_account_id: None,
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
@@ -457,6 +477,7 @@ fn codex_header_profile_does_not_forward_conversation_header_even_with_fallback(
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-fallback-conv",
+        chatgpt_account_id: None,
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
@@ -490,6 +511,7 @@ fn codex_header_profile_skips_account_header_when_disabled() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-no-acc",
+        chatgpt_account_id: None,
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
@@ -523,6 +545,7 @@ fn codex_header_profile_can_disable_affinity_headers() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-no-affinity",
+        chatgpt_account_id: None,
         incoming_session_id: Some("sticky-session"),
         incoming_client_request_id: None,
         incoming_subagent: None,
@@ -563,6 +586,7 @@ fn codex_header_profile_does_not_invent_client_request_id_on_failover() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-failover-stable",
+        chatgpt_account_id: None,
         incoming_session_id: Some("sticky-session"),
         incoming_client_request_id: None,
         incoming_subagent: None,

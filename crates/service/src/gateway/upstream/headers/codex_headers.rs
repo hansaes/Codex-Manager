@@ -7,6 +7,7 @@ pub(crate) const CODEX_CLIENT_VERSION: &str = "0.101.0";
 
 pub(crate) struct CodexUpstreamHeaderInput<'a> {
     pub(crate) auth_token: &'a str,
+    pub(crate) chatgpt_account_id: Option<&'a str>,
     pub(crate) incoming_session_id: Option<&'a str>,
     pub(crate) incoming_client_request_id: Option<&'a str>,
     pub(crate) incoming_subagent: Option<&'a str>,
@@ -23,6 +24,7 @@ pub(crate) struct CodexUpstreamHeaderInput<'a> {
 
 pub(crate) struct CodexCompactUpstreamHeaderInput<'a> {
     pub(crate) auth_token: &'a str,
+    pub(crate) chatgpt_account_id: Option<&'a str>,
     pub(crate) incoming_session_id: Option<&'a str>,
     pub(crate) incoming_subagent: Option<&'a str>,
     pub(crate) fallback_session_id: Option<&'a str>,
@@ -51,6 +53,16 @@ pub(crate) fn build_codex_upstream_headers(
         "Authorization".to_string(),
         format!("Bearer {}", input.auth_token),
     ));
+    if let Some(account_id) = input
+        .chatgpt_account_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        headers.push((
+            "ChatGPT-Account-ID".to_string(),
+            account_id.to_string(),
+        ));
+    }
     if input.has_body {
         headers.push(("Content-Type".to_string(), "application/json".to_string()));
     }
@@ -158,6 +170,16 @@ pub(crate) fn build_codex_compact_upstream_headers(
         "Authorization".to_string(),
         format!("Bearer {}", input.auth_token),
     ));
+    if let Some(account_id) = input
+        .chatgpt_account_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        headers.push((
+            "ChatGPT-Account-ID".to_string(),
+            account_id.to_string(),
+        ));
+    }
     if input.has_body {
         headers.push(("Content-Type".to_string(), "application/json".to_string()));
     }
@@ -308,6 +330,7 @@ mod tests {
 
         let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
             auth_token: "token-123",
+            chatgpt_account_id: Some("account-123"),
             incoming_session_id: Some("conversation-anchor"),
             incoming_client_request_id: Some("conversation-anchor"),
             incoming_subagent: Some("subagent-a"),
@@ -325,6 +348,10 @@ mod tests {
         assert_eq!(
             header_value(&headers, "Authorization"),
             Some("Bearer token-123")
+        );
+        assert_eq!(
+            header_value(&headers, "ChatGPT-Account-ID"),
+            Some("account-123")
         );
         assert_eq!(
             header_value(&headers, "Content-Type"),
@@ -380,6 +407,7 @@ mod tests {
 
         let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
             auth_token: "token-456",
+            chatgpt_account_id: None,
             incoming_session_id: Some("conversation-anchor"),
             incoming_client_request_id: Some("conversation-anchor"),
             incoming_subagent: None,
@@ -425,6 +453,7 @@ mod tests {
 
         let headers = build_codex_compact_upstream_headers(CodexCompactUpstreamHeaderInput {
             auth_token: "token-789",
+            chatgpt_account_id: Some("account-compact"),
             incoming_session_id: None,
             incoming_subagent: Some("subagent-b"),
             fallback_session_id: Some("conversation-anchor"),
@@ -435,6 +464,10 @@ mod tests {
         });
 
         assert_eq!(header_value(&headers, "Accept"), Some("application/json"));
+        assert_eq!(
+            header_value(&headers, "ChatGPT-Account-ID"),
+            Some("account-compact")
+        );
         assert_eq!(header_value(&headers, "x-client-request-id"), None);
         assert_eq!(
             header_value(&headers, "session_id"),

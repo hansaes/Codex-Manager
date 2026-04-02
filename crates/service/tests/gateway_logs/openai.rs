@@ -282,6 +282,13 @@ fn gateway_openai_chat_completions_logs_anthropic_style_cached_tokens() {
         .expect("receive upstream request");
     upstream_join.join().expect("join upstream");
     assert_eq!(captured.path, "/backend-api/codex/responses");
+    assert_eq!(
+        captured
+            .headers
+            .get("chatgpt-account-id")
+            .map(String::as_str),
+        Some("chatgpt_openai_chat_cache")
+    );
 
     let mut matched = None;
     for _ in 0..40 {

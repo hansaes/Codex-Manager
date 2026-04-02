@@ -94,6 +94,38 @@ pub(in super::super) fn is_chatgpt_backend_base(base: &str) -> bool {
         || normalized.contains("chat.openai.com/backend-api")
 }
 
+/// 函数 `should_send_chatgpt_account_header`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// - in super: 参数 in super
+///
+/// # 返回
+/// 返回函数执行结果
+pub(in super::super) fn should_send_chatgpt_account_header(base: &str) -> bool {
+    base.trim()
+        .to_ascii_lowercase()
+        .contains("/backend-api/codex")
+}
+
+/// 函数 `is_official_openai_target`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// - in super: 参数 in super
+///
+/// # 返回
+/// 返回函数执行结果
+pub(in super::super) fn is_official_openai_target(base: &str) -> bool {
+    is_chatgpt_backend_base(base) || is_openai_api_base(base)
+}
+
 /// 函数 `should_try_openai_fallback`
 ///
 /// 作者: gaohongshun

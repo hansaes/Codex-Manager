@@ -69,9 +69,7 @@ where
                 super::super::super::CooldownReason::Network,
             );
             log_gateway_result(Some(url), 502, Some(err_msg.as_str()));
-            // 中文注释：主链路首次请求失败不代表所有候选都失败，
-            // 先 failover 才能避免单账号抖动放大成全局不可用。
-            if has_more_candidates {
+            if has_more_candidates && !super::super::config::is_official_openai_target(url) {
                 PrimaryAttemptResult::Failover
             } else {
                 PrimaryAttemptResult::Terminal {

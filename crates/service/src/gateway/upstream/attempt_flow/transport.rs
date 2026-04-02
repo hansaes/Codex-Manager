@@ -132,6 +132,31 @@ fn has_header(headers: &[(String, String)], name: &str) -> bool {
         .any(|(header_name, _)| header_name.eq_ignore_ascii_case(name))
 }
 
+/// 函数 `resolve_chatgpt_account_header`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// - account: 参数 account
+/// - target_url: 参数 target_url
+///
+/// # 返回
+/// 返回函数执行结果
+fn resolve_chatgpt_account_header<'a>(
+    account: &'a Account,
+    target_url: &str,
+) -> Option<&'a str> {
+    if !super::super::config::should_send_chatgpt_account_header(target_url) {
+        return None;
+    }
+    account
+        .chatgpt_account_id
+        .as_deref()
+        .or(account.workspace_id.as_deref())
+}
+
 /// 函数 `resolve_request_compression_with_flag`
 ///
 /// 作者: gaohongshun
@@ -298,6 +323,7 @@ pub(in super::super) fn send_upstream_request(
     let mut upstream_headers = if is_compact_request {
         let header_input = super::super::header_profile::CodexCompactUpstreamHeaderInput {
             auth_token,
+            chatgpt_account_id: resolve_chatgpt_account_header(account, target_url),
             incoming_session_id: request_affinity.incoming_session_id,
             incoming_subagent: incoming_headers.subagent(),
             fallback_session_id: request_affinity.fallback_session_id,
@@ -310,6 +336,7 @@ pub(in super::super) fn send_upstream_request(
     } else {
         let header_input = super::super::header_profile::CodexUpstreamHeaderInput {
             auth_token,
+            chatgpt_account_id: resolve_chatgpt_account_header(account, target_url),
             incoming_session_id: request_affinity.incoming_session_id,
             incoming_client_request_id: request_affinity.incoming_client_request_id,
             incoming_subagent: incoming_headers.subagent(),

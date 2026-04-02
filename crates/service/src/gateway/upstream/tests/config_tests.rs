@@ -2,7 +2,7 @@ use reqwest::header::HeaderValue;
 
 use super::{
     reload_from_env, resolve_upstream_fallback_base_url, should_try_openai_fallback,
-    should_try_openai_fallback_by_status,
+    should_try_openai_fallback_by_status, should_send_chatgpt_account_header,
 };
 
 /// 函数 `fallback_status_trigger_is_limited_to_responses_path`
@@ -88,4 +88,32 @@ fn fallback_base_is_disabled_even_when_env_is_set() {
 
     std::env::remove_var("CODEXMANAGER_UPSTREAM_FALLBACK_BASE_URL");
     reload_from_env();
+}
+
+/// 函数 `chatgpt_account_header_is_limited_to_codex_backend_shape`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn chatgpt_account_header_is_limited_to_codex_backend_shape() {
+    assert!(should_send_chatgpt_account_header(
+        "https://chatgpt.com/backend-api/codex"
+    ));
+    assert!(should_send_chatgpt_account_header(
+        "http://127.0.0.1:8787/backend-api/codex/responses"
+    ));
+    assert!(!should_send_chatgpt_account_header("https://api.openai.com/v1"));
+    assert!(!should_send_chatgpt_account_header(
+        "https://api.anthropic.com/v1/messages"
+    ));
+    assert!(!should_send_chatgpt_account_header(
+        "https://example.com/v1/responses"
+    ));
 }

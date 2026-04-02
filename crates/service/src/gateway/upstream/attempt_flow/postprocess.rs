@@ -237,7 +237,7 @@ where
             }
             Ok(None) => {}
             Err(err) => {
-                let refresh_token_invalid =
+                let _ =
                     mark_account_unavailable_for_refresh_token_error(storage, &account.id, &err);
                 log::warn!(
                     "event=gateway_upstream_unauthorized_refresh_failed path={} account_id={} err={}",
@@ -245,10 +245,6 @@ where
                     account.id,
                     err
                 );
-                if refresh_token_invalid && has_more_candidates {
-                    log_gateway_result(Some(url), 401, Some("refresh token invalid failover"));
-                    return PostRetryFlowDecision::Failover;
-                }
             }
         }
     }
@@ -319,36 +315,38 @@ where
         }
     }
 
-    match retry_stateless_then_optional_alt(
-        client,
-        method,
-        url,
-        url_alt,
-        request_deadline,
-        request_ctx,
-        incoming_headers,
-        body,
-        is_stream,
-        current_auth_token.as_str(),
-        account,
-        strip_session_affinity,
-        status,
-        debug,
-        disable_challenge_stateless_retry,
-    ) {
-        StatelessRetryResult::NotTriggered => {}
-        StatelessRetryResult::Upstream(resp) => {
-            upstream = resp;
-            status = upstream.status();
-        }
-        StatelessRetryResult::Terminal {
-            status_code,
-            message,
-        } => {
-            return PostRetryFlowDecision::Terminal {
+    if !super::super::config::is_chatgpt_backend_base(upstream_base) {
+        match retry_stateless_then_optional_alt(
+            client,
+            method,
+            url,
+            url_alt,
+            request_deadline,
+            request_ctx,
+            incoming_headers,
+            body,
+            is_stream,
+            current_auth_token.as_str(),
+            account,
+            strip_session_affinity,
+            status,
+            debug,
+            disable_challenge_stateless_retry,
+        ) {
+            StatelessRetryResult::NotTriggered => {}
+            StatelessRetryResult::Upstream(resp) => {
+                upstream = resp;
+                status = upstream.status();
+            }
+            StatelessRetryResult::Terminal {
                 status_code,
                 message,
-            };
+            } => {
+                return PostRetryFlowDecision::Terminal {
+                    status_code,
+                    message,
+                };
+            }
         }
     }
 

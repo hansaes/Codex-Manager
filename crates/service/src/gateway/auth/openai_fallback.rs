@@ -158,6 +158,31 @@ fn is_compact_request_path(path: &str) -> bool {
     path == "/v1/responses/compact" || path.starts_with("/v1/responses/compact?")
 }
 
+/// 函数 `resolve_chatgpt_account_header`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// - account: 参数 account
+/// - upstream_base: 参数 upstream_base
+///
+/// # 返回
+/// 返回函数执行结果
+fn resolve_chatgpt_account_header<'a>(
+    account: &'a Account,
+    upstream_base: &str,
+) -> Option<&'a str> {
+    if !super::upstream::config::should_send_chatgpt_account_header(upstream_base) {
+        return None;
+    }
+    account
+        .chatgpt_account_id
+        .as_deref()
+        .or(account.workspace_id.as_deref())
+}
+
 /// 函数 `try_openai_fallback`
 ///
 /// 作者: gaohongshun
@@ -228,6 +253,7 @@ pub(super) fn try_openai_fallback(
     let mut upstream_headers = if is_compact_request_path(request_path) {
         let header_input = super::upstream::header_profile::CodexCompactUpstreamHeaderInput {
             auth_token: bearer.as_str(),
+            chatgpt_account_id: resolve_chatgpt_account_header(account, upstream_base),
             incoming_session_id: request_affinity.incoming_session_id,
             incoming_subagent: incoming_headers.subagent(),
             fallback_session_id: request_affinity.fallback_session_id,
@@ -240,6 +266,7 @@ pub(super) fn try_openai_fallback(
     } else {
         let header_input = super::upstream::header_profile::CodexUpstreamHeaderInput {
             auth_token: bearer.as_str(),
+            chatgpt_account_id: resolve_chatgpt_account_header(account, upstream_base),
             incoming_session_id: request_affinity.incoming_session_id,
             incoming_client_request_id: request_affinity.incoming_client_request_id,
             incoming_subagent: incoming_headers.subagent(),
