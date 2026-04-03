@@ -54,6 +54,45 @@ fn merge_tool_arguments_from_output_item(arguments: &mut String, arguments_raw: 
     }
 }
 
+/// `response.completed` 里 `output[i]` 的 `function_call.arguments` 往往比流式 delta 拼出的更短
+/// （甚至被截断成 `oldText:""`）。快捷路径若只用 completed，会整段丢掉 `tool_calls` 里已拼好的参数。
+/// 在转 Anthropic 前，用更长的流式快照按 `output` 下标覆盖对应条目的 `arguments`。
+fn merge_streamed_tool_arguments_into_completed_output(
+    response: &mut Value,
+    tool_calls: &BTreeMap<usize, StreamingToolCall>,
+) {
+    let Some(output) = response.get_mut("output").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for (idx, item) in output.iter_mut().enumerate() {
+        let Some(obj) = item.as_object_mut() else {
+            continue;
+        };
+        let item_type = obj.get("type").and_then(Value::as_str).unwrap_or("");
+        if !is_openai_chat_tool_item_type(item_type) {
+            continue;
+        }
+        let Some(tc) = tool_calls.get(&idx) else {
+            continue;
+        };
+        let streamed = tc.arguments.trim();
+        if streamed.is_empty() || is_placeholder_tool_arguments_json(streamed) {
+            continue;
+        }
+        let existing_len = extract_function_call_arguments_raw(obj)
+            .map(|s| s.len())
+            .unwrap_or(0);
+        if tc.arguments.len() <= existing_len {
+            continue;
+        }
+        obj.insert("arguments".to_string(), Value::String(tc.arguments.clone()));
+        // 避免 `extract_function_call_arguments_raw` 仍读到旧的 `input` 对象
+        obj.remove("input");
+        obj.remove("parsed_arguments");
+        obj.remove("args");
+    }
+}
+
 fn salvage_chat_completion_chunk_payload(
     payload: &str,
     response_id: &mut Option<String>,
@@ -551,7 +590,8 @@ pub(super) fn convert_openai_sse_to_anthropic(
             }
         }
     }
-    if let Some(response) = completed_response {
+    if let Some(mut response) = completed_response {
+        merge_streamed_tool_arguments_into_completed_output(&mut response, &tool_calls);
         let completed_has_effective_output = response
             .get("output_text")
             .and_then(Value::as_str)

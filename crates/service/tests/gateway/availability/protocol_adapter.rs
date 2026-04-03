@@ -844,3 +844,29 @@ fn anthropic_sse_response_edit_done_placeholder_does_not_erase_streamed_args() {
     assert!(text.contains("oldText"));
     assert!(text.contains("newText"));
 }
+
+/// `response.completed.output` 里 `function_call.arguments` 可能比流式 delta 更短（例如 `oldText` 被清空），
+/// 快捷路径不能只信 completed，必须把流式拼好的更长参数合并进去。
+#[test]
+fn anthropic_sse_response_edit_prefers_streamed_args_over_truncated_completed_output() {
+    let upstream = concat!(
+        "data: {\"type\":\"response.output_item.added\",\"response_id\":\"resp_merge\",\"created\":3,\"model\":\"gpt-5.3-codex\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_merge\",\"name\":\"edit\"}}\n\n",
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"response_id\":\"resp_merge\",\"created\":3,\"model\":\"gpt-5.3-codex\",\"output_index\":0,\"delta\":\"{\\\"path\\\":\\\"/tmp/merge.txt\\\",\\\"edits\\\":[{\\\"oldText\\\":\\\"UNIQUE_STREAMED_OLD\\\"\"}\n\n",
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"response_id\":\"resp_merge\",\"created\":3,\"model\":\"gpt-5.3-codex\",\"output_index\":0,\"delta\":\",\\\"newText\\\":\\\"NEW\\\"}]}\"}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_merge\",\"created\":3,\"model\":\"gpt-5.3-codex\",\"output\":[{\"type\":\"function_call\",\"call_id\":\"call_merge\",\"name\":\"edit\",\"arguments\":\"{\\\"path\\\":\\\"/tmp/merge.txt\\\",\\\"edits\\\":[{\\\"oldText\\\":\\\"\\\",\\\"newText\\\":\\\"NEW\\\"}]}\"}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
+        "data: [DONE]\n\n",
+    );
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::AnthropicSse,
+        Some("text/event-stream"),
+        upstream.as_bytes(),
+    )
+    .expect("adapt stream");
+    assert_eq!(content_type, "text/event-stream");
+    let text = String::from_utf8(body).expect("utf8");
+    assert!(
+        text.contains("UNIQUE_STREAMED_OLD"),
+        "expected streamed oldText in adapted SSE, got: {}",
+        &text[..text.len().min(2000)]
+    );
+}
