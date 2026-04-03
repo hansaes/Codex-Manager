@@ -200,10 +200,6 @@ jobs:
       - name: Prepare frontend dist
         uses: ./.github/actions/prepare-frontend-dist
 
-      - name: Disable redundant frontend rebuild for Tauri bundle
-        shell: pwsh
-        run: ./scripts/release/disable-tauri-before-build.ps1
-
       - name: Build macOS app bundle
         uses: ./.github/actions/build-tauri-with-retry
         with:
@@ -346,10 +342,6 @@ jobs:
 
       - name: Prepare frontend dist
         uses: ./.github/actions/prepare-frontend-dist
-
-      - name: Disable redundant frontend rebuild for Tauri bundle
-        shell: pwsh
-        run: ./scripts/release/disable-tauri-before-build.ps1
 
       - name: Build Tauri bundle (with retry)
         uses: ./.github/actions/build-tauri-with-retry
