@@ -202,3 +202,39 @@ fn patch_account_meta_cached_replaces_subject_style_scope_values() {
     assert_eq!(updated.chatgpt_account_id.as_deref(), Some("org-correct"));
     assert_eq!(updated.workspace_id.as_deref(), Some("ws-correct"));
 }
+
+/// 函数 `patch_account_meta_cached_overrides_stale_team_scope_with_latest_token_scope`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-03
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn patch_account_meta_cached_overrides_stale_team_scope_with_latest_token_scope() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    let account = build_account("acc-7", Some("org-team"), Some("org-team"));
+    storage.insert_account(&account).expect("insert");
+    let mut account_map = HashMap::new();
+    account_map.insert(account.id.clone(), account);
+
+    patch_account_meta_cached(
+        &storage,
+        &mut account_map,
+        "acc-7",
+        Some("org-free".to_string()),
+        Some("org-free".to_string()),
+    );
+
+    let updated = storage
+        .find_account_by_id("acc-7")
+        .expect("find")
+        .expect("account");
+    assert_eq!(updated.chatgpt_account_id.as_deref(), Some("org-free"));
+    assert_eq!(updated.workspace_id.as_deref(), Some("org-free"));
+}

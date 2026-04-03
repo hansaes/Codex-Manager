@@ -296,8 +296,14 @@ fn apply_account_meta_patch(
     let next_workspace_id = clean_header_value(workspace_id);
 
     if let Some(next) = next_chatgpt_account_id.clone() {
-        let current = account.chatgpt_account_id.as_deref().unwrap_or("").trim();
-        if current.is_empty() || is_invalid_upstream_scope_value(current) {
+        if is_invalid_upstream_scope_value(&next) {
+            log::debug!(
+                "event=account_meta_patch_skip_invalid_scope field=chatgpt_account_id account_id={} value={}",
+                account.id,
+                next
+            );
+        } else {
+            let current = account.chatgpt_account_id.as_deref().unwrap_or("").trim();
             if current != next {
                 account.chatgpt_account_id = Some(next);
                 changed = true;
@@ -307,8 +313,14 @@ fn apply_account_meta_patch(
 
     let desired_workspace = next_workspace_id.or_else(|| next_chatgpt_account_id.clone());
     if let Some(next) = desired_workspace {
-        let current = account.workspace_id.as_deref().unwrap_or("").trim();
-        if current.is_empty() || is_invalid_upstream_scope_value(current) {
+        if is_invalid_upstream_scope_value(&next) {
+            log::debug!(
+                "event=account_meta_patch_skip_invalid_scope field=workspace_id account_id={} value={}",
+                account.id,
+                next
+            );
+        } else {
+            let current = account.workspace_id.as_deref().unwrap_or("").trim();
             if current != next {
                 account.workspace_id = Some(next);
                 changed = true;

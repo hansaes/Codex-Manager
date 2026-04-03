@@ -5,7 +5,9 @@ use tiny_http::Request;
 
 use super::super::attempt_flow::candidate_flow::CandidateUpstreamDecision;
 use super::super::attempt_flow::transport::UpstreamRequestContext;
-use super::super::support::candidates::free_account_model_override;
+use super::super::support::candidates::{
+    allow_openai_fallback_for_account, free_account_model_override,
+};
 use super::super::support::deadline;
 use super::candidate_attempt::{
     run_candidate_attempt, CandidateAttemptParams, CandidateAttemptTrace,
@@ -152,6 +154,8 @@ pub(in super::super) fn execute_candidate_sequence(
             })
             .unwrap_or_else(|| incoming_headers.clone());
         let attempt_model_override = free_account_model_override(storage, &account, &token);
+        let attempt_allow_openai_fallback =
+            allow_openai_fallback && allow_openai_fallback_for_account(storage, &account, &token);
         let attempt_model_for_log = attempt_model_override.as_deref().or(model_for_log);
         let body_for_attempt = state.body_for_attempt(
             path,
@@ -217,7 +221,7 @@ pub(in super::super) fn execute_candidate_sequence(
             token: &mut token,
             strip_session_affinity,
             debug,
-            allow_openai_fallback,
+            allow_openai_fallback: attempt_allow_openai_fallback,
             disable_challenge_stateless_retry,
             has_more_candidates: context.has_more_candidates(idx),
             context,
@@ -280,7 +284,7 @@ pub(in super::super) fn execute_candidate_sequence(
                         token: &mut token,
                         strip_session_affinity: true,
                         debug,
-                        allow_openai_fallback,
+                        allow_openai_fallback: attempt_allow_openai_fallback,
                         disable_challenge_stateless_retry,
                         has_more_candidates: context.has_more_candidates(idx),
                         context,

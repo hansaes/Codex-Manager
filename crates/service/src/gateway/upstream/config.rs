@@ -2,10 +2,13 @@ use reqwest::header::HeaderValue;
 use std::sync::{OnceLock, RwLock};
 
 const ENV_UPSTREAM_BASE_URL: &str = "CODEXMANAGER_UPSTREAM_BASE_URL";
+const ENV_UPSTREAM_FALLBACK_BASE_URL: &str = "CODEXMANAGER_UPSTREAM_FALLBACK_BASE_URL";
 const DEFAULT_UPSTREAM_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
+const DEFAULT_UPSTREAM_FALLBACK_BASE_URL: &str = "https://api.openai.com/v1";
 
 static CONFIG_LOADED: OnceLock<()> = OnceLock::new();
 static UPSTREAM_BASE_URL: OnceLock<RwLock<String>> = OnceLock::new();
+static UPSTREAM_FALLBACK_BASE_URL: OnceLock<RwLock<Option<String>>> = OnceLock::new();
 
 /// 函数 `normalize_upstream_base_url`
 ///
@@ -57,8 +60,16 @@ pub(in super::super) fn resolve_upstream_base_url() -> String {
 ///
 /// # 返回
 /// 返回函数执行结果
-pub(in super::super) fn resolve_upstream_fallback_base_url(_primary_base: &str) -> Option<String> {
-    None
+pub(in super::super) fn resolve_upstream_fallback_base_url(primary_base: &str) -> Option<String> {
+    ensure_config_loaded();
+    if !is_chatgpt_backend_base(primary_base) {
+        return None;
+    }
+    crate::lock_utils::read_recover(
+        upstream_fallback_base_url_cell(),
+        "upstream_fallback_base_url",
+    )
+    .clone()
 }
 
 /// 函数 `is_openai_api_base`
@@ -212,9 +223,17 @@ pub(in super::super) fn reload_from_env() {
     let base = env_non_empty(ENV_UPSTREAM_BASE_URL)
         .map(|value| normalize_upstream_base_url(&value))
         .unwrap_or_else(|| DEFAULT_UPSTREAM_BASE_URL.to_string());
+    let fallback_base = env_non_empty(ENV_UPSTREAM_FALLBACK_BASE_URL)
+        .map(|value| normalize_upstream_base_url(&value))
+        .or_else(|| Some(DEFAULT_UPSTREAM_FALLBACK_BASE_URL.to_string()));
     let mut cached_base =
         crate::lock_utils::write_recover(upstream_base_url_cell(), "upstream_base_url");
     *cached_base = base;
+    let mut cached_fallback_base = crate::lock_utils::write_recover(
+        upstream_fallback_base_url_cell(),
+        "upstream_fallback_base_url",
+    );
+    *cached_fallback_base = fallback_base;
 }
 
 /// 函数 `ensure_config_loaded`
@@ -245,6 +264,22 @@ fn ensure_config_loaded() {
 /// 返回函数执行结果
 fn upstream_base_url_cell() -> &'static RwLock<String> {
     UPSTREAM_BASE_URL.get_or_init(|| RwLock::new(DEFAULT_UPSTREAM_BASE_URL.to_string()))
+}
+
+/// 函数 `upstream_fallback_base_url_cell`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-03
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 返回函数执行结果
+fn upstream_fallback_base_url_cell() -> &'static RwLock<Option<String>> {
+    UPSTREAM_FALLBACK_BASE_URL
+        .get_or_init(|| RwLock::new(Some(DEFAULT_UPSTREAM_FALLBACK_BASE_URL.to_string())))
 }
 
 /// 函数 `env_non_empty`

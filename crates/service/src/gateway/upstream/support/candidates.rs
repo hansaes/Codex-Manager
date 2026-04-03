@@ -52,6 +52,35 @@ pub(in super::super) fn free_account_model_override(
     }
 }
 
+/// 函数 `allow_openai_fallback_for_account`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-03
+///
+/// # 参数
+/// - storage: 参数 storage
+/// - account: 参数 account
+/// - token: 参数 token
+///
+/// # 返回
+/// 返回函数执行结果
+pub(in super::super) fn allow_openai_fallback_for_account(
+    storage: &Storage,
+    account: &Account,
+    token: &Token,
+) -> bool {
+    let snapshot = storage
+        .latest_usage_snapshot_for_account(account.id.as_str())
+        .ok()
+        .flatten();
+    let Some(plan) = crate::account_plan::resolve_account_plan(Some(token), snapshot.as_ref())
+    else {
+        return false;
+    };
+    matches!(plan.normalized.as_str(), "free" | "go" | "plus" | "pro")
+}
+
 /// 函数 `candidate_skip_reason_for_proxy`
 ///
 /// 作者: gaohongshun
@@ -98,7 +127,7 @@ pub(in super::super) fn candidate_skip_reason_for_proxy(
 }
 #[cfg(test)]
 mod tests {
-    use super::free_account_model_override;
+    use super::{allow_openai_fallback_for_account, free_account_model_override};
     use codexmanager_core::storage::{now_ts, Account, Storage, Token, UsageSnapshotRecord};
 
     /// 函数 `free_account_model_override_uses_configured_model_for_free_account`
@@ -327,5 +356,101 @@ mod tests {
         let _ = crate::gateway::set_free_account_max_model(&original);
 
         assert_eq!(actual, None);
+    }
+
+    /// 函数 `allow_openai_fallback_for_account_accepts_individual_plan_tiers`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-03
+    ///
+    /// # 参数
+    /// 无
+    ///
+    /// # 返回
+    /// 无
+    #[test]
+    fn allow_openai_fallback_for_account_accepts_individual_plan_tiers() {
+        let _guard = crate::test_env_guard();
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+        let account = Account {
+            id: "acc-pro".to_string(),
+            label: "acc-pro".to_string(),
+            issuer: "issuer".to_string(),
+            chatgpt_account_id: Some("org-pro".to_string()),
+            workspace_id: Some("org-pro".to_string()),
+            group_name: None,
+            sort: 0,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+        };
+        storage.insert_account(&account).expect("insert account");
+        let token = Token {
+            account_id: "acc-pro".to_string(),
+            id_token: "header.payload.sig".to_string(),
+            access_token: {
+                let header = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0";
+                let payload = "eyJzdWIiOiJhY2MtcHJvIiwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImNoYXRncHRfcGxhbl90eXBlIjoicHJvIn19";
+                format!("{header}.{payload}.sig")
+            },
+            refresh_token: "refresh".to_string(),
+            api_key_access_token: None,
+            last_refresh: now,
+        };
+
+        assert!(allow_openai_fallback_for_account(
+            &storage, &account, &token
+        ));
+    }
+
+    /// 函数 `allow_openai_fallback_for_account_rejects_workspace_plans`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-03
+    ///
+    /// # 参数
+    /// 无
+    ///
+    /// # 返回
+    /// 无
+    #[test]
+    fn allow_openai_fallback_for_account_rejects_workspace_plans() {
+        let _guard = crate::test_env_guard();
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+        let account = Account {
+            id: "acc-team".to_string(),
+            label: "acc-team".to_string(),
+            issuer: "issuer".to_string(),
+            chatgpt_account_id: Some("org-team".to_string()),
+            workspace_id: Some("org-team".to_string()),
+            group_name: Some("team".to_string()),
+            sort: 0,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+        };
+        storage.insert_account(&account).expect("insert account");
+        let token = Token {
+            account_id: "acc-team".to_string(),
+            id_token: "header.payload.sig".to_string(),
+            access_token: {
+                let header = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0";
+                let payload = "eyJzdWIiOiJhY2MtdGVhbSIsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X3BsYW5fdHlwZSI6InRlYW0ifX0";
+                format!("{header}.{payload}.sig")
+            },
+            refresh_token: "refresh".to_string(),
+            api_key_access_token: None,
+            last_refresh: now,
+        };
+
+        assert!(!allow_openai_fallback_for_account(
+            &storage, &account, &token
+        ));
     }
 }
