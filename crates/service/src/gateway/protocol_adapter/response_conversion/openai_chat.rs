@@ -6,11 +6,30 @@ use super::json_conversion::{
 };
 use super::tool_mapping::{
     build_openai_chat_tool_calls, collect_chat_tool_calls_from_delta,
-    collect_chat_tool_calls_from_message, is_openai_chat_tool_item_type,
-    map_response_event_to_openai_chat_tool_chunk, restore_openai_tool_name,
+    is_openai_chat_tool_item_type, map_response_event_to_openai_chat_tool_chunk,
+    merge_tool_calls_from_completed_message_prefer_longer, restore_openai_tool_name,
     restore_openai_tool_name_in_chat_choice, AggregatedChatToolCall,
 };
 use super::{is_response_completed_event_type, parse_openai_sse_event_value, ToolNameRestoreMap};
+
+/// OpenAI Chat Completions 规范使用 `prompt_tokens` / `completion_tokens`；Codex Responses 等上游常只给
+/// `input_tokens` / `output_tokens`。客户端（如 OpenClaw）按 OpenAI 字段读用量时，需补别名否则 UI 恒为 0。
+fn normalize_chat_completion_usage(usage: Value) -> Value {
+    let Value::Object(mut map) = usage else {
+        return usage;
+    };
+    if !map.contains_key("prompt_tokens") {
+        if let Some(v) = map.get("input_tokens").cloned() {
+            map.insert("prompt_tokens".to_string(), v);
+        }
+    }
+    if !map.contains_key("completion_tokens") {
+        if let Some(v) = map.get("output_tokens").cloned() {
+            map.insert("completion_tokens".to_string(), v);
+        }
+    }
+    Value::Object(map)
+}
 
 /// 函数 `extract_chat_content_text`
 ///
@@ -322,6 +341,9 @@ pub(super) fn map_openai_response_to_chat_completion(
                 restore_openai_tool_name_in_chat_choice(choice, tool_name_restore_map);
             }
         }
+        if let Some(usage) = cloned.get_mut("usage") {
+            *usage = normalize_chat_completion_usage(usage.clone());
+        }
         return cloned;
     }
     let source = value.get("response").unwrap_or(value);
@@ -442,7 +464,7 @@ pub(super) fn map_openai_response_to_chat_completion(
         })]),
     );
     if let Some(usage) = usage {
-        out.insert("usage".to_string(), usage);
+        out.insert("usage".to_string(), normalize_chat_completion_usage(usage));
     }
     Value::Object(out)
 }
@@ -821,44 +843,46 @@ pub(super) fn convert_openai_sse_to_chat_completions_json(
         &mut saw_text_delta,
     );
 
-    if content.is_empty() {
-        if let Some(response) = completed_response.as_ref() {
-            let completion =
-                map_openai_response_to_chat_completion(response, tool_name_restore_map);
-            if let Some(v) = completion.get("id").and_then(Value::as_str) {
-                if !v.is_empty() {
-                    id = v.to_string();
-                }
+    if let Some(response) = completed_response.as_ref() {
+        let completion = map_openai_response_to_chat_completion(response, tool_name_restore_map);
+        if let Some(v) = completion.get("id").and_then(Value::as_str) {
+            if !v.is_empty() {
+                id = v.to_string();
             }
-            if let Some(v) = completion.get("model").and_then(Value::as_str) {
-                if !v.is_empty() {
-                    model = v.to_string();
-                }
+        }
+        if let Some(v) = completion.get("model").and_then(Value::as_str) {
+            if !v.is_empty() {
+                model = v.to_string();
             }
-            if let Some(v) = completion.get("created").and_then(Value::as_i64) {
-                created = v;
+        }
+        if let Some(v) = completion.get("created").and_then(Value::as_i64) {
+            created = v;
+        }
+        if usage.is_none() {
+            if let Some(v) = completion.get("usage") {
+                usage = Some(v.clone());
             }
-            if usage.is_none() {
-                if let Some(v) = completion.get("usage") {
-                    usage = Some(v.clone());
-                }
-            }
-            if let Some(choice) = completion
-                .get("choices")
-                .and_then(Value::as_array)
-                .and_then(|choices| choices.first())
-            {
-                if let Some(message) = choice.get("message") {
+        }
+        if let Some(choice) = completion
+            .get("choices")
+            .and_then(Value::as_array)
+            .and_then(|choices| choices.first())
+        {
+            if let Some(message) = choice.get("message") {
+                if content.is_empty() {
                     content = extract_chat_content_text(message.get("content"));
-                    if let Some(message_obj) = message.as_object() {
-                        collect_chat_tool_calls_from_message(message_obj, &mut tool_calls_by_index);
-                    }
                 }
-                if finish_reason.is_none() {
-                    if let Some(v) = choice.get("finish_reason") {
-                        if !v.is_null() {
-                            finish_reason = Some(v.clone());
-                        }
+                if let Some(message_obj) = message.as_object() {
+                    merge_tool_calls_from_completed_message_prefer_longer(
+                        &mut tool_calls_by_index,
+                        message_obj,
+                    );
+                }
+            }
+            if finish_reason.is_none() {
+                if let Some(v) = choice.get("finish_reason") {
+                    if !v.is_null() {
+                        finish_reason = Some(v.clone());
                     }
                 }
             }
@@ -900,7 +924,7 @@ pub(super) fn convert_openai_sse_to_chat_completions_json(
     }
     if let Some(usage) = usage {
         if let Some(out_obj) = out.as_object_mut() {
-            out_obj.insert("usage".to_string(), usage);
+            out_obj.insert("usage".to_string(), normalize_chat_completion_usage(usage));
         }
     }
 

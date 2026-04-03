@@ -32,6 +32,67 @@ fn extract_json_int_value_after(payload: &str, key: &str) -> Option<usize> {
     digits.parse().ok()
 }
 
+/// 上游常在 `output_item.added` 里带 `input: {}` / `arguments: "{}"`，若写入后再拼接
+/// `response.function_call_arguments.delta`，会得到 `"{}{\"path\"...` 这类非法 JSON，
+/// `parse_tool_arguments_as_object` 解析失败后会退化成 `{}`，OpenClaw 侧就看到 `edits:[]` 等异常。
+fn is_placeholder_tool_arguments_json(raw: &str) -> bool {
+    matches!(raw.trim(), "" | "{}" | "[]" | "null")
+}
+
+/// 将 `output_item` 上解析出的参数合并进流式缓冲区：占位值不覆盖已累积内容；
+/// 非占位时，空缓冲直接写入，否则仅在快照更长时覆盖（避免 `done` 里的空对象冲掉完整流式参数）。
+fn merge_tool_arguments_from_output_item(arguments: &mut String, arguments_raw: String) {
+    if is_placeholder_tool_arguments_json(&arguments_raw) {
+        return;
+    }
+    if arguments.is_empty() {
+        *arguments = arguments_raw;
+        return;
+    }
+    if arguments_raw.len() > arguments.len() {
+        *arguments = arguments_raw;
+    }
+}
+
+/// `response.completed` 里 `output[i]` 的 `function_call.arguments` 往往比流式 delta 拼出的更短
+/// （甚至被截断成 `oldText:""`）。快捷路径若只用 completed，会整段丢掉 `tool_calls` 里已拼好的参数。
+/// 在转 Anthropic 前，用更长的流式快照按 `output` 下标覆盖对应条目的 `arguments`。
+fn merge_streamed_tool_arguments_into_completed_output(
+    response: &mut Value,
+    tool_calls: &BTreeMap<usize, StreamingToolCall>,
+) {
+    let Some(output) = response.get_mut("output").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for (idx, item) in output.iter_mut().enumerate() {
+        let Some(obj) = item.as_object_mut() else {
+            continue;
+        };
+        let item_type = obj.get("type").and_then(Value::as_str).unwrap_or("");
+        if !is_openai_chat_tool_item_type(item_type) {
+            continue;
+        }
+        let Some(tc) = tool_calls.get(&idx) else {
+            continue;
+        };
+        let streamed = tc.arguments.trim();
+        if streamed.is_empty() || is_placeholder_tool_arguments_json(streamed) {
+            continue;
+        }
+        let existing_len = extract_function_call_arguments_raw(obj)
+            .map(|s| s.len())
+            .unwrap_or(0);
+        if tc.arguments.len() <= existing_len {
+            continue;
+        }
+        obj.insert("arguments".to_string(), Value::String(tc.arguments.clone()));
+        // 避免 `extract_function_call_arguments_raw` 仍读到旧的 `input` 对象
+        obj.remove("input");
+        obj.remove("parsed_arguments");
+        obj.remove("args");
+    }
+}
+
 fn salvage_chat_completion_chunk_payload(
     payload: &str,
     response_id: &mut Option<String>,
@@ -323,7 +384,7 @@ pub(super) fn convert_openai_sse_to_anthropic(
                         entry.name = Some(name.to_string());
                     }
                     if let Some(arguments_raw) = extract_function_call_arguments_raw(item_obj) {
-                        entry.arguments = arguments_raw;
+                        merge_tool_arguments_from_output_item(&mut entry.arguments, arguments_raw);
                     }
                     continue;
                 }
@@ -365,7 +426,7 @@ pub(super) fn convert_openai_sse_to_anthropic(
                             entry.name = Some(name.to_string());
                         }
                         if let Some(arguments_raw) = extract_function_call_arguments_raw(item_obj) {
-                            entry.arguments = arguments_raw;
+                            merge_tool_arguments_from_output_item(&mut entry.arguments, arguments_raw);
                         }
                     }
                     continue;
@@ -529,7 +590,8 @@ pub(super) fn convert_openai_sse_to_anthropic(
             }
         }
     }
-    if let Some(response) = completed_response {
+    if let Some(mut response) = completed_response {
+        merge_streamed_tool_arguments_into_completed_output(&mut response, &tool_calls);
         let completed_has_effective_output = response
             .get("output_text")
             .and_then(Value::as_str)
