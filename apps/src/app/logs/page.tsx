@@ -244,7 +244,7 @@ function formatCompactTokenAmount(value: number | null | undefined): string {
   if (normalized < 1000) {
     return formatTokenAmount(normalized);
   }
-  return formatCompactNumber(normalized, "0.00", 2);
+  return formatCompactNumber(normalized, "0.00", 2, true);
 }
 
 /**

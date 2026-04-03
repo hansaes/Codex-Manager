@@ -94,7 +94,7 @@ function formatCompactTokenAmount(value: number | null | undefined): string {
       maximumFractionDigits: 2,
     });
   }
-  return formatCompactNumber(normalized, "0.00", 2);
+  return formatCompactNumber(normalized, "0.00", 2, true);
 }
 
 /**

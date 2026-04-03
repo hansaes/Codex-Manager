@@ -111,7 +111,8 @@ function trimTrailingZeros(text: string): string {
 export function formatCompactNumber(
   value: number | null | undefined,
   fallback = "-",
-  maxFractionDigits = 1
+  maxFractionDigits = 1,
+  preserveTrailingZeros = false
 ): string {
   const parsed = toNullableNumber(value);
   if (parsed == null) return fallback;
@@ -124,7 +125,8 @@ export function formatCompactNumber(
   for (const unit of COMPACT_NUMBER_UNITS) {
     if (normalized < unit.value) continue;
     const scaled = normalized / unit.value;
-    return `${trimTrailingZeros(scaled.toFixed(maxFractionDigits))}${unit.suffix}`;
+    const fixed = scaled.toFixed(maxFractionDigits);
+    return `${preserveTrailingZeros ? fixed : trimTrailingZeros(fixed)}${unit.suffix}`;
   }
 
   return `${Math.round(normalized)}`;
