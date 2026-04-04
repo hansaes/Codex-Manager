@@ -308,7 +308,7 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
         "上游客户端超时（秒）",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "180",
+        "0",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_UPSTREAM_CONNECT_TIMEOUT_SECS",
@@ -319,17 +319,17 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_UPSTREAM_STREAM_TIMEOUT_MS",
-        "上游流式超时（毫秒）",
+        "上游流式空闲超时（毫秒）",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "1800000",
+        "600000",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_UPSTREAM_TOTAL_TIMEOUT_MS",
-        "上游总超时（毫秒）",
+        "上游总超时（毫秒，0 为关闭）",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "120000",
+        "0",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_USAGE_BASE_URL",

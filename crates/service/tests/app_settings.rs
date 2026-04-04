@@ -74,7 +74,7 @@ fn reset_runtime_defaults() {
         "appearancePreset": "classic",
         "lightweightModeOnCloseToTray": false,
         "upstreamProxyUrl": "",
-        "upstreamStreamTimeoutMs": 1800000,
+        "upstreamStreamTimeoutMs": 600000,
         "sseKeepaliveIntervalMs": 15000,
         "envOverrides": {},
         "backgroundTasks": {
@@ -1116,13 +1116,13 @@ fn app_settings_set_persists_env_overrides_and_exposes_catalog() {
             .expect("catalog item");
         assert_eq!(
             total_timeout.get("label").and_then(|value| value.as_str()),
-            Some("上游总超时（毫秒）")
+            Some("上游总超时（毫秒，0 为关闭）")
         );
         assert_eq!(
             total_timeout
                 .get("defaultValue")
                 .and_then(|value| value.as_str()),
-            Some("120000")
+            Some("0")
         );
         assert!(snapshot
             .get("envOverrideReservedKeys")
@@ -1244,7 +1244,7 @@ fn app_settings_get_seeds_full_env_override_snapshot() {
                 .get("envOverrides")
                 .and_then(|value| value.get("CODEXMANAGER_UPSTREAM_TOTAL_TIMEOUT_MS"))
                 .and_then(|value| value.as_str()),
-            Some("120000")
+            Some("0")
         );
         assert_eq!(
             snapshot
@@ -1267,7 +1267,7 @@ fn app_settings_get_seeds_full_env_override_snapshot() {
             stored
                 .get("CODEXMANAGER_UPSTREAM_TOTAL_TIMEOUT_MS")
                 .and_then(|value| value.as_str()),
-            Some("120000")
+            Some("0")
         );
         assert_eq!(
             stored
@@ -1407,7 +1407,7 @@ fn app_settings_set_env_overrides_patch_preserves_other_values_and_reset_to_defa
                 .get("envOverrides")
                 .and_then(|value| value.get("CODEXMANAGER_UPSTREAM_TOTAL_TIMEOUT_MS"))
                 .and_then(|value| value.as_str()),
-            Some("120000")
+            Some("0")
         );
         assert_eq!(
             second
@@ -1420,7 +1420,7 @@ fn app_settings_set_env_overrides_patch_preserves_other_values_and_reset_to_defa
             std::env::var("CODEXMANAGER_UPSTREAM_TOTAL_TIMEOUT_MS")
                 .ok()
                 .as_deref(),
-            Some("120000")
+            Some("0")
         );
         assert_eq!(
             std::env::var("CODEXMANAGER_WEB_ROOT").ok().as_deref(),

@@ -59,7 +59,7 @@ export const useAppStore = create<AppState>((set) => ({
     pluginMarketMode: "builtin",
     pluginMarketSourceUrl: "",
     upstreamProxyUrl: "",
-    upstreamStreamTimeoutMs: 1800000,
+    upstreamStreamTimeoutMs: 600000,
     sseKeepaliveIntervalMs: 15000,
     backgroundTasks: {
       usagePollingEnabled: true,

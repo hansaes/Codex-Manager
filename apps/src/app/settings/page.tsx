@@ -2009,7 +2009,7 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label>上游流式超时 (ms)</Label>
+                  <Label>上游流式空闲超时 (ms)</Label>
                   <Input
                     type="number"
                     value={transportInputValues.upstreamStreamTimeoutMs}
