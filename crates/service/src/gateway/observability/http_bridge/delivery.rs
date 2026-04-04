@@ -2,6 +2,8 @@ use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use tiny_http::{Header, Request, Response, StatusCode};
 
+use crate::gateway::error_log::GatewayErrorLogInput;
+
 use super::super::{
     adapt_upstream_response, adapt_upstream_response_with_tool_name_restore_map,
     build_anthropic_error_body, ResponseAdapter, ToolNameRestoreMap,
@@ -682,20 +684,45 @@ fn respond_invalid_compact_non_success_body(
     identity_error_code: Option<&str>,
     trace_id: Option<&str>,
 ) -> UpstreamResponseBridgeResult {
+    let request_method = request.method().as_str().to_string();
+    let request_path = request.url().to_string();
+    let error_kind = classify_compact_non_success_kind(
+        status_code,
+        content_type,
+        body,
+        cf_ray,
+        auth_error,
+        identity_error_code,
+    );
+    let message = build_compact_non_success_message(
+        status_code,
+        content_type,
+        body,
+        request_id,
+        cf_ray,
+        auth_error,
+        identity_error_code,
+    );
+    crate::gateway::write_gateway_error_log(GatewayErrorLogInput {
+        trace_id,
+        request_path: request_path.as_str(),
+        method: request_method.as_str(),
+        stage: "compact_bridge_non_success",
+        error_kind: Some(error_kind),
+        cf_ray,
+        status_code: Some(status_code),
+        compression_enabled: false,
+        compression_retry_attempted: false,
+        message: message.as_str(),
+        ..GatewayErrorLogInput::default()
+    });
+
     with_bridge_debug_meta(
         respond_synthesized_compact_error_body(
             request,
             status_code,
             usage,
-            build_compact_non_success_message(
-                status_code,
-                content_type,
-                body,
-                request_id,
-                cf_ray,
-                auth_error,
-                identity_error_code,
-            ),
+            message,
             request_id,
             cf_ray,
             trace_id,

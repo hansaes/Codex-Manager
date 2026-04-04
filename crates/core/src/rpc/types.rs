@@ -649,6 +649,31 @@ pub struct RequestLogListResult {
     pub page_size: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GatewayErrorLogSummary {
+    pub trace_id: Option<String>,
+    pub key_id: Option<String>,
+    pub account_id: Option<String>,
+    pub request_path: String,
+    pub method: String,
+    pub stage: String,
+    pub error_kind: Option<String>,
+    pub upstream_url: Option<String>,
+    pub cf_ray: Option<String>,
+    pub status_code: Option<i64>,
+    pub compression_enabled: bool,
+    pub compression_retry_attempted: bool,
+    pub message: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GatewayErrorLogListResult {
+    pub items: Vec<GatewayErrorLogSummary>,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RequestLogFilterSummaryResult {

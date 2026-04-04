@@ -3,6 +3,7 @@ use codexmanager_core::storage::{Account, Storage, Token};
 use std::time::Instant;
 
 use crate::account_status::mark_account_unavailable_for_refresh_token_error;
+use crate::gateway::error_log::GatewayErrorLogInput;
 
 use super::super::support::backoff;
 use super::super::support::outcome::{decide_upstream_outcome, UpstreamOutcomeDecision};
@@ -10,6 +11,25 @@ use super::super::support::retry::{retry_with_alternate_path, AltPathRetryResult
 use super::fallback_branch::{handle_openai_fallback_branch, FallbackBranchResult};
 use super::stateless_retry::{retry_stateless_then_optional_alt, StatelessRetryResult};
 use super::transport::UpstreamRequestContext;
+
+fn first_header_value<'a>(
+    headers: &'a reqwest::header::HeaderMap,
+    name: &str,
+) -> Option<&'a str> {
+    headers.get(name).and_then(|value| value.to_str().ok())
+}
+
+fn should_treat_as_challenge_for_retry(
+    status: reqwest::StatusCode,
+    upstream_content_type: Option<&reqwest::header::HeaderValue>,
+    upstream_cf_ray: Option<&str>,
+) -> bool {
+    if !matches!(status.as_u16(), 401 | 403) {
+        return false;
+    }
+    super::super::super::is_upstream_challenge_response(status.as_u16(), upstream_content_type)
+        || upstream_cf_ray.is_some()
+}
 
 /// 函数 `try_refresh_chatgpt_access_token`
 ///
@@ -132,6 +152,221 @@ fn retry_upstream_server_error_once(
         Err(err) => {
             log::warn!(
                 "event=gateway_upstream_server_error_retry_error path={} status=502 account_id={} err={}",
+                request_ctx.request_path,
+                account.id,
+                err
+            );
+            Ok(None)
+        }
+    }
+}
+
+/// 函数 `retry_compact_challenge_with_standard_responses`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-04
+///
+/// # 参数
+/// - client: 参数 client
+/// - method: 参数 method
+/// - upstream_base: 参数 upstream_base
+/// - request_deadline: 参数 request_deadline
+/// - incoming_headers: 参数 incoming_headers
+/// - body: 参数 body
+/// - auth_token: 参数 auth_token
+/// - account: 参数 account
+/// - strip_session_affinity: 参数 strip_session_affinity
+/// - debug: 参数 debug
+/// - status: 参数 status
+/// - upstream_content_type: 参数 upstream_content_type
+///
+/// # 返回
+/// 返回函数执行结果
+#[allow(clippy::too_many_arguments)]
+fn retry_compact_challenge_with_standard_responses(
+    client: &reqwest::blocking::Client,
+    method: &reqwest::Method,
+    upstream_base: &str,
+    request_deadline: Option<Instant>,
+    incoming_headers: &super::super::super::IncomingHeaderSnapshot,
+    body: &Bytes,
+    auth_token: &str,
+    account: &Account,
+    strip_session_affinity: bool,
+    debug: bool,
+    status: reqwest::StatusCode,
+    upstream_content_type: Option<&reqwest::header::HeaderValue>,
+    upstream_cf_ray: Option<&str>,
+) -> Result<Option<reqwest::blocking::Response>, ()> {
+    if !super::super::config::is_chatgpt_backend_base(upstream_base) {
+        return Ok(None);
+    }
+    if !should_treat_as_challenge_for_retry(status, upstream_content_type, upstream_cf_ray) {
+        return Ok(None);
+    }
+
+    let standard_path = "/v1/responses";
+    let (standard_url, _) =
+        crate::gateway::request_rewrite::compute_upstream_url(upstream_base, standard_path);
+    let standard_body = crate::gateway::request_rewrite::apply_request_overrides_with_service_tier(
+        standard_path,
+        body.to_vec(),
+        None,
+        None,
+        None,
+        Some(upstream_base),
+    );
+    let standard_body = Bytes::from(standard_body);
+    let standard_ctx = UpstreamRequestContext {
+        request_path: standard_path,
+    };
+
+    if debug {
+        log::warn!(
+            "event=gateway_compact_challenge_downgrade_retry from_path=/v1/responses/compact to_path={} status={} account_id={} upstream_url={}",
+            standard_path,
+            status.as_u16(),
+            account.id,
+            standard_url
+        );
+    }
+    crate::gateway::write_gateway_error_log(GatewayErrorLogInput {
+        account_id: Some(account.id.as_str()),
+        request_path: standard_path,
+        method: method.as_str(),
+        stage: "compact_challenge_downgrade_retry",
+        error_kind: Some("cloudflare_challenge"),
+        upstream_url: Some(standard_url.as_str()),
+        cf_ray: upstream_cf_ray,
+        status_code: Some(status.as_u16()),
+        compression_enabled: false,
+        compression_retry_attempted: false,
+        message: "compact path hit challenge and downgraded to standard responses path",
+        ..GatewayErrorLogInput::default()
+    });
+
+    match super::transport::send_upstream_request(
+        client,
+        method,
+        standard_url.as_str(),
+        request_deadline,
+        standard_ctx,
+        incoming_headers,
+        &standard_body,
+        true,
+        auth_token,
+        account,
+        strip_session_affinity,
+    ) {
+        Ok(resp) => Ok(resp.status().is_success().then_some(resp)),
+        Err(err) => {
+            log::warn!(
+                "event=gateway_compact_challenge_downgrade_retry_error path={} status=502 account_id={} err={}",
+                standard_path,
+                account.id,
+                err
+            );
+            Ok(None)
+        }
+    }
+}
+
+/// 函数 `retry_chatgpt_challenge_without_compression`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-04
+///
+/// # 参数
+/// - upstream_content_type: 参数 upstream_content_type
+///
+/// # 返回
+/// 返回函数执行结果
+#[allow(clippy::too_many_arguments)]
+fn retry_chatgpt_challenge_without_compression(
+    client: &reqwest::blocking::Client,
+    method: &reqwest::Method,
+    upstream_base: &str,
+    url: &str,
+    request_deadline: Option<Instant>,
+    request_ctx: UpstreamRequestContext<'_>,
+    incoming_headers: &super::super::super::IncomingHeaderSnapshot,
+    body: &Bytes,
+    is_stream: bool,
+    auth_token: &str,
+    account: &Account,
+    strip_session_affinity: bool,
+    debug: bool,
+    status: reqwest::StatusCode,
+    upstream_content_type: Option<&reqwest::header::HeaderValue>,
+    upstream_cf_ray: Option<&str>,
+) -> Result<Option<reqwest::blocking::Response>, ()> {
+    if !super::super::config::is_chatgpt_backend_base(upstream_base) {
+        return Ok(None);
+    }
+    if !is_stream || !request_ctx.request_path.starts_with("/v1/responses") {
+        return Ok(None);
+    }
+    if !should_treat_as_challenge_for_retry(status, upstream_content_type, upstream_cf_ray) {
+        return Ok(None);
+    }
+
+    if debug {
+        log::warn!(
+            "event=gateway_chatgpt_challenge_retry_without_compression path={} status={} account_id={} upstream_url={}",
+            request_ctx.request_path,
+            status.as_u16(),
+            account.id,
+            url
+        );
+    }
+    crate::gateway::write_gateway_error_log(GatewayErrorLogInput {
+        account_id: Some(account.id.as_str()),
+        request_path: request_ctx.request_path,
+        method: method.as_str(),
+        stage: "chatgpt_challenge_retry_without_compression",
+        error_kind: Some("cloudflare_challenge"),
+        upstream_url: Some(url),
+        cf_ray: upstream_cf_ray,
+        status_code: Some(status.as_u16()),
+        compression_enabled: crate::gateway::request_compression_enabled(),
+        compression_retry_attempted: true,
+        message: "chatgpt challenge detected; retrying same request without compression",
+        ..GatewayErrorLogInput::default()
+    });
+
+    match super::transport::send_upstream_request_without_compression(
+        client,
+        method,
+        url,
+        request_deadline,
+        request_ctx,
+        incoming_headers,
+        body,
+        is_stream,
+        auth_token,
+        account,
+        strip_session_affinity,
+    ) {
+        Ok(resp) => Ok(resp.status().is_success().then_some(resp)),
+        Err(err) => {
+            let err_text = err.to_string();
+            crate::gateway::write_gateway_error_log(GatewayErrorLogInput {
+                account_id: Some(account.id.as_str()),
+                request_path: request_ctx.request_path,
+                method: method.as_str(),
+                stage: "chatgpt_challenge_retry_without_compression_error",
+                error_kind: Some("transport_error"),
+                upstream_url: Some(url),
+                status_code: Some(502),
+                compression_enabled: crate::gateway::request_compression_enabled(),
+                compression_retry_attempted: true,
+                message: err_text.as_str(),
+                ..GatewayErrorLogInput::default()
+            });
+            log::warn!(
+                "event=gateway_chatgpt_challenge_retry_without_compression_error path={} status=502 account_id={} err={}",
                 request_ctx.request_path,
                 account.id,
                 err
@@ -315,6 +550,37 @@ where
         }
     }
 
+    match retry_chatgpt_challenge_without_compression(
+        client,
+        method,
+        upstream_base,
+        url,
+        request_deadline,
+        request_ctx,
+        incoming_headers,
+        body,
+        is_stream,
+        current_auth_token.as_str(),
+        account,
+        strip_session_affinity,
+        debug,
+        status,
+        upstream.headers().get(reqwest::header::CONTENT_TYPE),
+        first_header_value(upstream.headers(), "cf-ray"),
+    ) {
+        Ok(Some(resp)) => {
+            upstream = resp;
+            status = upstream.status();
+        }
+        Ok(None) => {}
+        Err(()) => {
+            return PostRetryFlowDecision::Terminal {
+                status_code: 504,
+                message: "upstream total timeout exceeded".to_string(),
+            };
+        }
+    }
+
     if !super::super::config::is_chatgpt_backend_base(upstream_base) {
         match retry_stateless_then_optional_alt(
             client,
@@ -347,6 +613,34 @@ where
                     message,
                 };
             }
+        }
+    }
+
+    match retry_compact_challenge_with_standard_responses(
+        client,
+        method,
+        upstream_base,
+        request_deadline,
+        incoming_headers,
+        body,
+        current_auth_token.as_str(),
+        account,
+        strip_session_affinity,
+        debug,
+        status,
+        upstream.headers().get(reqwest::header::CONTENT_TYPE),
+        first_header_value(upstream.headers(), "cf-ray"),
+    ) {
+        Ok(Some(resp)) => {
+            upstream = resp;
+            status = upstream.status();
+        }
+        Ok(None) => {}
+        Err(()) => {
+            return PostRetryFlowDecision::Terminal {
+                status_code: 504,
+                message: "upstream total timeout exceeded".to_string(),
+            };
         }
     }
 
@@ -544,6 +838,217 @@ mod tests {
             &incoming_headers,
             &body,
             false,
+            auth_token.as_str(),
+            &account,
+            &mut token,
+            None,
+            false,
+            false,
+            false,
+            false,
+            true,
+            upstream,
+            |_, _, _| {},
+        );
+
+        join.join().expect("join server");
+        assert_eq!(hit_count.load(Ordering::SeqCst), 2);
+        match decision {
+            PostRetryFlowDecision::RespondUpstream(resp) => assert_eq!(resp.status(), 200),
+            _ => panic!("unexpected decision"),
+        }
+    }
+
+    #[test]
+    fn retries_chatgpt_challenge_without_compression_before_fallback() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+        let now = now_ts();
+        let account = build_account("acc-challenge-retry", now);
+        let mut token = build_token(account.id.as_str(), now);
+        let auth_token = token.access_token.clone();
+        storage.insert_account(&account).expect("insert account");
+        storage.insert_token(&token).expect("insert token");
+
+        let server = Server::http("127.0.0.1:0").expect("start server");
+        let addr = format!("http://{}", server.server_addr());
+        let hit_count = Arc::new(AtomicUsize::new(0));
+        let hit_count_thread = Arc::clone(&hit_count);
+        let join = thread::spawn(move || {
+            for index in 0..2 {
+                let mut request = server
+                    .recv_timeout(Duration::from_secs(2))
+                    .expect("receive upstream request")
+                    .expect("request present");
+                let content_encoding = request
+                    .headers()
+                    .iter()
+                    .find(|header| header.field.equiv("Content-Encoding"))
+                    .map(|header| header.value.as_str().to_string());
+                let mut body = Vec::new();
+                std::io::Read::read_to_end(request.as_reader(), &mut body)
+                    .expect("read request body");
+                hit_count_thread.fetch_add(1, Ordering::SeqCst);
+
+                if index == 0 {
+                    let response = Response::from_string(
+                        "<html><title>Just a moment...</title><body>cf</body></html>",
+                    )
+                    .with_status_code(StatusCode(403));
+                    let response = response.with_header(
+                        tiny_http::Header::from_bytes(
+                            &b"Content-Type"[..],
+                            &b"text/html; charset=utf-8"[..],
+                        )
+                        .expect("content type header"),
+                    );
+                    request.respond(response).expect("respond first");
+                } else {
+                    assert_eq!(content_encoding, None);
+                    let response = Response::from_string("{\"ok\":true}")
+                        .with_status_code(StatusCode(200));
+                    request.respond(response).expect("respond second");
+                }
+            }
+        });
+
+        let client = reqwest::blocking::Client::new();
+        let incoming_headers = IncomingHeaderSnapshot::default();
+        let request_ctx = UpstreamRequestContext {
+            request_path: "/v1/responses",
+        };
+        let body = Bytes::from_static(br#"{"model":"gpt-5.3-codex","input":"hello"}"#);
+        let upstream = super::super::transport::send_upstream_request(
+            &client,
+            &reqwest::Method::POST,
+            addr.as_str(),
+            None,
+            request_ctx,
+            &incoming_headers,
+            &body,
+            true,
+            auth_token.as_str(),
+            &account,
+            false,
+        )
+        .expect("send initial request");
+
+        let decision = process_upstream_post_retry_flow(
+            &client,
+            &storage,
+            &reqwest::Method::POST,
+            addr.as_str(),
+            "/v1/responses",
+            addr.as_str(),
+            None,
+            None,
+            request_ctx,
+            &incoming_headers,
+            &body,
+            true,
+            auth_token.as_str(),
+            &account,
+            &mut token,
+            None,
+            false,
+            false,
+            false,
+            false,
+            true,
+            upstream,
+            |_, _, _| {},
+        );
+
+        join.join().expect("join server");
+        assert_eq!(hit_count.load(Ordering::SeqCst), 2);
+        match decision {
+            PostRetryFlowDecision::RespondUpstream(resp) => assert_eq!(resp.status(), 200),
+            _ => panic!("unexpected decision"),
+        }
+    }
+
+    #[test]
+    fn retries_chatgpt_challenge_without_compression_when_cf_ray_present() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+        let now = now_ts();
+        let account = build_account("acc-challenge-cf-ray", now);
+        let mut token = build_token(account.id.as_str(), now);
+        let auth_token = token.access_token.clone();
+        storage.insert_account(&account).expect("insert account");
+        storage.insert_token(&token).expect("insert token");
+
+        let server = Server::http("127.0.0.1:0").expect("start server");
+        let addr = format!("http://{}", server.server_addr());
+        let hit_count = Arc::new(AtomicUsize::new(0));
+        let hit_count_thread = Arc::clone(&hit_count);
+        let join = thread::spawn(move || {
+            for index in 0..2 {
+                let mut request = server
+                    .recv_timeout(Duration::from_secs(2))
+                    .expect("receive upstream request")
+                    .expect("request present");
+                let content_encoding = request
+                    .headers()
+                    .iter()
+                    .find(|header| header.field.equiv("Content-Encoding"))
+                    .map(|header| header.value.as_str().to_string());
+                let mut body = Vec::new();
+                std::io::Read::read_to_end(request.as_reader(), &mut body)
+                    .expect("read request body");
+                hit_count_thread.fetch_add(1, Ordering::SeqCst);
+
+                if index == 0 {
+                    let response = Response::from_string("{\"error\":\"challenge\"}")
+                        .with_status_code(StatusCode(403));
+                    let response = response.with_header(
+                        tiny_http::Header::from_bytes(&b"cf-ray"[..], &b"ray-postprocess"[..])
+                            .expect("cf-ray header"),
+                    );
+                    request.respond(response).expect("respond first");
+                } else {
+                    assert_eq!(content_encoding, None);
+                    let response = Response::from_string("{\"ok\":true}")
+                        .with_status_code(StatusCode(200));
+                    request.respond(response).expect("respond second");
+                }
+            }
+        });
+
+        let client = reqwest::blocking::Client::new();
+        let incoming_headers = IncomingHeaderSnapshot::default();
+        let request_ctx = UpstreamRequestContext {
+            request_path: "/v1/responses",
+        };
+        let body = Bytes::from_static(br#"{"model":"gpt-5.3-codex","input":"hello"}"#);
+        let upstream = super::super::transport::send_upstream_request(
+            &client,
+            &reqwest::Method::POST,
+            addr.as_str(),
+            None,
+            request_ctx,
+            &incoming_headers,
+            &body,
+            true,
+            auth_token.as_str(),
+            &account,
+            false,
+        )
+        .expect("send initial request");
+
+        let decision = process_upstream_post_retry_flow(
+            &client,
+            &storage,
+            &reqwest::Method::POST,
+            addr.as_str(),
+            "/v1/responses",
+            addr.as_str(),
+            None,
+            None,
+            request_ctx,
+            &incoming_headers,
+            &body,
+            true,
             auth_token.as_str(),
             &account,
             &mut token,

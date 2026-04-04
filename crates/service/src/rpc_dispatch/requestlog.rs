@@ -1,6 +1,9 @@
 use codexmanager_core::rpc::types::{JsonRpcRequest, JsonRpcResponse, RequestLogListParams};
 
-use crate::{requestlog_clear, requestlog_list, requestlog_summary, requestlog_today_summary};
+use crate::{
+    requestlog_clear, requestlog_error_list, requestlog_list, requestlog_summary,
+    requestlog_today_summary,
+};
 
 /// 函数 `try_handle`
 ///
@@ -35,6 +38,14 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             ))
         }
         "requestlog/clear" => super::ok_or_error(requestlog_clear::clear_request_logs()),
+        "requestlog/error_list" => {
+            let limit = req
+                .params
+                .as_ref()
+                .and_then(|params| params.get("limit"))
+                .and_then(serde_json::Value::as_i64);
+            super::value_or_error(requestlog_error_list::read_gateway_error_logs(limit))
+        }
         "requestlog/today_summary" => {
             super::value_or_error(requestlog_today_summary::read_requestlog_today_summary())
         }

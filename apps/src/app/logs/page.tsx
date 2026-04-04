@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
+  Copy,
   Database,
   RefreshCw,
   Shield,
@@ -27,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -50,12 +52,14 @@ import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useAppStore } from "@/lib/store/useAppStore";
+import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import { formatCompactNumber, formatTsFromSeconds } from "@/lib/utils/usage";
 import { cn } from "@/lib/utils";
 import {
   AccountListResult,
   AggregateApi,
   ApiKey,
+  GatewayErrorLog,
   RequestLog,
   RequestLogFilterSummary,
   RequestLogListResult,
@@ -63,6 +67,7 @@ import {
 } from "@/types";
 
 type StatusFilter = "all" | "2xx" | "4xx" | "5xx";
+type LogsTab = "requests" | "gateway-errors";
 
 /**
  * 函数 `getStatusBadge`
@@ -1063,6 +1068,8 @@ function LogsPageContent() {
   const [pageSize, setPageSize] = useState("10");
   const [page, setPage] = useState(1);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<LogsTab>("requests");
+  const [gatewayStageFilter, setGatewayStageFilter] = useState("all");
   const pageSizeNumber = Number(pageSize) || 10;
   const startupSnapshot = queryClient.getQueryData<StartupSnapshot>(
     buildStartupSnapshotQueryKey(
@@ -1153,6 +1160,14 @@ function LogsPageContent() {
       (canUseStartupLogsPlaceholder
         ? buildSummaryPlaceholder(startupRequestLogs)
         : undefined),
+  });
+
+  const { data: gatewayErrorLogs = [] } = useQuery({
+    queryKey: ["logs", "gateway-error-list"],
+    queryFn: () => serviceClient.listGatewayErrorLogs(50),
+    enabled: areLogQueriesEnabled && isPageActive,
+    refetchInterval: 5000,
+    retry: 1,
   });
 
   const clearMutation = useMutation({
@@ -1256,117 +1271,190 @@ function LogsPageContent() {
     serviceStatus.connected ? "5 秒刷新" : "服务未连接"
   }`;
 
+  const renderGatewayErrorContext = (item: GatewayErrorLog) => {
+    const parts = [
+      item.errorKind ? `kind=${item.errorKind}` : "",
+      item.cfRay ? `cf_ray=${item.cfRay}` : "",
+      item.compressionEnabled ? "compression=zstd" : "compression=none",
+      item.compressionRetryAttempted ? "retry=no-compression" : "",
+    ].filter(Boolean);
+    return parts.join(" · ");
+  };
+
+  const gatewayStageFilterLabel =
+    gatewayStageFilter === "all" ? "全部阶段" : gatewayStageFilter;
+
+  const gatewayStageOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        gatewayErrorLogs
+          .map((item) => String(item.stage || "").trim())
+          .filter(Boolean),
+      ),
+    ).sort((left, right) => left.localeCompare(right));
+  }, [gatewayErrorLogs]);
+
+  const filteredGatewayErrorLogs = useMemo(() => {
+    if (gatewayStageFilter === "all") {
+      return gatewayErrorLogs;
+    }
+    return gatewayErrorLogs.filter((item) => item.stage === gatewayStageFilter);
+  }, [gatewayErrorLogs, gatewayStageFilter]);
+
+  const copyGatewayErrorSummary = async (item: GatewayErrorLog) => {
+    const payload = [
+      `time=${formatTsFromSeconds(item.createdAt)}`,
+      `stage=${item.stage || "-"}`,
+      `path=${item.requestPath || "-"}`,
+      `method=${item.method || "-"}`,
+      `status=${item.statusCode ?? "-"}`,
+      `cf_ray=${item.cfRay || "-"}`,
+      `kind=${item.errorKind || "-"}`,
+      `compression=${item.compressionEnabled ? "zstd" : "none"}`,
+      `retry_without_compression=${item.compressionRetryAttempted ? "yes" : "no"}`,
+      `account=${item.accountId || "-"}`,
+      `key=${item.keyId || "-"}`,
+      `message=${item.message || "-"}`,
+    ].join("\n");
+
+    try {
+      await copyTextToClipboard(payload);
+      toast.success("诊断信息已复制");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "复制失败");
+    }
+  };
+
   return (
     <div className="animate-in space-y-5 fade-in duration-500">
-      <Card className="glass-card border-none shadow-md backdrop-blur-md">
-        <CardContent className="grid gap-3 pt-0 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-center">
-          <div className="min-w-0">
-            <Input
-              placeholder="搜索路径、账号或密钥..."
-              className="glass-card h-10 rounded-xl px-3"
-              value={search}
-              onChange={(event) => {
-                setSearch(event.target.value);
-                setPage(1);
-              }}
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          if (value === "requests" || value === "gateway-errors") {
+            setActiveTab(value);
+          }
+        }}
+        className="w-full"
+      >
+        <TabsList className="glass-card flex h-11 w-full justify-start overflow-x-auto rounded-xl border-none p-1 no-scrollbar lg:w-fit">
+          <TabsTrigger value="requests" className="gap-2 px-5 shrink-0">
+            <Database className="h-4 w-4" /> 请求日志
+          </TabsTrigger>
+          <TabsTrigger value="gateway-errors" className="gap-2 px-5 shrink-0">
+            <Shield className="h-4 w-4" /> 网关错误诊断
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="requests" className="space-y-5">
+          <Card className="glass-card border-none shadow-md backdrop-blur-md">
+            <CardContent className="grid gap-3 pt-0 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-center">
+              <div className="min-w-0">
+                <Input
+                  placeholder="搜索路径、账号或密钥..."
+                  className="glass-card h-10 rounded-xl px-3"
+                  value={search}
+                  onChange={(event) => {
+                    setSearch(event.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
+              <div className="flex shrink-0 items-center gap-1 rounded-xl border border-border/60 bg-muted/30 p-1">
+                {["all", "2xx", "4xx", "5xx"].map((item) => (
+                  <button
+                    key={item}
+                    onClick={() => {
+                      setFilter(item as StatusFilter);
+                      setPage(1);
+                    }}
+                    className={cn(
+                      "rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-all",
+                      filter === item
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+                    )}
+                  >
+                    {item.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="glass-card h-9 rounded-xl px-3.5"
+                  onClick={() =>
+                    queryClient.invalidateQueries({ queryKey: ["logs"] })
+                  }
+                >
+                  <RefreshCw className="mr-1.5 h-4 w-4" /> 刷新
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-9 rounded-xl px-3.5"
+                  onClick={() => setClearConfirmOpen(true)}
+                  disabled={clearMutation.isPending}
+                >
+                  <Trash2 className="mr-1.5 h-4 w-4" /> 清空日志
+                </Button>
+              </div>
+              <div className="text-[11px] text-muted-foreground lg:justify-self-end lg:text-right">
+                <span className="font-medium text-foreground">
+                  {compactMetaText}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <SummaryCard
+              title="当前结果"
+              value={`${summary.filteredCount}`}
+              description={`总日志 ${summary.totalCount} 条`}
+              icon={Zap}
+              toneClass="bg-primary/12 text-primary"
+            />
+            <SummaryCard
+              title="2XX 成功"
+              value={`${summary.successCount}`}
+              description="状态码 200-299"
+              icon={CheckCircle2}
+              toneClass="bg-green-500/12 text-green-500"
+            />
+            <SummaryCard
+              title="异常请求"
+              value={`${summary.errorCount}`}
+              description="4xx / 5xx 或显式错误"
+              icon={AlertTriangle}
+              toneClass="bg-red-500/12 text-red-500"
+            />
+            <SummaryCard
+              title="累计词元"
+              value={formatCompactTokenAmount(summary.totalTokens)}
+              description="当前筛选结果中的总词元"
+              icon={Database}
+              toneClass="bg-amber-500/12 text-amber-500"
             />
           </div>
-          <div className="flex shrink-0 items-center gap-1 rounded-xl border border-border/60 bg-muted/30 p-1">
-            {["all", "2xx", "4xx", "5xx"].map((item) => (
-              <button
-                key={item}
-                onClick={() => {
-                  setFilter(item as StatusFilter);
-                  setPage(1);
-                }}
-                className={cn(
-                  "rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-all",
-                  filter === item
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
-                )}
-              >
-                {item.toUpperCase()}
-              </button>
-            ))}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="glass-card h-9 rounded-xl px-3.5"
-              onClick={() =>
-                queryClient.invalidateQueries({ queryKey: ["logs"] })
-              }
-            >
-              <RefreshCw className="mr-1.5 h-4 w-4" /> 刷新
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              className="h-9 rounded-xl px-3.5"
-              onClick={() => setClearConfirmOpen(true)}
-              disabled={clearMutation.isPending}
-            >
-              <Trash2 className="mr-1.5 h-4 w-4" /> 清空日志
-            </Button>
-          </div>
-          <div className="text-[11px] text-muted-foreground lg:justify-self-end lg:text-right">
-            <span className="font-medium text-foreground">
-              {compactMetaText}
-            </span>
-          </div>
-        </CardContent>
-      </Card>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryCard
-          title="当前结果"
-          value={`${summary.filteredCount}`}
-          description={`总日志 ${summary.totalCount} 条`}
-          icon={Zap}
-          toneClass="bg-primary/12 text-primary"
-        />
-        <SummaryCard
-          title="2XX 成功"
-          value={`${summary.successCount}`}
-          description="状态码 200-299"
-          icon={CheckCircle2}
-          toneClass="bg-green-500/12 text-green-500"
-        />
-        <SummaryCard
-          title="异常请求"
-          value={`${summary.errorCount}`}
-          description="4xx / 5xx 或显式错误"
-          icon={AlertTriangle}
-          toneClass="bg-red-500/12 text-red-500"
-        />
-        <SummaryCard
-          title="累计词元"
-          value={formatCompactTokenAmount(summary.totalTokens)}
-          description="当前筛选结果中的总词元"
-          icon={Database}
-          toneClass="bg-amber-500/12 text-amber-500"
-        />
-      </div>
-
-      <Card className="glass-card overflow-hidden border-none gap-0 py-0 shadow-xl backdrop-blur-md">
-        <CardHeader className="flex min-h-1 items-center border-b border-border/40 bg-[var(--table-section-bg)] py-3">
-          <div className="flex w-full flex-col gap-1 xl:flex-row xl:items-center xl:justify-between">
-            <div>
-              <CardTitle className="text-[15px] font-semibold">
-                请求明细 按{" "}
-                <span className="font-medium text-foreground">
-                  {currentFilterLabel}
-                </span>{" "}
-                展示
-              </CardTitle>
-            </div>
-            <div className="text-xs text-muted-foreground"></div>
-          </div>
-        </CardHeader>
-        <CardContent className="px-0">
-          <Table className="min-w-[1320px] table-fixed">
+          <Card className="glass-card overflow-hidden border-none gap-0 py-0 shadow-xl backdrop-blur-md">
+            <CardHeader className="flex min-h-1 items-center border-b border-border/40 bg-[var(--table-section-bg)] py-3">
+              <div className="flex w-full flex-col gap-1 xl:flex-row xl:items-center xl:justify-between">
+                <div>
+                  <CardTitle className="text-[15px] font-semibold">
+                    请求明细 按{" "}
+                    <span className="font-medium text-foreground">
+                      {currentFilterLabel}
+                    </span>{" "}
+                    展示
+                  </CardTitle>
+                </div>
+                <div className="text-xs text-muted-foreground"></div>
+              </div>
+            </CardHeader>
+            <CardContent className="px-0">
+              <Table className="min-w-[1320px] table-fixed">
             <TableHeader>
               <TableRow>
                 <TableHead className="h-12 w-[150px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
@@ -1488,62 +1576,228 @@ function LogsPageContent() {
               )}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
 
-      <div className="flex items-center justify-between px-2">
-        <div className="text-xs text-muted-foreground">
-          共 {summary.filteredCount} 条匹配日志
-        </div>
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <span className="whitespace-nowrap text-xs text-muted-foreground">
-              每页显示
-            </span>
-            <Select
-              value={pageSize}
-              onValueChange={(value) => {
-                setPageSize(value || "10");
-                setPage(1);
-              }}
-            >
-              <SelectTrigger className="h-8 w-[78px] text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {["5", "10", "20", "50", "100", "200"].map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {value}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-3 text-xs"
-              disabled={currentPage <= 1}
-              onClick={() => setPage(Math.max(1, currentPage - 1))}
-            >
-              上一页
-            </Button>
-            <div className="min-w-[68px] text-center text-xs font-medium">
-              第 {currentPage} / {totalPages} 页
+          <div className="flex items-center justify-between px-2">
+            <div className="text-xs text-muted-foreground">
+              共 {summary.filteredCount} 条匹配日志
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-3 text-xs"
-              disabled={currentPage >= totalPages}
-              onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
-            >
-              下一页
-            </Button>
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-2">
+                <span className="whitespace-nowrap text-xs text-muted-foreground">
+                  每页显示
+                </span>
+                <Select
+                  value={pageSize}
+                  onValueChange={(value) => {
+                    setPageSize(value || "10");
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-[78px] text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["5", "10", "20", "50", "100", "200"].map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage(Math.max(1, currentPage - 1))}
+                >
+                  上一页
+                </Button>
+                <div className="min-w-[68px] text-center text-xs font-medium">
+                  第 {currentPage} / {totalPages} 页
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+                >
+                  下一页
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </TabsContent>
+
+        <TabsContent value="gateway-errors" className="space-y-5">
+          <Card className="glass-card border-none shadow-md backdrop-blur-md">
+            <CardContent className="grid gap-4 pt-0 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-foreground">
+                  网关错误诊断
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  专门记录 challenge、无压缩重试和关键网关错误事件，便于排查 Cloudflare 拦截。
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 xl:min-w-[520px] xl:justify-self-end">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="whitespace-nowrap text-xs text-muted-foreground">
+                    阶段筛选
+                  </span>
+                  <Select
+                    value={gatewayStageFilter}
+                    onValueChange={(value) => setGatewayStageFilter(value || "all")}
+                  >
+                    <SelectTrigger className="h-9 min-w-[220px] text-xs">
+                      <SelectValue>{gatewayStageFilterLabel}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">全部阶段</SelectItem>
+                      {gatewayStageOptions.map((stage) => (
+                        <SelectItem key={stage} value={stage}>
+                          {stage}
+                        </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="glass-card h-9 rounded-xl px-3.5"
+                    onClick={() =>
+                      queryClient.invalidateQueries({
+                        queryKey: ["logs", "gateway-error-list"],
+                      })
+                    }
+                  >
+                    <RefreshCw className="mr-1.5 h-4 w-4" /> 刷新
+                  </Button>
+                  <div className="whitespace-nowrap text-xs text-muted-foreground text-right">
+                    当前 {filteredGatewayErrorLogs.length} 条 / 最近 {gatewayErrorLogs.length} 条
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card overflow-hidden border-none gap-0 py-0 shadow-xl backdrop-blur-md">
+            <CardHeader className="flex min-h-1 items-center border-b border-border/40 bg-[var(--table-section-bg)] py-3">
+              <div className="flex w-full flex-col gap-1 xl:flex-row xl:items-center xl:justify-between">
+                <div>
+                  <CardTitle className="text-[15px] font-semibold">
+                    错误事件明细
+                  </CardTitle>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  challenge / retry / transport
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="px-0">
+              <Table className="min-w-[1080px] table-fixed">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="h-12 w-[150px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                      时间
+                    </TableHead>
+                    <TableHead className="w-[200px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                      阶段
+                    </TableHead>
+                    <TableHead className="w-[120px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                      方法 / 路径
+                    </TableHead>
+                    <TableHead className="w-[120px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                      状态
+                    </TableHead>
+                    <TableHead className="w-[200px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                      上下文
+                    </TableHead>
+                    <TableHead className="w-[290px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                      消息
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredGatewayErrorLogs.length ? (
+                    filteredGatewayErrorLogs.map((item, index) => (
+                      <TableRow
+                        key={`${item.createdAt || 0}-${item.stage}-${index}`}
+                      >
+                        <TableCell className="px-4 py-3 align-top text-xs">
+                          {formatTsFromSeconds(item.createdAt)}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 align-top">
+                          <div className="font-mono text-[11px] text-foreground">
+                            {item.stage}
+                          </div>
+                          <div className="mt-1 text-[11px] text-muted-foreground">
+                            {item.accountId || item.keyId || "-"}
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-4 py-3 align-top">
+                          <div className="font-mono text-[11px] text-foreground">
+                            {item.method}
+                          </div>
+                          <div className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+                            {item.requestPath}
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-4 py-3 align-top">
+                          {getStatusBadge(item.statusCode)}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 align-top">
+                          <div className="break-all font-mono text-[11px] text-muted-foreground">
+                            {renderGatewayErrorContext(item) || "-"}
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-4 py-3 align-top">
+                          <div className="break-all font-mono text-[11px] text-foreground">
+                            {item.message || "-"}
+                          </div>
+                          {item.upstreamUrl ? (
+                            <div className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+                              {item.upstreamUrl}
+                            </div>
+                          ) : null}
+                          <div className="mt-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-[11px]"
+                              onClick={() => void copyGatewayErrorSummary(item)}
+                            >
+                              <Copy className="mr-1 h-3.5 w-3.5" /> 复制诊断
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell
+                        colSpan={6}
+                        className="px-4 py-10 text-center text-sm text-muted-foreground"
+                      >
+                        {gatewayErrorLogs.length
+                          ? "当前筛选下没有匹配的诊断日志"
+                          : "暂无专门错误诊断日志"}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       <ConfirmDialog
         open={clearConfirmOpen}

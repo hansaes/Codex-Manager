@@ -1853,23 +1853,6 @@ export default function SettingsPage() {
                 </p>
               </div>
 
-              <div className="flex items-center justify-between border-t pt-6">
-                <div className="space-y-0.5">
-                  <Label>请求体压缩</Label>
-                  <p className="text-xs text-muted-foreground">
-                    对齐官方 Codex：流式 <code>/responses</code> 请求发往
-                    ChatGPT Codex backend 时，默认使用
-                    <code>zstd</code> 压缩请求体。
-                  </p>
-                </div>
-                <Switch
-                  checked={snapshot.requestCompressionEnabled}
-                  onCheckedChange={(value) =>
-                    updateSettings.mutate({ requestCompressionEnabled: value })
-                  }
-                />
-              </div>
-
               <div className="grid gap-2 border-t pt-6">
                 <Label>Originator</Label>
                 <Input

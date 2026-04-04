@@ -9,6 +9,7 @@ mod aggregate_apis;
 mod api_keys;
 mod conversation_bindings;
 mod events;
+mod gateway_error_logs;
 mod model_options;
 mod plugins;
 mod request_log_query;
@@ -163,6 +164,24 @@ pub struct RequestLogQuerySummary {
     pub error_count: i64,
     pub total_tokens: i64,
     pub estimated_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GatewayErrorLog {
+    pub trace_id: Option<String>,
+    pub key_id: Option<String>,
+    pub account_id: Option<String>,
+    pub request_path: String,
+    pub method: String,
+    pub stage: String,
+    pub error_kind: Option<String>,
+    pub upstream_url: Option<String>,
+    pub cf_ray: Option<String>,
+    pub status_code: Option<i64>,
+    pub compression_enabled: bool,
+    pub compression_retry_attempted: bool,
+    pub message: String,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -516,10 +535,16 @@ impl Storage {
             "040_plugins",
             include_str!("../../migrations/040_plugins.sql"),
         )?;
+        self.apply_sql_or_compat_migration(
+            "041_gateway_error_logs",
+            include_str!("../../migrations/041_gateway_error_logs.sql"),
+            |s| s.ensure_gateway_error_logs_table(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
         self.ensure_request_token_stats_table()?;
+        self.ensure_gateway_error_logs_table()?;
         Ok(())
     }
 

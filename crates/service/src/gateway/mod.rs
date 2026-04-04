@@ -11,6 +11,8 @@ mod error_response;
 mod failover;
 #[path = "observability/http_bridge/mod.rs"]
 mod http_bridge;
+#[path = "observability/error_log.rs"]
+mod error_log;
 #[path = "request/incoming_headers.rs"]
 mod incoming_headers;
 #[path = "request/local_count_tokens.rs"]
@@ -51,6 +53,7 @@ mod trace_log;
 mod upstream;
 
 pub(crate) use concurrency::current_gateway_concurrency_recommendation;
+pub(crate) use error_log::write_gateway_error_log;
 use metrics::{
     account_inflight_count, acquire_account_inflight, begin_gateway_request,
     record_gateway_cooldown_mark, record_gateway_failover_attempt, record_gateway_request_outcome,

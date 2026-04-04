@@ -9,22 +9,21 @@ use super::{
     current_background_tasks_snapshot_value, current_close_to_tray_on_close_setting,
     current_env_overrides, current_gateway_account_max_inflight,
     current_gateway_free_account_max_model, current_gateway_originator,
-    current_gateway_request_compression_enabled, current_gateway_residency_requirement,
-    current_gateway_sse_keepalive_interval_ms, current_gateway_upstream_stream_timeout_ms,
-    current_gateway_user_agent_version, current_lightweight_mode_on_close_to_tray_setting,
-    current_saved_service_addr, current_service_bind_mode, current_ui_appearance_preset,
+    current_gateway_residency_requirement, current_gateway_sse_keepalive_interval_ms,
+    current_gateway_upstream_stream_timeout_ms, current_gateway_user_agent_version,
+    current_lightweight_mode_on_close_to_tray_setting, current_saved_service_addr,
+    current_service_bind_mode, current_ui_appearance_preset,
     current_ui_low_transparency_enabled, current_ui_theme, current_update_auto_check_enabled,
     env_override_catalog_value, env_override_reserved_keys, env_override_unsupported_keys,
     residency_requirement_options, save_env_overrides_value, save_persisted_app_setting,
     save_persisted_bool_setting, sync_runtime_settings_from_storage,
     APP_SETTING_CLOSE_TO_TRAY_ON_CLOSE_KEY, APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY,
     APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY, APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY,
-    APP_SETTING_GATEWAY_ORIGINATOR_KEY, APP_SETTING_GATEWAY_REQUEST_COMPRESSION_ENABLED_KEY,
-    APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY, APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY,
-    APP_SETTING_GATEWAY_SSE_KEEPALIVE_INTERVAL_MS_KEY, APP_SETTING_GATEWAY_UPSTREAM_PROXY_URL_KEY,
-    APP_SETTING_GATEWAY_UPSTREAM_STREAM_TIMEOUT_MS_KEY, APP_SETTING_GATEWAY_USER_AGENT_VERSION_KEY,
-    APP_SETTING_LIGHTWEIGHT_MODE_ON_CLOSE_TO_TRAY_KEY, APP_SETTING_PLUGIN_MARKET_MODE_KEY,
-    APP_SETTING_PLUGIN_MARKET_SOURCE_URL_KEY, APP_SETTING_SERVICE_ADDR_KEY,
+    APP_SETTING_GATEWAY_ORIGINATOR_KEY, APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY,
+    APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY, APP_SETTING_GATEWAY_SSE_KEEPALIVE_INTERVAL_MS_KEY,
+    APP_SETTING_GATEWAY_UPSTREAM_PROXY_URL_KEY, APP_SETTING_GATEWAY_UPSTREAM_STREAM_TIMEOUT_MS_KEY,
+    APP_SETTING_GATEWAY_USER_AGENT_VERSION_KEY, APP_SETTING_LIGHTWEIGHT_MODE_ON_CLOSE_TO_TRAY_KEY,
+    APP_SETTING_PLUGIN_MARKET_MODE_KEY, APP_SETTING_PLUGIN_MARKET_SOURCE_URL_KEY, APP_SETTING_SERVICE_ADDR_KEY,
     APP_SETTING_UI_APPEARANCE_PRESET_KEY, APP_SETTING_UI_LOW_TRANSPARENCY_KEY,
     APP_SETTING_UI_THEME_KEY, APP_SETTING_UPDATE_AUTO_CHECK_KEY, SERVICE_BIND_MODE_ALL_INTERFACES,
     SERVICE_BIND_MODE_LOOPBACK, SERVICE_BIND_MODE_SETTING_KEY,
@@ -106,7 +105,6 @@ pub(super) fn current_app_settings_value(
     let route_strategy = crate::gateway::current_route_strategy().to_string();
     let free_account_max_model = current_gateway_free_account_max_model();
     let account_max_inflight = current_gateway_account_max_inflight();
-    let request_compression_enabled = current_gateway_request_compression_enabled();
     let gateway_originator = current_gateway_originator();
     let gateway_user_agent_version = current_gateway_user_agent_version();
     let gateway_residency_requirement = current_gateway_residency_requirement().unwrap_or_default();
@@ -146,7 +144,6 @@ pub(super) fn current_app_settings_value(
         &route_strategy,
         &free_account_max_model,
         account_max_inflight,
-        request_compression_enabled,
         &gateway_originator,
         &gateway_user_agent_version,
         &gateway_residency_requirement,
@@ -185,7 +182,6 @@ pub(super) fn current_app_settings_value(
         "freeAccountMaxModel": free_account_max_model,
         "accountMaxInflight": account_max_inflight,
         "freeAccountMaxModelOptions": free_account_max_model_options,
-        "requestCompressionEnabled": request_compression_enabled,
         "gatewayOriginator": gateway_originator,
         "gatewayUserAgentVersion": gateway_user_agent_version,
         "gatewayResidencyRequirement": gateway_residency_requirement,
@@ -297,7 +293,6 @@ fn is_free_account_max_model_option(slug: &str) -> bool {
 /// - route_strategy: 参数 route_strategy
 /// - free_account_max_model: 参数 free_account_max_model
 /// - account_max_inflight: 参数 account_max_inflight
-/// - request_compression_enabled: 参数 request_compression_enabled
 /// - gateway_originator: 参数 gateway_originator
 /// - gateway_user_agent_version: 参数 gateway_user_agent_version
 /// - gateway_residency_requirement: 参数 gateway_residency_requirement
@@ -323,7 +318,6 @@ fn persist_current_snapshot(
     route_strategy: &str,
     free_account_max_model: &str,
     account_max_inflight: usize,
-    request_compression_enabled: bool,
     gateway_originator: &str,
     gateway_user_agent_version: &str,
     gateway_residency_requirement: &str,
@@ -361,10 +355,6 @@ fn persist_current_snapshot(
     let _ = save_persisted_app_setting(
         APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY,
         Some(&account_max_inflight.to_string()),
-    );
-    let _ = save_persisted_bool_setting(
-        APP_SETTING_GATEWAY_REQUEST_COMPRESSION_ENABLED_KEY,
-        request_compression_enabled,
     );
     let _ =
         save_persisted_app_setting(APP_SETTING_GATEWAY_ORIGINATOR_KEY, Some(gateway_originator));

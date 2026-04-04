@@ -297,6 +297,87 @@ pub(in super::super) fn send_upstream_request(
     account: &Account,
     strip_session_affinity: bool,
 ) -> Result<reqwest::blocking::Response, reqwest::Error> {
+    send_upstream_request_with_compression_override(
+        client,
+        method,
+        target_url,
+        request_deadline,
+        request_ctx,
+        incoming_headers,
+        body,
+        is_stream,
+        auth_token,
+        account,
+        strip_session_affinity,
+        None,
+    )
+}
+
+/// 函数 `send_upstream_request_without_compression`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-04
+///
+/// # 参数
+/// - in super: 参数 in super
+///
+/// # 返回
+/// 返回函数执行结果
+pub(in super::super) fn send_upstream_request_without_compression(
+    client: &reqwest::blocking::Client,
+    method: &reqwest::Method,
+    target_url: &str,
+    request_deadline: Option<Instant>,
+    request_ctx: UpstreamRequestContext<'_>,
+    incoming_headers: &super::super::super::IncomingHeaderSnapshot,
+    body: &Bytes,
+    is_stream: bool,
+    auth_token: &str,
+    account: &Account,
+    strip_session_affinity: bool,
+) -> Result<reqwest::blocking::Response, reqwest::Error> {
+    send_upstream_request_with_compression_override(
+        client,
+        method,
+        target_url,
+        request_deadline,
+        request_ctx,
+        incoming_headers,
+        body,
+        is_stream,
+        auth_token,
+        account,
+        strip_session_affinity,
+        Some(RequestCompression::None),
+    )
+}
+
+/// 函数 `send_upstream_request_with_compression_override`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-04
+///
+/// # 参数
+/// - compression_override: 参数 compression_override
+///
+/// # 返回
+/// 返回函数执行结果
+fn send_upstream_request_with_compression_override(
+    client: &reqwest::blocking::Client,
+    method: &reqwest::Method,
+    target_url: &str,
+    request_deadline: Option<Instant>,
+    request_ctx: UpstreamRequestContext<'_>,
+    incoming_headers: &super::super::super::IncomingHeaderSnapshot,
+    body: &Bytes,
+    is_stream: bool,
+    auth_token: &str,
+    account: &Account,
+    strip_session_affinity: bool,
+    compression_override: Option<RequestCompression>,
+) -> Result<reqwest::blocking::Response, reqwest::Error> {
     let attempt_started_at = Instant::now();
     let prompt_cache_key = extract_prompt_cache_key(body.as_ref());
     let is_compact_request = is_compact_request_path(request_ctx.request_path);
@@ -354,8 +435,8 @@ pub(in super::super) fn send_upstream_request(
         // 对 localhost/127.0.0.1 强制 close，避免请求落到已失效连接。
         force_connection_close(&mut upstream_headers);
     }
-    let request_compression =
-        resolve_request_compression(target_url, request_ctx.request_path, is_stream);
+    let request_compression = compression_override
+        .unwrap_or_else(|| resolve_request_compression(target_url, request_ctx.request_path, is_stream));
     let body_for_request = encode_request_body(
         request_ctx.request_path,
         body,

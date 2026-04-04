@@ -14,6 +14,7 @@ import {
   BackgroundTaskSettings,
   DeviceAuthInfo,
   EnvOverrideCatalogItem,
+  GatewayErrorLog,
   InstalledPluginSummary,
   LoginStartResult,
   ModelOption,
@@ -1129,6 +1130,44 @@ export function normalizeRequestLogListResult(payload: unknown): RequestLogListR
   };
 }
 
+export function normalizeGatewayErrorLogs(payload: unknown): GatewayErrorLog[] {
+  const source = asObject(payload);
+  const items = asArray(source.items ?? payload);
+  return items.reduce<GatewayErrorLog[]>((result, item) => {
+    const record = asObject(item);
+    const stage = asString(record.stage);
+    const method = asString(record.method);
+    const requestPath = asString(record.requestPath ?? record.request_path);
+    const createdAt = toNullableNumber(record.createdAt ?? record.created_at);
+    if (!stage || !method || !requestPath) {
+      return result;
+    }
+    result.push({
+      traceId: asString(record.traceId ?? record.trace_id),
+      keyId: asString(record.keyId ?? record.key_id),
+      accountId: asString(record.accountId ?? record.account_id),
+      requestPath,
+      method,
+      stage,
+      errorKind: asString(record.errorKind ?? record.error_kind),
+      upstreamUrl: asString(record.upstreamUrl ?? record.upstream_url),
+      cfRay: asString(record.cfRay ?? record.cf_ray),
+      statusCode: toNullableNumber(record.statusCode ?? record.status_code),
+      compressionEnabled: asBoolean(
+        record.compressionEnabled ?? record.compression_enabled,
+        false
+      ),
+      compressionRetryAttempted: asBoolean(
+        record.compressionRetryAttempted ?? record.compression_retry_attempted,
+        false
+      ),
+      message: asString(record.message),
+      createdAt,
+    });
+    return result;
+  }, []);
+}
+
 /**
  * 函数 `normalizeRequestLogFilterSummary`
  *
@@ -1298,7 +1337,6 @@ export function normalizeAppSettings(payload: unknown): AppSettings {
       asString(item)
     ),
     accountMaxInflight: asInteger(source.accountMaxInflight, 1, 0),
-    requestCompressionEnabled: asBoolean(source.requestCompressionEnabled, true),
     gatewayOriginator: asString(source.gatewayOriginator) || "codex_cli_rs",
     gatewayUserAgentVersion: asString(source.gatewayUserAgentVersion) || "0.101.0",
     gatewayResidencyRequirement: asString(source.gatewayResidencyRequirement),

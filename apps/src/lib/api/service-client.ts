@@ -1,6 +1,7 @@
 import { invoke, withAddr } from "./transport";
 import {
   normalizeAppSettings,
+  normalizeGatewayErrorLogs,
   normalizeRequestLogFilterSummary,
   normalizeRequestLogListResult,
   normalizeStartupSnapshot,
@@ -8,6 +9,7 @@ import {
 } from "./normalize";
 import {
   BackgroundTaskSettings,
+  GatewayErrorLog,
   RequestLogFilterSummary,
   RequestLogListResult,
   RequestLogTodaySummary,
@@ -130,6 +132,13 @@ export const serviceClient = {
       })
     );
     return normalizeRequestLogFilterSummary(result);
+  },
+  async listGatewayErrorLogs(limit = 50): Promise<GatewayErrorLog[]> {
+    const result = await invoke<unknown>(
+      "service_requestlog_error_list",
+      withAddr({ limit })
+    );
+    return normalizeGatewayErrorLogs(result);
   },
   clearRequestLogs: () => invoke("service_requestlog_clear", withAddr()),
   async getTodaySummary(): Promise<RequestLogTodaySummary> {
