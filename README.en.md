@@ -88,12 +88,14 @@ If this project has been helpful to you, you are welcome to support the author.
 
 ## Recent Changes
   - Current latest version: `v0.1.16` (2026-04-05, pre-release)
-  - This release mainly closes out around `service_tier` observability and log consistency. HTTP and WebSocket request logs now record `fast` only when the client explicitly sends `service_tier`, instead of incorrectly treating platform-key defaults as an explicit request choice.
-  - The gateway trace now includes a `CLIENT_SERVICE_TIER` diagnostic event that records whether the original HTTP or WebSocket request contained `service_tier`, the raw incoming value, and the normalized value used for logging. This makes it much easier to tell client-sent `fast / priority` apart from server-side defaults.
-  - Service-tier display in the logs page is now aligned as well: on-wire `priority` is shown as `fast`, while requests without an explicit tier continue to show `auto`, so HTTP and WebSocket views follow the same rules.
+  - This release mainly adds `/v1/responses` WebSocket request support. The gateway now runs those requests through the full proxy pipeline with transport-aware request typing, header normalization, runtime handling, and logging.
+  - The accounts page and usage modal now refresh and display every returned quota window, not just the standard 5-hour / 7-day quotas. Extra windows such as Code Review and Spark quotas are shown together with their remaining percentage and reset time.
+  - `service_tier` logging was tightened up as part of the same round: HTTP and WebSocket logs now record `fast` only when the client explicitly sends `service_tier`, instead of treating platform-key defaults as an explicit request choice.
   - Version alignment for this round is complete too: the workspace, frontend package, Tauri desktop app, lockfile, README, and CHANGELOG have all been updated to `0.1.16`.
 
 ### Recent Commit Summary
+- `83bdb96`: expanded account-page and usage-modal quota rendering so refreshes now surface both standard and extra quota windows.
+- `41375a4`: added `/v1/responses` WebSocket request support and transport-aware request logging.
 - `b762a65`: fixed `service_tier` log semantics and added raw client-side `service_tier` diagnostics for both HTTP and WebSocket requests.
 - `7e7b76f`: separated leftover formatting-only changes into their own cleanup commit.
 - `be73359`: adjusted abbreviated token displays to keep two decimal places for more stable number formatting across dashboard, logs, and platform key pages.
@@ -110,7 +112,7 @@ If this project has been helpful to you, you are welcome to support the author.
 ## Feature Overview
 - Account pool management: groups, tags, sorting, notes, ban detection, and banned-account filtering
 - Bulk import / export: supports multi-file import, recursive JSON folder import on desktop, and single-file export per account
-- Usage display: supports both 5-hour + 7-day dual windows and accounts that only return a 7-day single window, with the corresponding reset times shown
+- Usage display: supports the standard 5-hour + 7-day windows, 7-day-only accounts, and extra quota windows such as Code Review / Spark, with refreshes showing each window's remaining percentage and reset time
 - Authorized login: browser authorization plus manual callback parsing
 - Platform keys: create, disable, delete, model binding, reasoning effort, and service tier (`Follow Request` / `Fast` / `Flex`)
 - Aggregate API: manage third-party minimal relay upstreams, with create, edit, connectivity testing, provider name, sort priority, and grouped display by Codex / Claude

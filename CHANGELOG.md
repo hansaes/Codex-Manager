@@ -8,6 +8,8 @@
 ## [0.1.16] - 2026-04-05
 
 ### Added
+- 新增 `/v1/responses` WebSocket 请求支持，补齐传输类型识别、请求头归一化、代理运行时与请求日志链路。
+- 账号页与用量弹窗新增附加额度窗口展示；刷新后会统一显示标准额度与 Code Review / Spark 等额外额度的剩余额度和重置时间。
 - 网关 trace 新增 `CLIENT_SERVICE_TIER` 事件，记录 HTTP / WS 原始请求是否显式携带 `service_tier`、原始值以及日志归一化值，便于快速区分客户端显式 `fast` 与平台 Key 默认服务等级。
 
 ### Fixed
