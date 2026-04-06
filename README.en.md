@@ -209,6 +209,7 @@ If this project has been helpful to you, you are welcome to support the author.
 ## Acknowledgements and Reference Projects
 
 - Codex (OpenAI): this project references its implementation and source structure for request flows, login semantics, and upstream compatibility behavior <https://github.com/openai/codex>
+- CLIProxyAPI (CPA): Gemini route (Gemini→Codex/Responses request conversion and tool-call conventions) references its implementation and conventions <https://github.com/router-for-me/CLIProxyAPI>
 
 ## Contact
 - WeChat Official Account: 七线牛马

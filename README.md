@@ -211,6 +211,7 @@
 ## 鸣谢与参考项目
 
 - Codex（OpenAI）：本项目在请求链路、登录语义与上游兼容行为上参考了该项目的实现与源码结构 <https://github.com/openai/codex>
+- CLIProxyAPI（CPA）：Gemini 路线（Gemini→Codex/Responses 请求转换与工具调用约定）参考其实现与约定 <https://github.com/router-for-me/CLIProxyAPI>
 
 
 
