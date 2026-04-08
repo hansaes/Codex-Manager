@@ -425,11 +425,12 @@ pub(super) fn normalize_service_tier(path: &str, obj: &mut serde_json::Map<Strin
     let Some(raw_value) = service_tier.as_str() else {
         return false;
     };
-    if !raw_value.eq_ignore_ascii_case("fast") {
-        return false;
+    if raw_value.eq_ignore_ascii_case("fast") {
+        *service_tier = Value::String("priority".to_string());
+    } else {
+        // Remove unsupported service_tier values to prevent upstream Cloudflare rejection
+        obj.remove("service_tier");
     }
-
-    *service_tier = Value::String("priority".to_string());
     true
 }
 
