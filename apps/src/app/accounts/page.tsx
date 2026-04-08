@@ -79,6 +79,7 @@ import { useAccounts } from "@/hooks/useAccounts";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
+import { useI18n } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 import { buildStaticRouteUrl } from "@/lib/utils/static-routes";
 import {
@@ -94,6 +95,7 @@ import { Account } from "@/types";
 type StatusFilter = "all" | "available" | "low_quota" | "banned";
 type AccountExportMode = "single" | "multiple";
 const ACCOUNT_SORT_STEP = 5;
+type TranslateFn = (key: string) => string;
 
 /**
  * 函数 `formatAccountPlanValueLabel`
@@ -168,10 +170,10 @@ function normalizeAccountPlanKey(account: Account) {
  * # 返回
  * 返回函数执行结果
  */
-function formatPlanFilterLabel(value: string) {
+function formatPlanFilterLabel(value: string, t: TranslateFn) {
   const nextValue = String(value || "").trim();
   if (!nextValue || nextValue === "all") {
-    return "全部类型";
+    return t("全部类型");
   }
   return formatAccountPlanValueLabel(nextValue);
 }
@@ -189,18 +191,18 @@ function formatPlanFilterLabel(value: string) {
  * # 返回
  * 返回函数执行结果
  */
-function formatStatusFilterLabel(value: string) {
+function formatStatusFilterLabel(value: string, t: TranslateFn) {
   const nextValue = String(value || "").trim();
   switch (nextValue) {
     case "available":
-      return "可用";
+      return t("可用");
     case "low_quota":
-      return "低配额";
+      return t("低配额");
     case "banned":
-      return "封禁";
+      return t("封禁");
     case "all":
     default:
-      return "全部";
+      return t("全部");
   }
 }
 
@@ -242,6 +244,7 @@ function QuotaProgress({
   emptyText = "--",
   emptyResetText = "未知",
 }: QuotaProgressProps) {
+  const { t } = useI18n();
   const value = remainPercent ?? 0;
   const toneClasses = {
     blue: {
@@ -282,13 +285,14 @@ function QuotaProgress({
         indicatorClassName={palette.indicator}
       />
       <div className="text-[10px] text-muted-foreground">
-        重置: {formatTsFromSeconds(resetsAt, emptyResetText)}
+        {t("重置")}: {formatTsFromSeconds(resetsAt, emptyResetText)}
       </div>
     </div>
   );
 }
 
 function QuotaOverviewCell({ items }: { items: QuotaSummaryItem[] }) {
+  const { t } = useI18n();
   const summaryItems = items.slice(0, 2);
 
   return (
@@ -325,7 +329,7 @@ function QuotaOverviewCell({ items }: { items: QuotaSummaryItem[] }) {
             ))}
           </div>
           <div className="mt-1 text-[10px] text-muted-foreground">
-            悬停查看全部额度
+            {t("悬停查看全部额度")}
           </div>
         </div>
       </TooltipTrigger>
@@ -337,9 +341,9 @@ function QuotaOverviewCell({ items }: { items: QuotaSummaryItem[] }) {
       >
         <div className="space-y-3">
           <div className="space-y-1">
-            <p className="text-sm font-semibold">额度详情</p>
+            <p className="text-sm font-semibold">{t("额度详情")}</p>
             <p className="text-[10px] text-muted-foreground">
-              标准额度与专属额度统一在这里查看。
+              {t("标准额度与专属额度统一在这里查看。")}
             </p>
           </div>
           <div className="space-y-2">
@@ -376,7 +380,7 @@ function QuotaOverviewCell({ items }: { items: QuotaSummaryItem[] }) {
  * # 返回
  * 返回函数执行结果
  */
-function getAccountStatusAction(account: Account): {
+function getAccountStatusAction(account: Account, t: TranslateFn): {
   action: "enable" | "disable" | null;
   label: string;
   icon: LucideIcon;
@@ -385,15 +389,15 @@ function getAccountStatusAction(account: Account): {
     .trim()
     .toLowerCase();
   if (normalizedStatus === "disabled") {
-    return { action: "enable", label: "启用账号", icon: Power };
+    return { action: "enable", label: t("启用账号"), icon: Power };
   }
   if (normalizedStatus === "inactive") {
-    return { action: "enable", label: "恢复账号", icon: Power };
+    return { action: "enable", label: t("恢复账号"), icon: Power };
   }
   if (normalizedStatus === "banned") {
-    return { action: null, label: "封禁账号", icon: PowerOff };
+    return { action: null, label: t("封禁账号"), icon: PowerOff };
   }
-  return { action: "disable", label: "禁用账号", icon: PowerOff };
+  return { action: "disable", label: t("禁用账号"), icon: PowerOff };
 }
 
 /**
@@ -584,8 +588,8 @@ function buildAccountsBySizeOrder(
     : [...buckets.small, ...buckets.standard, ...buckets.large];
 }
 
-function formatAccountExportModeLabel(value: string) {
-  return value === "single" ? "单 JSON" : "多 JSON";
+function formatAccountExportModeLabel(value: string, t: TranslateFn) {
+  return value === "single" ? t("单 JSON") : t("多 JSON");
 }
 
 /**
@@ -608,6 +612,7 @@ function AccountInfoCell({
   account: Account;
   isPreferred: boolean;
 }) {
+  const { t } = useI18n();
   const accountPlanLabel = formatAccountPlanLabel(account);
   const tagsText = formatAccountTags(account.tags);
   const noteText = String(account.note || "").trim();
@@ -634,7 +639,7 @@ function AccountInfoCell({
                 variant="secondary"
                 className="h-4 shrink-0 bg-amber-500/15 px-1.5 text-[9px] text-amber-700 dark:text-amber-300"
               >
-                优先
+                {t("优先")}
               </Badge>
             ) : null}
           </div>
@@ -642,7 +647,7 @@ function AccountInfoCell({
             {account.id.slice(0, 16)}...
           </span>
           <span className="mt-1 text-[10px] text-muted-foreground">
-            最近刷新: {formatTsFromSeconds(account.lastRefreshAt, "从未刷新")}
+            {t("最近刷新")}: {formatTsFromSeconds(account.lastRefreshAt, t("从未刷新"))}
           </span>
         </div>
       </TooltipTrigger>
@@ -650,26 +655,26 @@ function AccountInfoCell({
         <div className="flex min-w-[260px] flex-col gap-2">
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="space-y-0.5">
-              <div className="text-[10px] text-background/70">账号类型</div>
-              <div className="font-medium">{accountPlanLabel || "未知"}</div>
+              <div className="text-[10px] text-background/70">{t("账号类型")}</div>
+              <div className="font-medium">{accountPlanLabel || t("未知")}</div>
             </div>
             <div className="space-y-0.5">
-              <div className="text-[10px] text-background/70">当前状态</div>
-              <div className="font-medium">{account.availabilityText || "未知"}</div>
+              <div className="text-[10px] text-background/70">{t("当前状态")}</div>
+              <div className="font-medium">{account.availabilityText || t("未知")}</div>
             </div>
           </div>
           <div className="space-y-0.5">
-            <div className="text-[10px] text-background/70">标签</div>
-            <div className="break-words">{tagsText || "未设置"}</div>
+            <div className="text-[10px] text-background/70">{t("标签")}</div>
+            <div className="break-words">{tagsText || t("未设置")}</div>
           </div>
           <div className="space-y-0.5">
-            <div className="text-[10px] text-background/70">备注</div>
+            <div className="text-[10px] text-background/70">{t("备注")}</div>
             <div className="whitespace-pre-wrap break-words">
-              {noteText || "未设置"}
+              {noteText || t("未设置")}
             </div>
           </div>
           <div className="space-y-0.5">
-            <div className="text-[10px] text-background/70">账号 ID</div>
+            <div className="text-[10px] text-background/70">{t("账号 ID")}</div>
             <div className="break-all font-mono text-[11px]">{account.id}</div>
           </div>
         </div>
@@ -680,6 +685,7 @@ function AccountInfoCell({
 
 export default function AccountsPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const { isDesktopRuntime, canUseBrowserDownloadExport } = useRuntimeCapabilities();
   const {
     accounts,
@@ -742,12 +748,12 @@ export default function AccountsPage() {
     | { kind: "selected"; ids: string[]; count: number }
     | null
   >(null);
-  const importFileActionLabel = isDesktopRuntime ? "按文件导入" : "选择文件导入";
+  const importFileActionLabel = isDesktopRuntime ? t("按文件导入") : t("选择文件导入");
   const importDirectoryActionLabel = isDesktopRuntime
-    ? "按文件夹导入"
-    : "选择目录导入";
+    ? t("按文件夹导入")
+    : t("选择目录导入");
   const exportActionLabel =
-    !isDesktopRuntime && canUseBrowserDownloadExport ? "导出到浏览器" : "导出账号";
+    !isDesktopRuntime && canUseBrowserDownloadExport ? t("导出到浏览器") : t("导出账号");
   const exportActionShortcut = isExporting
     ? "..."
     : !isDesktopRuntime && canUseBrowserDownloadExport
@@ -773,21 +779,21 @@ export default function AccountsPage() {
 
   const statusFilterOptions = useMemo(
     () => [
-      { id: "all" as const, label: `全部 (${accounts.length})` },
+      { id: "all" as const, label: `${t("全部")} (${accounts.length})` },
       {
         id: "available" as const,
-        label: `可用 (${accounts.filter((account) => account.isAvailable).length})`,
+        label: `${t("可用")} (${accounts.filter((account) => account.isAvailable).length})`,
       },
       {
         id: "low_quota" as const,
-        label: `低配额 (${accounts.filter((account) => account.isLowQuota).length})`,
+        label: `${t("低配额")} (${accounts.filter((account) => account.isLowQuota).length})`,
       },
       {
         id: "banned" as const,
-        label: `封禁 (${accounts.filter((account) => isBannedAccount(account)).length})`,
+        label: `${t("封禁")} (${accounts.filter((account) => isBannedAccount(account)).length})`,
       },
     ],
-    [accounts],
+    [accounts, t],
   );
   const pageSizeNumber = Number(pageSize) || 20;
   const totalPages = Math.max(
@@ -808,8 +814,8 @@ export default function AccountsPage() {
     exportSelectionCount > 0 ? exportSelectionCount : accounts.length;
   const exportScopeText =
     exportSelectionCount > 0
-      ? `当前已选择 ${exportSelectionCount} 个账号，本次将只导出选中的账号。`
-      : `当前未选择账号，本次将导出全部 ${accounts.length} 个账号。`;
+      ? `${t("当前已选择")} ${exportSelectionCount} ${t("个账号，本次将只导出选中的账号。")}`
+      : `${t("当前未选择账号，本次将导出全部")} ${accounts.length} ${t("个账号。")}`;
 
   const visibleAccounts = useMemo(() => {
     /**
@@ -997,7 +1003,7 @@ export default function AccountsPage() {
    */
   const handleDeleteSelected = () => {
     if (!effectiveSelectedIds.length) {
-      toast.error("请先选择要删除的账号");
+      toast.error(t("请先选择要删除的账号"));
       return;
     }
     setDeleteDialogState({
@@ -1025,7 +1031,7 @@ export default function AccountsPage() {
       .filter((account) => isBannedAccount(account))
       .map((account) => account.id);
     if (!bannedIds.length) {
-      toast.error("当前没有可清理的封禁账号");
+      toast.error(t("当前没有可清理的封禁账号"));
       return;
     }
     setDeleteDialogState({
@@ -1050,11 +1056,11 @@ export default function AccountsPage() {
    */
   const openExportDialog = () => {
     if (!isServiceReady) {
-      toast.info("服务未连接，暂时无法导出账号");
+      toast.info(t("服务未连接，暂时无法导出账号"));
       return;
     }
     if (!accounts.length) {
-      toast.info("当前没有可导出的账号");
+      toast.info(t("当前没有可导出的账号"));
       return;
     }
     setExportModeDraft("multiple");
@@ -1076,7 +1082,7 @@ export default function AccountsPage() {
    */
   const handleConfirmExport = async () => {
     if (exportTargetCount <= 0) {
-      toast.info("当前没有可导出的账号");
+      toast.info(t("当前没有可导出的账号"));
       return;
     }
     try {
@@ -1156,18 +1162,18 @@ export default function AccountsPage() {
   ) => {
     const filteredIndex = filteredAccountIndexMap.get(account.id);
     if (filteredIndex == null) {
-      toast.error("未找到当前账号，请刷新后重试");
+      toast.error(t("未找到当前账号，请刷新后重试"));
       return;
     }
 
     const targetFilteredIndex =
       direction === "up" ? filteredIndex - 1 : filteredIndex + 1;
     if (targetFilteredIndex < 0) {
-      toast.info("当前账号已经在最前面");
+      toast.info(t("当前账号已经在最前面"));
       return;
     }
     if (targetFilteredIndex >= filteredAccounts.length) {
-      toast.info("当前账号已经在最后面");
+      toast.info(t("当前账号已经在最后面"));
       return;
     }
 
@@ -1177,14 +1183,14 @@ export default function AccountsPage() {
       (item) => item.id === targetAccount.id,
     );
     if (anchorIndex === -1) {
-      toast.error("未找到目标账号，请刷新后重试");
+      toast.error(t("未找到目标账号，请刷新后重试"));
       return;
     }
 
     reorderedAccounts.splice(direction === "up" ? anchorIndex : anchorIndex + 1, 0, account);
     const updates = buildAccountOrderUpdates(reorderedAccounts);
     if (!updates.length) {
-      toast.info("账号顺序未变化");
+      toast.info(t("账号顺序未变化"));
       return;
     }
 
@@ -1210,7 +1216,7 @@ export default function AccountsPage() {
    */
   const handleApplyAccountSizeSort = async (mode: AccountSizeSortMode) => {
     if (accounts.length < 2) {
-      toast.info("账号数量不足，无需重新排序");
+      toast.info(t("账号数量不足，无需重新排序"));
       return;
     }
 
@@ -1219,8 +1225,8 @@ export default function AccountsPage() {
     if (!updates.length) {
       toast.info(
         mode === "large-first"
-          ? "当前已经是大号优先顺序"
-          : "当前已经是小号优先顺序",
+          ? t("当前已经是大号优先顺序")
+          : t("当前已经是小号优先顺序"),
       );
       return;
     }
@@ -1254,19 +1260,19 @@ export default function AccountsPage() {
     const nextNote = noteDraft.trim();
 
     if (!nextLabel) {
-      toast.error("请输入账号名称");
+      toast.error(t("请输入账号名称"));
       return;
     }
 
     const rawSort = sortDraft.trim();
     if (!rawSort) {
-      toast.error("请输入顺序值");
+      toast.error(t("请输入顺序值"));
       return;
     }
 
     const parsed = Number(rawSort);
     if (!Number.isFinite(parsed)) {
-      toast.error("顺序必须是数字");
+      toast.error(t("顺序必须是数字"));
       return;
     }
 
@@ -1324,7 +1330,7 @@ export default function AccountsPage() {
       {!isServiceReady ? (
         <Card className="glass-card border-none shadow-sm">
           <CardContent className="pt-6 text-sm text-muted-foreground">
-            服务未连接，账号列表与相关操作暂不可用；连接恢复后会自动继续加载。
+            {t("服务未连接，账号列表与相关操作暂不可用；连接恢复后会自动继续加载。")}
           </CardContent>
         </Card>
       ) : null}
@@ -1332,7 +1338,7 @@ export default function AccountsPage() {
         <CardContent className="grid gap-3 pt-0 lg:grid-cols-[200px_auto_minmax(0,1fr)_auto] lg:items-center">
           <div className="min-w-0">
             <Input
-              placeholder="搜索账号名 / 编号..."
+              placeholder={t("搜索账号名 / 编号...")}
               className="glass-card h-10 rounded-xl px-3"
               value={search}
               onChange={(event) => handleSearchChange(event.target.value)}
@@ -1342,13 +1348,13 @@ export default function AccountsPage() {
           <div className="flex shrink-0 items-center gap-3">
             <Select value={planFilter} onValueChange={handlePlanFilterChange}>
               <SelectTrigger className="h-10 w-[140px] shrink-0 rounded-xl bg-card/50">
-                <SelectValue placeholder="全部类型">
-                  {(value) => formatPlanFilterLabel(String(value || ""))}
+                <SelectValue placeholder={t("全部类型")}>
+                  {(value) => formatPlanFilterLabel(String(value || ""), t)}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">
-                  全部类型 ({accounts.length})
+                  {t("全部类型")} ({accounts.length})
                 </SelectItem>
                 {planTypes.map((planType) => (
                   <SelectItem key={planType.value} value={planType.value}>
@@ -1364,8 +1370,8 @@ export default function AccountsPage() {
               }
             >
               <SelectTrigger className="h-10 w-[152px] shrink-0 rounded-xl bg-card/50">
-                <SelectValue placeholder="全部状态">
-                  {(value) => formatStatusFilterLabel(String(value || ""))}
+                <SelectValue placeholder={t("全部状态")}>
+                  {(value) => formatStatusFilterLabel(String(value || ""), t)}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -1390,7 +1396,7 @@ export default function AccountsPage() {
                   nativeButton={false}
                 >
                   <span className="flex items-center gap-2">
-                    <span className="text-sm font-medium">账号操作</span>
+                    <span className="text-sm font-medium">{t("账号操作")}</span>
                     {effectiveSelectedIds.length > 0 ? (
                       <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
                         {effectiveSelectedIds.length}
@@ -1406,7 +1412,7 @@ export default function AccountsPage() {
               >
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="px-2 py-1 text-[11px] uppercase tracking-[0.16em] text-muted-foreground/80">
-                    刷新
+                    {t("刷新")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem
                     className="h-9 rounded-lg px-2"
@@ -1416,7 +1422,7 @@ export default function AccountsPage() {
                     <RefreshCw
                       className={cn("mr-2 h-4 w-4", isRefreshingAllAccounts && "animate-spin")}
                     />
-                    刷新账号用量
+                    {t("刷新账号用量")}
                     <DropdownMenuShortcut>ALL</DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -1425,21 +1431,21 @@ export default function AccountsPage() {
                     onClick={() => refreshAccountList()}
                   >
                     <RefreshCw className="mr-2 h-4 w-4" />
-                    刷新列表
+                    {t("刷新列表")}
                     <DropdownMenuShortcut>LIST</DropdownMenuShortcut>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="px-2 py-1 text-[11px] uppercase tracking-[0.16em] text-muted-foreground/80">
-                    账号管理
+                    {t("账号管理")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem
                     className="h-9 rounded-lg px-2"
                     disabled={!isServiceReady}
                     onClick={() => setAddAccountModalOpen(true)}
                   >
-                    <Plus className="mr-2 h-4 w-4" /> 添加账号
+                    <Plus className="mr-2 h-4 w-4" /> {t("添加账号")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="h-9 rounded-lg px-2"
@@ -1472,7 +1478,7 @@ export default function AccountsPage() {
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="px-2 py-1 text-[11px] uppercase tracking-[0.16em] text-muted-foreground/80">
-                    排序
+                    {t("排序")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem
                     className="h-9 rounded-lg px-2"
@@ -1484,7 +1490,7 @@ export default function AccountsPage() {
                     onClick={() => void handleApplyAccountSizeSort("large-first")}
                   >
                     <ArrowUpDown className="mr-2 h-4 w-4" />
-                    大号优先排序
+                    {t("大号优先排序")}
                     <DropdownMenuShortcut>BIZ</DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -1497,14 +1503,14 @@ export default function AccountsPage() {
                     onClick={() => void handleApplyAccountSizeSort("small-first")}
                   >
                     <ArrowDown className="mr-2 h-4 w-4" />
-                    小号优先排序
+                    {t("小号优先排序")}
                     <DropdownMenuShortcut>FREE</DropdownMenuShortcut>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="px-2 py-1 text-[11px] uppercase tracking-[0.16em] text-muted-foreground/80">
-                    清理
+                    {t("清理")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem
                     disabled={!isServiceReady || !effectiveSelectedIds.length || isDeletingMany}
@@ -1512,7 +1518,7 @@ export default function AccountsPage() {
                     className="h-9 rounded-lg px-2"
                     onClick={handleDeleteSelected}
                   >
-                    <Trash2 className="mr-2 h-4 w-4" /> 删除选中账号
+                    <Trash2 className="mr-2 h-4 w-4" /> {t("删除选中账号")}
                     <DropdownMenuShortcut>
                       {effectiveSelectedIds.length || "-"}
                     </DropdownMenuShortcut>
@@ -1523,7 +1529,7 @@ export default function AccountsPage() {
                     disabled={!isServiceReady}
                     onClick={() => deleteUnavailableFree()}
                   >
-                    <Trash2 className="mr-2 h-4 w-4" /> 清理免费不可用账号
+                    <Trash2 className="mr-2 h-4 w-4" /> {t("清理免费不可用账号")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     variant="destructive"
@@ -1531,7 +1537,7 @@ export default function AccountsPage() {
                     disabled={!isServiceReady}
                     onClick={handleDeleteBanned}
                   >
-                    <Trash2 className="mr-2 h-4 w-4" /> 一键清理封禁账号
+                    <Trash2 className="mr-2 h-4 w-4" /> {t("一键清理封禁账号")}
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
               </DropdownMenuContent>
@@ -1543,9 +1549,9 @@ export default function AccountsPage() {
       <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
         <DialogContent className="glass-card border-border/70 sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>导出账号</DialogTitle>
+            <DialogTitle>{t("导出账号")}</DialogTitle>
             <DialogDescription>
-              导出范围会自动按当前选择决定；如果没有选中账号，就导出全部。
+              {t("导出范围会自动按当前选择决定；如果没有选中账号，就导出全部。")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -1553,7 +1559,7 @@ export default function AccountsPage() {
               {exportScopeText}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="account-export-mode">导出格式</Label>
+              <Label htmlFor="account-export-mode">{t("导出格式")}</Label>
               <Select
                 value={exportModeDraft}
                 onValueChange={(value) =>
@@ -1567,18 +1573,18 @@ export default function AccountsPage() {
                   className="glass-card h-10 rounded-xl"
                 >
                   <SelectValue>
-                    {(value) => formatAccountExportModeLabel(String(value || ""))}
+                    {(value) => formatAccountExportModeLabel(String(value || ""), t)}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="multiple">多 JSON</SelectItem>
-                  <SelectItem value="single">单 JSON</SelectItem>
+                  <SelectItem value="multiple">{t("多 JSON")}</SelectItem>
+                  <SelectItem value="single">{t("单 JSON")}</SelectItem>
                 </SelectContent>
               </Select>
               <div className="text-xs text-muted-foreground">
                 {exportModeDraft === "single"
-                  ? "导出为一个 `accounts.json` 数组文件，适合整体备份和再次导入。"
-                  : "每个账号导出为一个独立 JSON 文件，适合逐个分发或单独管理。"}
+                  ? t("导出为一个 `accounts.json` 数组文件，适合整体备份和再次导入。")
+                  : t("每个账号导出为一个独立 JSON 文件，适合逐个分发或单独管理。")}
               </div>
             </div>
           </div>
@@ -1587,14 +1593,14 @@ export default function AccountsPage() {
               className={cn(buttonVariants({ variant: "outline" }), "rounded-xl")}
               disabled={isExporting}
             >
-              取消
+              {t("取消")}
             </DialogClose>
             <Button
               className="rounded-xl"
               onClick={() => void handleConfirmExport()}
               disabled={isExporting || exportTargetCount <= 0}
             >
-              {isExporting ? "导出中..." : "开始导出"}
+              {isExporting ? t("导出中...") : t("开始导出")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1616,11 +1622,11 @@ export default function AccountsPage() {
                     onCheckedChange={toggleSelectAllVisible}
                   />
                 </TableHead>
-                <TableHead className="max-w-[220px]">账号信息</TableHead>
-                <TableHead className="min-w-[250px] text-center">额度详情</TableHead>
-                <TableHead className="w-[156px]">顺序</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead className="text-center">操作</TableHead>
+                <TableHead className="max-w-[220px]">{t("账号信息")}</TableHead>
+                <TableHead className="min-w-[250px] text-center">{t("额度详情")}</TableHead>
+                <TableHead className="w-[156px]">{t("顺序")}</TableHead>
+                <TableHead>{t("状态")}</TableHead>
+                <TableHead className="text-center">{t("操作")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1656,7 +1662,7 @@ export default function AccountsPage() {
                   <TableCell colSpan={6} className="h-48 text-center">
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                       <Search className="h-8 w-8 opacity-20" />
-                      <p>未找到符合条件的账号</p>
+                      <p>{t("未找到符合条件的账号")}</p>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -1673,25 +1679,25 @@ export default function AccountsPage() {
                     const quotaItems: QuotaSummaryItem[] = [
                       {
                         id: `${account.id}-primary`,
-                        label: "5小时",
+                        label: t("5小时"),
                         remainPercent: account.primaryRemainPercent,
                         resetsAt: usageBuckets.primaryResetsAt,
                         icon: RefreshCw,
                         tone: "green",
-                        caption: "标准模型窗口",
-                        emptyText: secondaryWindowOnly ? "未提供" : "--",
-                        emptyResetText: secondaryWindowOnly ? "未提供" : "未知",
+                        caption: t("标准模型窗口"),
+                        emptyText: secondaryWindowOnly ? t("未提供") : "--",
+                        emptyResetText: secondaryWindowOnly ? t("未提供") : t("未知"),
                       },
                       {
                         id: `${account.id}-secondary`,
-                        label: "7天",
+                        label: t("7天"),
                         remainPercent: account.secondaryRemainPercent,
                         resetsAt: usageBuckets.secondaryResetsAt,
                         icon: RefreshCw,
                         tone: "blue",
-                        caption: "长周期窗口",
-                        emptyText: primaryWindowOnly ? "未提供" : "--",
-                        emptyResetText: primaryWindowOnly ? "未提供" : "未知",
+                        caption: t("长周期窗口"),
+                        emptyText: primaryWindowOnly ? t("未提供") : "--",
+                        emptyResetText: primaryWindowOnly ? t("未提供") : t("未知"),
                       },
                       ...extraUsageRows.map((item) => ({
                         id: item.id,
@@ -1702,10 +1708,10 @@ export default function AccountsPage() {
                         tone: "amber" as const,
                         caption: item.windowLabel,
                         emptyText: "--",
-                        emptyResetText: "未知",
+                        emptyResetText: t("未知"),
                       })),
                     ];
-                    const statusAction = getAccountStatusAction(account);
+                    const statusAction = getAccountStatusAction(account, t);
                     const StatusActionIcon = statusAction.icon;
                     const filteredIndex =
                       filteredAccountIndexMap.get(account.id) ?? -1;
@@ -1746,7 +1752,7 @@ export default function AccountsPage() {
                               isUpdatingProfileAccountId === account.id
                             }
                             onClick={() => void handleMoveAccount(account, "up")}
-                            title="上移一位"
+                            title={t("上移一位")}
                           >
                             <ArrowUp className="h-3.5 w-3.5" />
                           </Button>
@@ -1761,7 +1767,7 @@ export default function AccountsPage() {
                               isUpdatingProfileAccountId === account.id
                             }
                             onClick={() => void handleMoveAccount(account, "down")}
-                            title="下移一位"
+                            title={t("下移一位")}
                           >
                             <ArrowDown className="h-3.5 w-3.5" />
                           </Button>
@@ -1775,7 +1781,7 @@ export default function AccountsPage() {
                               isUpdatingProfileAccountId === account.id
                             }
                             onClick={() => openAccountEditor(account)}
-                            title="编辑账号信息"
+                            title={t("编辑账号信息")}
                           >
                             <PencilLine className="h-3.5 w-3.5" />
                           </Button>
@@ -1799,7 +1805,7 @@ export default function AccountsPage() {
                                 : "text-red-600 dark:text-red-400",
                             )}
                           >
-                            {account.availabilityText}
+                            {t(account.availabilityText || "未知")}
                           </span>
                         </div>
                       </TableCell>
@@ -1811,7 +1817,7 @@ export default function AccountsPage() {
                             className="h-8 w-8 text-muted-foreground transition-colors hover:text-primary"
                             disabled={!isServiceReady}
                             onClick={() => openUsage(account)}
-                            title="用量详情"
+                            title={t("用量详情")}
                           >
                             <BarChart3 className="h-4 w-4" />
                           </Button>
@@ -1840,8 +1846,8 @@ export default function AccountsPage() {
                               >
                                 <Pin className="h-4 w-4" />
                                 {manualPreferredAccountId === account.id
-                                  ? "取消优先"
-                                  : "设为优先"}
+                                  ? t("取消优先")
+                                  : t("设为优先")}
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 className="gap-2"
@@ -1873,7 +1879,7 @@ export default function AccountsPage() {
                                   )
                                 }
                               >
-                                <ExternalLink className="h-4 w-4" /> 详情与日志
+                                <ExternalLink className="h-4 w-4" /> {t("详情与日志")}
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
@@ -1881,7 +1887,7 @@ export default function AccountsPage() {
                                 disabled={!isServiceReady}
                                 onClick={() => handleDeleteSingle(account)}
                               >
-                                <Trash2 className="h-4 w-4" /> 删除
+                                <Trash2 className="h-4 w-4" /> {t("删除")}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -1898,17 +1904,17 @@ export default function AccountsPage() {
 
       <div className="flex items-center justify-between px-2">
         <div className="text-xs text-muted-foreground">
-          共 {filteredAccounts.length} 个账号
+          {t("共")} {filteredAccounts.length} {t("个账号")}
           {effectiveSelectedIds.length > 0 ? (
             <span className="ml-1 text-primary">
-              (已选择 {effectiveSelectedIds.length} 个)
+              ({t("已选择")} {effectiveSelectedIds.length} {t("个")})
             </span>
           ) : null}
         </div>
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <span className="whitespace-nowrap text-xs text-muted-foreground">
-              每页显示
+              {t("每页显示")}
             </span>
             <Select value={pageSize} onValueChange={handlePageSizeChange}>
               <SelectTrigger className="h-8 w-[70px] text-xs">
@@ -1931,10 +1937,10 @@ export default function AccountsPage() {
               disabled={safePage <= 1}
               onClick={() => setPage((current) => Math.max(1, current - 1))}
             >
-              上一页
+              {t("上一页")}
             </Button>
             <div className="min-w-[60px] text-center text-xs font-medium">
-              第 {safePage} / {totalPages} 页
+              {t("第")} {safePage} / {totalPages} {t("页")}
             </div>
             <Button
               variant="outline"
@@ -1945,7 +1951,7 @@ export default function AccountsPage() {
                 setPage((current) => Math.min(totalPages, current + 1))
               }
             >
-              下一页
+              {t("下一页")}
             </Button>
           </div>
         </div>
@@ -1980,14 +1986,14 @@ export default function AccountsPage() {
           }
         }}
         title={
-          deleteDialogState?.kind === "single" ? "删除账号" : "批量删除账号"
+          deleteDialogState?.kind === "single" ? t("删除账号") : t("批量删除账号")
         }
         description={
           deleteDialogState?.kind === "single"
-            ? `确定删除账号 ${deleteDialogState.account.name} 吗？删除后不可恢复。`
-            : `确定删除选中的 ${deleteDialogState?.count || 0} 个账号吗？删除后不可恢复。`
+            ? `${t("确定删除账号")} ${deleteDialogState.account.name} ${t("吗？删除后不可恢复。")}`
+            : `${t("确定删除选中的")} ${deleteDialogState?.count || 0} ${t("个账号吗？删除后不可恢复。")}`
         }
-        confirmText="删除"
+        confirmText={t("删除")}
         confirmVariant="destructive"
         onConfirm={handleConfirmDelete}
       />
@@ -2001,17 +2007,17 @@ export default function AccountsPage() {
       >
         <DialogContent className="glass-card border-none sm:max-w-[560px]">
           <DialogHeader>
-            <DialogTitle>编辑账号信息</DialogTitle>
+            <DialogTitle>{t("编辑账号信息")}</DialogTitle>
             <DialogDescription>
               {accountEditorState
-                ? `修改 ${accountEditorState.accountName} 的名称、标签、备注与排序。`
-                : "修改账号的基础资料。"}
+                ? `${t("修改")} ${accountEditorState.accountName} ${t("的名称、标签、备注与排序。")}`
+                : t("修改账号的基础资料。")}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="grid gap-2">
-                <Label htmlFor="account-label-input">账号名称</Label>
+                <Label htmlFor="account-label-input">{t("账号名称")}</Label>
                 <Input
                   id="account-label-input"
                   value={labelDraft}
@@ -2020,30 +2026,30 @@ export default function AccountsPage() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="account-tags-input">标签（逗号分隔）</Label>
+                <Label htmlFor="account-tags-input">{t("标签（逗号分隔）")}</Label>
                 <Input
                   id="account-tags-input"
                   value={tagsDraft}
                   disabled={Boolean(isUpdatingProfileAccountId)}
                   onChange={(event) => setTagsDraft(event.target.value)}
-                  placeholder="例如：高频, 团队A"
+                  placeholder={t("例如：高频, 团队A")}
                 />
               </div>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="account-note-input">备注</Label>
+              <Label htmlFor="account-note-input">{t("备注")}</Label>
               <Textarea
                 id="account-note-input"
                 value={noteDraft}
                 disabled={Boolean(isUpdatingProfileAccountId)}
                 onChange={(event) => setNoteDraft(event.target.value)}
-                placeholder="例如：主账号 / 测试号 / 团队共享"
+                placeholder={t("例如：主账号 / 测试号 / 团队共享")}
                 className="min-h-[108px]"
               />
             </div>
             <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_120px] sm:items-end">
               <div className="grid gap-2">
-                <Label htmlFor="account-sort-input">顺序值</Label>
+                <Label htmlFor="account-sort-input">{t("顺序值")}</Label>
                 <Input
                   id="account-sort-input"
                   type="number"
@@ -2061,23 +2067,23 @@ export default function AccountsPage() {
                 />
               </div>
               <div className="grid gap-1 rounded-xl bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
-                <span>值越小越靠前</span>
-                <span>仅修改当前账号</span>
+                <span>{t("值越小越靠前")}</span>
+                <span>{t("仅修改当前账号")}</span>
               </div>
             </div>
             <div className="grid gap-3 rounded-xl bg-muted/20 px-3 py-3 text-[11px] text-muted-foreground sm:grid-cols-2">
               <div className="space-y-1">
-                <div>账号 ID</div>
+                <div>{t("账号 ID")}</div>
                 <div className="break-all font-mono">
                   {accountEditorState?.accountId || "-"}
                 </div>
               </div>
               <div className="space-y-1">
-                <div>账号类型</div>
+                <div>{t("账号类型")}</div>
                 <div className="font-medium text-foreground/80">
                   {currentEditingAccount
-                    ? formatAccountPlanLabel(currentEditingAccount) || "未知"
-                    : "未知"}
+                    ? formatAccountPlanLabel(currentEditingAccount) || t("未知")
+                    : t("未知")}
                 </div>
               </div>
             </div>
@@ -2088,13 +2094,13 @@ export default function AccountsPage() {
               type="button"
               disabled={Boolean(isUpdatingProfileAccountId)}
             >
-              取消
+              {t("取消")}
             </DialogClose>
             <Button
               disabled={Boolean(isUpdatingProfileAccountId)}
               onClick={() => void handleConfirmAccountEditor()}
             >
-              保存
+              {t("保存")}
             </Button>
           </DialogFooter>
         </DialogContent>

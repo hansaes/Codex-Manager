@@ -406,11 +406,11 @@ export default function ApiKeysPage() {
 
       <Card className="glass-card overflow-hidden border-none py-0 shadow-xl backdrop-blur-md">
         <CardContent className="p-0">
-          <Table>
+          <Table className="min-w-[1040px]">
             <TableHeader>
               <TableRow>
-                <TableHead>密钥 / ID</TableHead>
-                <TableHead>名称</TableHead>
+                <TableHead>{t("密钥 / ID")}</TableHead>
+                <TableHead>{t("名称")}</TableHead>
                 <TableHead>{t("协议")}</TableHead>
                 <TableHead>{t("轮转策略")}</TableHead>
                 <TableHead>{t("绑定模型")}</TableHead>
@@ -452,7 +452,7 @@ export default function ApiKeysPage() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <code
-                            className="max-w-[240px] break-all whitespace-normal rounded border border-primary/5 bg-muted/50 px-2 py-1 font-mono text-[10px] leading-4 text-primary"
+                            className="inline-block max-w-[180px] truncate whitespace-nowrap rounded border border-primary/5 bg-muted/50 px-2 py-1 font-mono text-[10px] leading-4 text-primary"
                             title={revealed || key.id}
                           >
                             {revealed
@@ -493,8 +493,10 @@ export default function ApiKeysPage() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="secondary" className="text-[10px] font-normal">
-                          {ROTATION_STRATEGY_LABELS[key.rotationStrategy] ||
-                            key.rotationStrategy}
+                          {t(
+                            ROTATION_STRATEGY_LABELS[key.rotationStrategy] ||
+                              key.rotationStrategy,
+                          )}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-xs font-medium text-muted-foreground">

@@ -182,7 +182,7 @@ export function Header() {
           ) : null}
         </div>
 
-        <div className="hidden min-w-0 items-center justify-center px-2 2xl:flex">
+        <div className="hidden min-w-0 items-center justify-center px-2 lg:flex">
           <DisclaimerTicker />
         </div>
 

@@ -232,6 +232,7 @@ function StatProgressCard({
   color,
   sub,
 }: StatProgressCardProps) {
+  const { t } = useI18n();
   const percentage = total > 0 ? Math.min(Math.round((value / total) * 100), 100) : 0;
 
   return (
@@ -247,7 +248,7 @@ function StatProgressCard({
         </div>
         <div className="space-y-1">
           <div className="flex items-center justify-between text-[10px]">
-            <span className="text-muted-foreground">占比</span>
+            <span className="text-muted-foreground">{t("占比")}</span>
             <span className="font-mono font-medium">{percentage}%</span>
           </div>
           <Progress value={percentage} className="h-1.5" />
@@ -284,7 +285,7 @@ export default function DashboardPage() {
                 <p className="mt-1 text-[10px] text-muted-foreground">{t("池中所有配置账号")}</p>
                 <div className="mt-4 flex w-fit items-center gap-2 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-600 dark:text-blue-400">
                   <Activity className="h-3 w-3" />
-                  {t("最近日志")} {requestLogs.length} 条
+                  {t("最近日志")} {requestLogs.length} {t("条")}
                 </div>
               </CardContent>
             </Card>
@@ -344,21 +345,21 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {[ 
           {
-            title: t("今日词元"),
+            title: t("今日Token"),
             value: formatCompactTokenAmount(stats.todayTokens),
             icon: Zap,
             color: "text-yellow-500",
             sub: t("输入 + 输出合计"),
           },
           {
-            title: t("缓存词元"),
+            title: t("缓存Token"),
             value: formatCompactTokenAmount(stats.cachedTokens),
             icon: Database,
             color: "text-indigo-500",
             sub: t("上下文缓存命中"),
           },
           {
-            title: t("推理词元"),
+            title: t("推理Token"),
             value: formatCompactTokenAmount(stats.reasoningTokens),
             icon: BrainCircuit,
             color: "text-purple-500",

@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { useI18n } from "@/lib/i18n/provider";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -40,11 +41,12 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmText = "确定",
-  cancelText = "取消",
+  confirmText,
+  cancelText,
   confirmVariant = "default",
   onConfirm,
 }: ConfirmDialogProps) {
+  const { t } = useI18n();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -61,7 +63,7 @@ export function ConfirmDialog({
             className={buttonVariants({ variant: "outline" })}
             type="button"
           >
-            {cancelText}
+            {cancelText || t("取消")}
           </DialogClose>
           <Button
             variant={confirmVariant}
@@ -70,7 +72,7 @@ export function ConfirmDialog({
               onOpenChange(false);
             }}
           >
-            {confirmText}
+            {confirmText || t("确定")}
           </Button>
         </DialogFooter>
       </DialogContent>

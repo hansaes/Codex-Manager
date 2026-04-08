@@ -1238,7 +1238,7 @@ export default function SettingsPage() {
       })
       .then(() => {
         clearBackgroundTaskDraftKeys(WORKER_PRESET_KEYS);
-        toast.success(`已切换为「${preset.label}」`);
+        toast.success(`${t("已切换为")} ${t(preset.label)}`);
       })
       .catch(() => undefined);
   };
@@ -1449,7 +1449,7 @@ export default function SettingsPage() {
       <div>
         <h2 className="text-xl font-bold tracking-tight">系统设置</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          管理应用行为、网关策略及后台任务
+          {t("管理应用行为、网关策略及后台任务")}
         </p>
       </div>
 
@@ -1544,7 +1544,7 @@ export default function SettingsPage() {
                         onClick={handleOpenUpdateLogsDir}
                       >
                         <FolderOpen className="h-3.5 w-3.5" />
-                        打开日志目录
+                        {t("打开日志目录")}
                       </Button>
                     </div>
                   ) : null}
@@ -1632,8 +1632,8 @@ export default function SettingsPage() {
                         SERVICE_LISTEN_MODE_LABELS[
                           String(value || "").trim()
                         ] ||
-                        String(value || "").trim() ||
-                        "仅本机 (localhost)"
+                        t(String(value || "").trim()) ||
+                        t("仅本机 (localhost)")
                       }
                     </SelectValue>
                   </SelectTrigger>
@@ -1643,7 +1643,7 @@ export default function SettingsPage() {
                       : ["loopback", "all_interfaces"]
                     ).map((mode) => (
                       <SelectItem key={mode} value={mode}>
-                        {SERVICE_LISTEN_MODE_LABELS[mode] || mode}
+                        {t(SERVICE_LISTEN_MODE_LABELS[mode] || mode)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1669,9 +1669,10 @@ export default function SettingsPage() {
               </div>
 
               <p className="text-[10px] text-muted-foreground">
-                切换到 <code>0.0.0.0</code> 后，局域网设备可通过当前机器 IP
-                访问； 设置保存后需要重启相关进程才会生效，Web
-                监听地址会默认跟随这里的模式。
+                {t("切换到")} <code>0.0.0.0</code>{" "}
+                {t(
+                  "后，局域网设备可通过当前机器 IP 访问；设置保存后需要重启相关进程才会生效，Web 监听地址会默认跟随这里的模式。",
+                )}
               </p>
             </CardContent>
           </Card>
@@ -1682,9 +1683,9 @@ export default function SettingsPage() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Palette className="h-4 w-4 text-primary" />
-                <CardTitle className="text-base">样式版本</CardTitle>
+                <CardTitle className="text-base">{t("样式版本")}</CardTitle>
               </div>
-              <CardDescription>在渐变版本和默认版本之间切换</CardDescription>
+              <CardDescription>{t("在渐变版本和默认版本之间切换")}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-3 md:grid-cols-2">
@@ -1707,10 +1708,10 @@ export default function SettingsPage() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-1.5">
                           <div className="text-sm font-semibold">
-                            {item.name}
+                            {t(item.name)}
                           </div>
                           <p className="text-xs leading-5 text-muted-foreground">
-                            {item.description}
+                            {t(item.description)}
                           </p>
                         </div>
                         {isActive ? (
@@ -1758,10 +1759,10 @@ export default function SettingsPage() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Palette className="h-4 w-4 text-primary" />
-                <CardTitle className="text-base">界面主题</CardTitle>
+                <CardTitle className="text-base">{t("界面主题")}</CardTitle>
               </div>
               <CardDescription>
-                选择您喜爱的配色方案，适配不同工作心情
+                {t("选择您喜爱的配色方案，适配不同工作心情")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1789,7 +1790,7 @@ export default function SettingsPage() {
                           : "text-muted-foreground group-hover:text-foreground",
                       )}
                     >
-                      {item.name}
+                      {t(item.name)}
                     </span>
                     {theme === item.id ? (
                       <div className="absolute right-2 top-2 rounded-full bg-primary p-0.5 text-primary-foreground shadow-sm">
@@ -1806,12 +1807,12 @@ export default function SettingsPage() {
         <TabsContent value="gateway" className="space-y-4">
           <Card className="glass-card border-none shadow-md">
             <CardHeader>
-              <CardTitle className="text-base">网关策略</CardTitle>
-              <CardDescription>配置账号选路和请求头处理方式</CardDescription>
+              <CardTitle className="text-base">{t("网关策略")}</CardTitle>
+              <CardDescription>{t("配置账号选路和请求头处理方式")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-2">
-                <Label>账号选路策略</Label>
+                <Label>{t("账号选路策略")}</Label>
                 <Select
                   value={snapshot.routeStrategy || "ordered"}
                   onValueChange={(value) =>
@@ -1822,27 +1823,27 @@ export default function SettingsPage() {
                     <SelectValue placeholder="选择策略">
                       {(value) => {
                         const nextValue = String(value || "").trim();
-                        if (!nextValue) return "选择策略";
-                        return ROUTE_STRATEGY_LABELS[nextValue] || nextValue;
+                        if (!nextValue) return t("选择策略");
+                        return t(ROUTE_STRATEGY_LABELS[nextValue] || nextValue);
                       }}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ordered">顺序优先 (Ordered)</SelectItem>
+                    <SelectItem value="ordered">{t("顺序优先 (Ordered)")}</SelectItem>
                     <SelectItem value="balanced">
-                      均衡轮询 (Balanced)
+                      {t("均衡轮询 (Balanced)")}
                     </SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-muted-foreground">
-                  顺序优先：按账号候选顺序优先尝试，默认只会在头部小窗口内按健康度做轻微换头；
-                  均衡轮询：按“平台密钥 +
-                  模型”维度严格轮询可用账号，默认不做健康度换头。
+                  {t(
+                    "顺序优先：按账号候选顺序优先尝试，默认只会在头部小窗口内按健康度做轻微换头；均衡轮询：按“平台密钥 + 模型”维度严格轮询可用账号，默认不做健康度换头。",
+                  )}
                 </p>
               </div>
 
               <div className="grid gap-2">
-                <Label>Free 账号使用模型</Label>
+                <Label>{t("Free 账号使用模型")}</Label>
                 <Select
                   value={snapshot.freeAccountMaxModel || "auto"}
                   onValueChange={(value) =>
@@ -1854,7 +1855,7 @@ export default function SettingsPage() {
                   <SelectTrigger className="w-full md:w-[300px]">
                     <SelectValue placeholder="选择 free 账号使用模型">
                       {(value) =>
-                        formatFreeAccountModelLabel(String(value || ""))
+                        t(formatFreeAccountModelLabel(String(value || "")))
                       }
                     </SelectValue>
                   </SelectTrigger>
@@ -1870,13 +1871,14 @@ export default function SettingsPage() {
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-muted-foreground">
-                  设为“跟随请求”时，不会额外改写 free / 7天单窗口账号的模型；
-                  只有你选了具体模型后，命中这些账号时才会统一改写为该模型。
+                  {t(
+                    "设为“跟随请求”时，不会额外改写 free / 7天单窗口账号的模型；只有你选了具体模型后，命中这些账号时才会统一改写为该模型。",
+                  )}
                 </p>
               </div>
 
               <div className="grid gap-2">
-                <Label>模型转发规则</Label>
+                <Label>{t("模型转发规则")}</Label>
                 <Textarea
                   className="min-h-[132px] max-w-2xl font-mono text-xs"
                   placeholder={"spark*=gpt-5.4-mini\nclaude-sonnet-4*=gpt-5.4"}
@@ -1902,13 +1904,14 @@ export default function SettingsPage() {
                   }}
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  一行一条，格式为 <code>源模型=目标模型</code>，支持
-                  <code>*</code> 通配。平台 Key 没有强绑模型时，会先按这里把请求模型改写，再进入账号路由。
+                  {t("一行一条，格式为")} <code>{t("源模型=目标模型")}</code>，{t("支持")}
+                  <code>*</code>{" "}
+                  {t("通配。平台 Key 没有强绑模型时，会先按这里把请求模型改写，再进入账号路由。")}
                 </p>
               </div>
 
               <div className="grid gap-2 border-t pt-6">
-                <Label>Originator</Label>
+                <Label>{t("Originator")}</Label>
                 <Input
                   className="h-10 max-w-md font-mono"
                   value={gatewayOriginatorInput}
@@ -1933,13 +1936,13 @@ export default function SettingsPage() {
                   }}
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  对齐官方 Codex 的上游 Originator。默认值为{" "}
+                  {t("对齐官方 Codex 的上游 Originator。默认值为")}{" "}
                   <code>codex_cli_rs</code>，会同步影响登录和网关上游请求头。
                 </p>
               </div>
 
               <div className="grid gap-2">
-                <Label>User-Agent 版本</Label>
+                <Label>{t("User-Agent 版本")}</Label>
                 <Input
                   className="h-10 max-w-md font-mono"
                   value={gatewayUserAgentVersionInput}
@@ -1964,13 +1967,13 @@ export default function SettingsPage() {
                   }}
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  控制真实出站 <code>User-Agent</code> 里的版本号，默认值为{" "}
-                  <code>0.101.0</code>。 官方 Codex 升级后，可以在这里手动同步。
+                  {t("控制真实出站")} <code>User-Agent</code> {t("里的版本号，默认值为")}{" "}
+                  <code>0.101.0</code>。 {t("官方 Codex 升级后，可以在这里手动同步。")}
                 </p>
               </div>
 
               <div className="grid gap-2">
-                <Label>Residency Requirement</Label>
+                <Label>{t("Residency Requirement")}</Label>
                 <Select
                   value={
                     (snapshot.gatewayResidencyRequirement ?? "") ||
@@ -1991,7 +1994,7 @@ export default function SettingsPage() {
                             ? ""
                             : String(value || "");
                         return (
-                          RESIDENCY_REQUIREMENT_LABELS[nextValue] || nextValue
+                          t(RESIDENCY_REQUIREMENT_LABELS[nextValue] || nextValue)
                         );
                       }}
                     </SelectValue>
@@ -2005,20 +2008,20 @@ export default function SettingsPage() {
                         key={value || EMPTY_RESIDENCY_OPTION}
                         value={value || EMPTY_RESIDENCY_OPTION}
                       >
-                        {RESIDENCY_REQUIREMENT_LABELS[value] || value}
+                        {t(RESIDENCY_REQUIREMENT_LABELS[value] || value)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-muted-foreground">
-                  对齐官方 Codex 的{" "}
+                  {t("对齐官方 Codex 的")}{" "}
                   <code>x-openai-internal-codex-residency</code> 头。
-                  当前只支持留空或 <code>us</code>。
+                  {t("当前只支持留空或")} <code>us</code>。
                 </p>
               </div>
 
               <div className="grid gap-2 pt-2">
-                <Label>上游代理 (Proxy)</Label>
+                <Label>{t("上游代理 (Proxy)")}</Label>
                 <Input
                   placeholder="http://127.0.0.1:7890"
                   className="h-10 max-w-md font-mono"
@@ -2041,13 +2044,13 @@ export default function SettingsPage() {
                   }}
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  支持 http/https/socks5，留空表示直连。
+                  {t("支持 http/https/socks5，留空表示直连。")}
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4 border-t pt-6">
                 <div className="grid gap-2">
-                  <Label>SSE 保活间隔 (ms)</Label>
+                  <Label>{t("SSE 保活间隔 (ms)")}</Label>
                   <Input
                     type="number"
                     value={transportInputValues.sseKeepaliveIntervalMs}
@@ -2063,7 +2066,7 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label>上游流式空闲超时 (ms)</Label>
+                  <Label>{t("上游流式空闲超时 (ms)")}</Label>
                   <Input
                     type="number"
                     value={transportInputValues.upstreamStreamTimeoutMs}
@@ -2086,8 +2089,8 @@ export default function SettingsPage() {
         <TabsContent value="tasks" className="space-y-4">
           <Card className="glass-card border-none shadow-md">
             <CardHeader>
-              <CardTitle className="text-base">后台任务线程</CardTitle>
-              <CardDescription>管理自动轮询和保活任务；</CardDescription>
+              <CardTitle className="text-base">{t("后台任务线程")}</CardTitle>
+              <CardDescription>{t("管理自动轮询和保活任务；")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {[
@@ -2124,11 +2127,11 @@ export default function SettingsPage() {
                         } as Partial<BackgroundTaskSettings>)
                       }
                     />
-                    <Label>{task.label}</Label>
+                    <Label>{t(task.label)}</Label>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">
-                      间隔(秒)
+                      {t("间隔(秒)")}
                     </span>
                     <Input
                       className="h-8 w-20"
@@ -2162,28 +2165,27 @@ export default function SettingsPage() {
 
           <Card className="glass-card border-none shadow-md">
             <CardHeader>
-              <CardTitle className="text-base">Worker 并发参数</CardTitle>
+              <CardTitle className="text-base">{t("Worker 并发参数")}</CardTitle>
               <CardDescription>
-                先按机器档位选，再按需求微调。普通请求和流式请求都是
-                “CPU 核数 × 因子，至少保底值”。几百并发先从常规推荐开始，
-                上千并发且机器资源充足时再考虑高并发。系统推导会直接更新当前设置，
-                不会改默认值。
+                {t(
+                  "先按机器档位选，再按需求微调。普通请求和流式请求都是“CPU 核数 × 因子，至少保底值”。几百并发先从常规推荐开始，上千并发且机器资源充足时再考虑高并发。系统推导会直接更新当前设置，不会改默认值。",
+                )}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="rounded-2xl border border-border/70 bg-muted/30 p-4 text-xs leading-6 text-muted-foreground">
-                <p className="font-medium text-foreground">怎么理解这 5 个数字</p>
+                <p className="font-medium text-foreground">{t("怎么理解这 5 个数字")}</p>
                 <p>
-                  <span className="font-medium text-foreground">用量刷新并发</span>
-                  是后台巡检线程，负责轮询和刷新状态。
+                  <span className="font-medium text-foreground">{t("用量刷新并发")}</span>
+                  {t("是后台巡检线程，负责轮询和刷新状态。")}
                 </p>
                 <p>
-                  <span className="font-medium text-foreground">HTTP / 流式因子</span>
-                  越大，机器越愿意多开线程处理请求。
+                  <span className="font-medium text-foreground">{t("HTTP / 流式因子")}</span>
+                  {t("越大，机器越愿意多开线程处理请求。")}
                 </p>
                 <p>
-                  <span className="font-medium text-foreground">最小并发</span>
-                  是保底值，避免小机器或空闲时线程太少。
+                  <span className="font-medium text-foreground">{t("最小并发")}</span>
+                  {t("是保底值，避免小机器或空闲时线程太少。")}
                 </p>
               </div>
               <div className="grid gap-3 lg:grid-cols-3">
@@ -2203,31 +2205,31 @@ export default function SettingsPage() {
                       <div className="flex w-full min-w-0 items-start justify-between gap-2">
                         <div className="flex min-w-0 flex-col gap-0.5">
                           <span className="text-sm font-semibold">
-                            {preset.label}
+                            {t(preset.label)}
                           </span>
                           <span className="text-[11px] text-muted-foreground">
-                            {preset.rangeLabel}
+                            {t(preset.rangeLabel)}
                           </span>
                         </div>
                         {isActive ? (
                           <Badge variant="secondary" className="h-5 px-2">
-                            当前
+                            {t("当前")}
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="h-5 px-2">
-                            一键套用
+                            {t("一键套用")}
                           </Badge>
                         )}
                       </div>
                       <p className="text-xs leading-5 opacity-90">
-                        {preset.summary}
+                        {t(preset.summary)}
                       </p>
                       <p className="text-[11px] leading-5 opacity-80">
-                        建议负载：{preset.rangeLabel}
+                        {t("建议负载：")}{t(preset.rangeLabel)}
                       </p>
                       <ul className="space-y-1 text-xs leading-5 opacity-80">
                         {preset.hints.map((hint) => (
-                          <li key={hint}>• {hint}</li>
+                          <li key={hint}>• {t(hint)}</li>
                         ))}
                       </ul>
                     </Button>
@@ -2239,14 +2241,15 @@ export default function SettingsPage() {
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-medium">参考换算</p>
+                      <p className="text-sm font-medium">{t("参考换算")}</p>
                       <Badge variant="secondary" className="h-5 px-2">
-                        参考
+                        {t("参考")}
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      公式：并发线程数 = CPU 核数 × 因子，结果不会低于最小并发。
-                      下面是按当前预设的示例值，方便估算负载，不代表绝对吞吐上限。
+                      {t(
+                        "公式：并发线程数 = CPU 核数 × 因子，结果不会低于最小并发。下面是按当前预设的示例值，方便估算负载，不代表绝对吞吐上限。",
+                      )}
                     </p>
                   </div>
                   <Button
@@ -2259,7 +2262,7 @@ export default function SettingsPage() {
                     }
                   >
                     <SettingsIcon className="h-4 w-4" />
-                    {showWorkerReference ? "收起换算表" : "展开换算表"}
+                    {showWorkerReference ? t("收起换算表") : t("展开换算表")}
                   </Button>
                 </div>
                 {showWorkerReference ? (
@@ -2267,9 +2270,9 @@ export default function SettingsPage() {
                     <table className="w-full border-collapse text-left text-xs">
                       <thead className="bg-muted/50 text-muted-foreground">
                         <tr>
-                          <th className="px-3 py-2 font-medium">CPU 核数</th>
-                          <th className="px-3 py-2 font-medium">HTTP 并发</th>
-                          <th className="px-3 py-2 font-medium">流式并发</th>
+                          <th className="px-3 py-2 font-medium">{t("CPU 核数")}</th>
+                          <th className="px-3 py-2 font-medium">{t("HTTP 并发")}</th>
+                          <th className="px-3 py-2 font-medium">{t("流式并发")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2279,26 +2282,26 @@ export default function SettingsPage() {
                             <td className="px-3 py-2">
                               <div className="space-y-1 whitespace-normal break-words">
                                 <div>
-                                  常规推荐 {estimateWorkerCount(cores, 4, 8)}
+                                  {t("常规推荐")} {estimateWorkerCount(cores, 4, 8)}
                                 </div>
                                 <div className="text-[11px] text-muted-foreground">
-                                  轻量稳定 {estimateWorkerCount(cores, 2, 4)}
+                                  {t("轻量稳定")} {estimateWorkerCount(cores, 2, 4)}
                                 </div>
                                 <div className="text-[11px] text-muted-foreground">
-                                  高并发 {estimateWorkerCount(cores, 6, 12)}
+                                  {t("高并发")} {estimateWorkerCount(cores, 6, 12)}
                                 </div>
                               </div>
                             </td>
                             <td className="px-3 py-2">
                               <div className="space-y-1 whitespace-normal break-words">
                                 <div>
-                                  常规推荐 {estimateWorkerCount(cores, 1, 2)}
+                                  {t("常规推荐")} {estimateWorkerCount(cores, 1, 2)}
                                 </div>
                                 <div className="text-[11px] text-muted-foreground">
-                                  轻量稳定 {estimateWorkerCount(cores, 1, 1)}
+                                  {t("轻量稳定")} {estimateWorkerCount(cores, 1, 1)}
                                 </div>
                                 <div className="text-[11px] text-muted-foreground">
-                                  高并发 {estimateWorkerCount(cores, 2, 4)}
+                                  {t("高并发")} {estimateWorkerCount(cores, 2, 4)}
                                 </div>
                               </div>
                             </td>
@@ -2309,7 +2312,7 @@ export default function SettingsPage() {
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    已收起换算表，点击右侧按钮可重新展开查看。
+                    {t("已收起换算表，点击右侧按钮可重新展开查看。")}
                   </p>
                 )}
               </div>
@@ -2317,22 +2320,22 @@ export default function SettingsPage() {
               <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-muted/30 p-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium">当前档位</span>
+                      <span className="text-sm font-medium">{t("当前档位")}</span>
                     <Badge
                       variant={activeWorkerPreset ? "default" : "secondary"}
                       className="h-5 px-2"
                     >
-                      {activeWorkerPreset?.label ?? "自定义"}
+                      {activeWorkerPreset ? t(activeWorkerPreset.label) : t("自定义")}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    不确定怎么选的话，先看机器核数：4-8 核选轻量稳定，
-                    8-16 核选常规推荐，16 核以上再考虑高并发。
-                    当前单账号并发上限是{" "}
+                    {t(
+                      "不确定怎么选的话，先看机器核数：4-8 核选轻量稳定，8-16 核选常规推荐，16 核以上再考虑高并发。当前单账号并发上限是",
+                    )}{" "}
                     {snapshot.accountMaxInflight > 0
                       ? snapshot.accountMaxInflight
-                      : "不限制"}{" "}
-                   。
+                      : t("不限制")}{" "}
+                    。
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -2343,7 +2346,7 @@ export default function SettingsPage() {
                       size="sm"
                       onClick={() => applyWorkerPreset(WORKER_PRESETS[0])}
                     >
-                      恢复常规推荐
+                      {t("恢复常规推荐")}
                     </Button>
                   )}
                   <Button
@@ -2356,8 +2359,8 @@ export default function SettingsPage() {
                   >
                     <Cpu className="h-4 w-4" />
                     {deriveConcurrencyRecommendation.isPending
-                      ? "正在推导..."
-                      : "系统推导"}
+                      ? t("正在推导...")
+                      : t("系统推导")}
                   </Button>
                   <Button
                     type="button"
@@ -2367,7 +2370,7 @@ export default function SettingsPage() {
                     onClick={() => setShowWorkerAdvanced((current) => !current)}
                   >
                     <SettingsIcon className="h-4 w-4" />
-                    {showWorkerAdvanced ? "收起高级设置" : "显示高级设置"}
+                    {showWorkerAdvanced ? t("收起高级设置") : t("显示高级设置")}
                   </Button>
                 </div>
               </div>
@@ -2413,9 +2416,9 @@ export default function SettingsPage() {
                     },
                   ].map((worker) => (
                     <div key={worker.key} className="grid gap-1.5">
-                      <Label className="text-xs">{worker.label}</Label>
+                      <Label className="text-xs">{t(worker.label)}</Label>
                       <p className="text-[11px] leading-5 text-muted-foreground">
-                        {worker.helper}
+                        {t(worker.helper)}
                       </p>
                       <Input
                         type="number"
@@ -2461,7 +2464,7 @@ export default function SettingsPage() {
                 <div className="relative">
                   <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="搜索变量..."
+                    placeholder={t("搜索变量...")}
                     className="h-9 pl-9"
                     value={envSearch}
                     onChange={(event) => setEnvSearch(event.target.value)}
@@ -2481,7 +2484,7 @@ export default function SettingsPage() {
                           : "hover:bg-accent",
                       )}
                     >
-                      <div className="truncate font-medium">{item.label}</div>
+                      <div className="truncate font-medium">{t(item.label)}</div>
                       <code className="block truncate text-[10px] opacity-70">
                         {item.key}
                       </code>
@@ -2497,7 +2500,7 @@ export default function SettingsPage() {
                   <CardHeader>
                     <div className="flex flex-col gap-1">
                       <CardTitle className="text-lg">
-                        {selectedEnvItem?.label}
+                        {selectedEnvItem ? t(selectedEnvItem.label) : null}
                       </CardTitle>
                       <code className="w-fit rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">
                         {selectedEnvKey}
@@ -2507,12 +2510,14 @@ export default function SettingsPage() {
                   <CardContent className="space-y-6">
                     <div className="rounded-lg border bg-accent/30 p-4 text-sm leading-relaxed text-muted-foreground">
                       <Info className="mr-2 inline-block h-4 w-4 text-primary" />
-                      {ENV_DESCRIPTION_MAP[selectedEnvKey] ||
-                        `${selectedEnvItem?.label} 对应环境变量，修改后会应用到相关模块。`}
+                      {t(
+                        ENV_DESCRIPTION_MAP[selectedEnvKey] ||
+                          `${selectedEnvItem?.label} 对应环境变量，修改后会应用到相关模块。`,
+                      )}
                     </div>
 
                     <div className="space-y-2">
-                      <Label>当前值</Label>
+                      <Label>{t("当前值")}</Label>
                       <Input
                         value={selectedEnvValue}
                         onChange={(event) => {
@@ -2523,26 +2528,26 @@ export default function SettingsPage() {
                           }));
                         }}
                         className="h-11 font-mono"
-                        placeholder="输入变量值"
+                        placeholder={t("输入变量值")}
                       />
                       <p className="text-[10px] text-muted-foreground">
-                        默认值:{" "}
+                        {t("默认值:")}{" "}
                         <span className="font-mono italic">
-                          {selectedEnvItem?.defaultValue || "空"}
+                          {selectedEnvItem?.defaultValue || t("空")}
                         </span>
                       </p>
                     </div>
 
                     <div className="flex gap-3 border-t pt-4">
                       <Button onClick={handleSaveEnv} className="gap-2">
-                        <Save className="h-4 w-4" /> 保存修改
+                        <Save className="h-4 w-4" /> {t("保存修改")}
                       </Button>
                       <Button
                         variant="outline"
                         onClick={handleResetEnv}
                         className="gap-2"
                       >
-                        <RotateCcw className="h-4 w-4" /> 恢复默认
+                        <RotateCcw className="h-4 w-4" /> {t("恢复默认")}
                       </Button>
                     </div>
                   </CardContent>
@@ -2552,7 +2557,7 @@ export default function SettingsPage() {
                   <div className="rounded-full bg-accent/30 p-4">
                     <Variable className="h-12 w-12 opacity-20" />
                   </div>
-                  <p>请从左侧列表选择一个环境变量进行配置</p>
+                  <p>{t("请从左侧列表选择一个环境变量进行配置")}</p>
                 </CardContent>
               )}
             </Card>

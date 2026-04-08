@@ -28,6 +28,7 @@ import { accountClient } from "@/lib/api/account-client";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
+import { useI18n } from "@/lib/i18n/provider";
 import { AggregateApi } from "@/types";
 
 const AGGREGATE_API_PROVIDER_LABELS: Record<string, string> = {
@@ -66,6 +67,7 @@ export function AggregateApiModal({
   aggregateApi,
   defaultSort = 0,
 }: AggregateApiModalProps) {
+  const { t } = useI18n();
   const serviceStatus = useAppStore((state) => state.serviceStatus);
   const { canAccessManagementRpc } = useRuntimeCapabilities();
   const [providerType, setProviderType] = useState("codex");
@@ -96,8 +98,8 @@ export function AggregateApiModal({
   const queryClient = useQueryClient();
   const isServiceReady = canAccessManagementRpc && serviceStatus.connected;
   const unavailableMessage = canAccessManagementRpc
-    ? "服务未连接，聚合 API 暂不可编辑；连接恢复后可继续操作。"
-    : "当前运行环境暂不支持聚合 API 管理。";
+    ? t("服务未连接，聚合 API 暂不可编辑；连接恢复后可继续操作。")
+    : t("当前运行环境暂不支持聚合 API 管理。");
 
   useEffect(() => {
     if (!open) return;
@@ -175,54 +177,54 @@ export function AggregateApiModal({
     if (!isServiceReady) {
       toast.info(
         canAccessManagementRpc
-          ? "服务未连接，暂时无法保存聚合 API"
-          : "当前运行环境暂不支持聚合 API 管理"
+          ? t("服务未连接，暂时无法保存聚合 API")
+          : t("当前运行环境暂不支持聚合 API 管理")
       );
       return;
     }
     if (!url.trim()) {
-      toast.error("请输入聚合 API URL");
+      toast.error(t("请输入聚合 API URL"));
       return;
     }
     if (!supplierName.trim()) {
-      toast.error("请输入供应商名称");
+      toast.error(t("请输入供应商名称"));
       return;
     }
     const rawSort = sortDraft.trim();
     if (!rawSort) {
-      toast.error("请输入顺序值");
+      toast.error(t("请输入顺序值"));
       return;
     }
     const parsedSort = Number(rawSort);
     if (!Number.isFinite(parsedSort)) {
-      toast.error("顺序必须是数字");
+      toast.error(t("顺序必须是数字"));
       return;
     }
     if (!aggregateApi?.id && !key.trim()) {
       if (authType === "apikey") {
-        toast.error("请输入聚合 API 密钥");
+        toast.error(t("请输入聚合 API 密钥"));
         return;
       }
     }
     if (!aggregateApi?.id && authType === "userpass") {
       if (!username.trim() || !password.trim()) {
-        toast.error("请输入账号密码");
+        toast.error(t("请输入账号密码"));
         return;
       }
     }
     if (authType === "userpass" && (username.trim() || password.trim())) {
       if (!username.trim() || !password.trim()) {
-        toast.error("账号和密码必须同时填写");
+        toast.error(t("账号和密码必须同时填写"));
         return;
       }
     }
     if (aggregateApi?.id && aggregateApi.authType !== authType) {
       if (authType === "apikey" && !key.trim()) {
-        toast.error("切换为 APIKey 认证时必须填写密钥");
+        toast.error(t("切换为 APIKey 认证时必须填写密钥"));
         return;
       }
       if (authType === "userpass" && (!username.trim() || !password.trim())) {
-        toast.error("切换为账号密码认证时必须填写账号密码");
+        toast.error(t("切换为账号密码认证时必须填写账号密码"));
         return;
       }
     }
@@ -251,12 +253,12 @@ export function AggregateApiModal({
     if (authCustomEnabled) {
       if (authType === "apikey") {
         if (!apiKeyName.trim()) {
-          toast.error("请输入认证参数名称");
+          toast.error(t("请输入认证参数名称"));
           return;
         }
       } else if (userpassMode !== "basic") {
         if (!userpassUsernameName.trim() || !userpassPasswordName.trim()) {
-          toast.error("请输入账号密码参数名称");
+          toast.error(t("请输入账号密码参数名称"));
           return;
         }
       }
@@ -278,7 +280,7 @@ export function AggregateApiModal({
           username: authType === "userpass" ? username.trim() || null : null,
           password: authType === "userpass" ? password.trim() || null : null,
         });
-        toast.success("聚合 API 已更新");
+        toast.success(t("聚合 API 已更新"));
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] }),
           queryClient.invalidateQueries({ queryKey: ["apikeys"] }),
@@ -303,7 +305,7 @@ export function AggregateApiModal({
         password: authType === "userpass" ? password.trim() : null,
       });
       setGeneratedKey(result.key);
-      toast.success("聚合 API 已创建");
+      toast.success(t("聚合 API 已创建"));
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] }),
         queryClient.invalidateQueries({ queryKey: ["apikeys"] }),
@@ -335,7 +337,7 @@ export function AggregateApiModal({
   const copyKey = async () => {
     try {
       await copyTextToClipboard(generatedKey);
-      toast.success("密钥已复制");
+      toast.success(t("密钥已复制"));
     } catch (error: unknown) {
       toast.error(error instanceof Error ? error.message : String(error));
     }
@@ -352,11 +354,11 @@ export function AggregateApiModal({
                   <Database className="h-5 w-5 text-primary" />
                 </div>
                 <DialogTitle>
-                  {aggregateApi?.id ? "编辑聚合 API" : "创建聚合 API"}
+                  {aggregateApi?.id ? t("编辑聚合 API") : t("创建聚合 API")}
                 </DialogTitle>
               </div>
               <DialogDescription>
-                配置一个最小转发上游，保存 URL 和密钥后即可用于平台密钥轮转。
+                {t("配置一个最小转发上游，保存 URL 和密钥后即可用于平台密钥轮转。")}
               </DialogDescription>
             </DialogHeader>
           </div>
@@ -371,10 +373,10 @@ export function AggregateApiModal({
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="grid gap-2">
-                  <Label htmlFor="aggregate-api-supplier-name">供应商名称 *</Label>
+                  <Label htmlFor="aggregate-api-supplier-name">{t("供应商名称 *")}</Label>
                   <Input
                     id="aggregate-api-supplier-name"
-                    placeholder="例如：官方中转、XX 供应商"
+                    placeholder={t("例如：官方中转、XX 供应商")}
                     value={supplierName}
                     disabled={!isServiceReady}
                     onChange={(event) => setSupplierName(event.target.value)}
@@ -382,7 +384,7 @@ export function AggregateApiModal({
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="aggregate-api-sort">顺序值</Label>
+                  <Label htmlFor="aggregate-api-sort">{t("顺序值")}</Label>
                   <Input
                     id="aggregate-api-sort"
                     type="number"
@@ -393,12 +395,12 @@ export function AggregateApiModal({
                     onChange={(event) => setSortDraft(event.target.value)}
                   />
                   <p className="text-[11px] leading-4 text-muted-foreground">
-                    值越小越靠前，用于聚合 API 轮转优先级
+                    {t("值越小越靠前，用于聚合 API 轮转优先级")}
                   </p>
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="aggregate-api-provider">类型</Label>
+                  <Label htmlFor="aggregate-api-provider">{t("类型")}</Label>
                   <Select
                     value={providerType}
                     disabled={!isServiceReady}
@@ -423,7 +425,7 @@ export function AggregateApiModal({
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="aggregate-api-auth-type">认证类型</Label>
+                  <Label htmlFor="aggregate-api-auth-type">{t("认证类型")}</Label>
                   <Select
                     value={authType}
                     disabled={!isServiceReady}
@@ -443,25 +445,25 @@ export function AggregateApiModal({
                       <SelectValue>
                         {(value) =>
                           String(value || "") === "userpass"
-                            ? "账号密码"
+                            ? t("账号密码")
                             : "APIKey"
                         }
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="apikey">APIKey</SelectItem>
-                      <SelectItem value="userpass">账号密码</SelectItem>
+                      <SelectItem value="userpass">{t("账号密码")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
 
               <div className="grid gap-2">
-                <Label htmlFor="aggregate-api-url">URL</Label>
+                <Label htmlFor="aggregate-api-url">{t("URL")}</Label>
                 <Input
                   id="aggregate-api-url"
                   placeholder={
-                    AGGREGATE_API_URL_PLACEHOLDERS[providerType] || "请输入 URL"
+                    t(AGGREGATE_API_URL_PLACEHOLDERS[providerType] || "请输入 URL")
                   }
                   value={url}
                   disabled={!isServiceReady}
@@ -471,11 +473,11 @@ export function AggregateApiModal({
 
               {authType === "apikey" ? (
                 <div className="grid gap-2">
-                  <Label htmlFor="aggregate-api-key">密钥</Label>
+                  <Label htmlFor="aggregate-api-key">{t("密钥")}</Label>
                   <Input
                     id="aggregate-api-key"
                     type="password"
-                    placeholder={aggregateApi?.id ? "留空则保持原值" : "请输入密钥"}
+                    placeholder={aggregateApi?.id ? t("留空则保持原值") : t("请输入密钥")}
                     value={key}
                     disabled={!isServiceReady}
                     onChange={(event) => setKey(event.target.value)}
@@ -484,21 +486,21 @@ export function AggregateApiModal({
               ) : (
                 <div className="grid gap-4 lg:grid-cols-2">
                   <div className="grid gap-2">
-                    <Label htmlFor="aggregate-api-username">账号</Label>
+                    <Label htmlFor="aggregate-api-username">{t("账号")}</Label>
                     <Input
                       id="aggregate-api-username"
-                      placeholder={aggregateApi?.id ? "留空则保持原值" : "请输入账号"}
+                      placeholder={aggregateApi?.id ? t("留空则保持原值") : t("请输入账号")}
                       value={username}
                       disabled={!isServiceReady}
                       onChange={(event) => setUsername(event.target.value)}
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="aggregate-api-password">密码</Label>
+                    <Label htmlFor="aggregate-api-password">{t("密码")}</Label>
                     <Input
                       id="aggregate-api-password"
                       type="password"
-                      placeholder={aggregateApi?.id ? "留空则保持原值" : "请输入密码"}
+                      placeholder={aggregateApi?.id ? t("留空则保持原值") : t("请输入密码")}
                       value={password}
                       disabled={!isServiceReady}
                       onChange={(event) => setPassword(event.target.value)}
@@ -511,9 +513,9 @@ export function AggregateApiModal({
                 <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <Label className="text-sm">自定义认证参数</Label>
+                      <Label className="text-sm">{t("自定义认证参数")}</Label>
                       <p className="text-[11px] text-muted-foreground">
-                        关闭则按默认规则注入认证（APIKey=Bearer，账号密码=Basic）。
+                        {t("关闭则按默认规则注入认证（APIKey=Bearer，账号密码=Basic）。")}
                       </p>
                     </div>
                     <Switch
@@ -529,7 +531,7 @@ export function AggregateApiModal({
                     <div className="grid gap-3">
                       <div className="grid gap-3 md:grid-cols-2">
                         <div className="grid gap-2">
-                          <Label className="text-xs">位置</Label>
+                          <Label className="text-xs">{t("位置")}</Label>
                           <Select
                             value={apiKeyLocation}
                             onValueChange={(value) =>
@@ -555,7 +557,7 @@ export function AggregateApiModal({
                           </Select>
                         </div>
                         <div className="grid gap-2">
-                          <Label className="text-xs">参数名</Label>
+                          <Label className="text-xs">{t("参数名")}</Label>
                           <Input
                             value={apiKeyName}
                             disabled={!isServiceReady}
@@ -570,7 +572,7 @@ export function AggregateApiModal({
                       </div>
                       {apiKeyLocation === "header" ? (
                         <div className="grid gap-2">
-                          <Label className="text-xs">Header 格式</Label>
+                          <Label className="text-xs">{t("Header 格式")}</Label>
                           <Select
                             value={apiKeyHeaderValueFormat}
                             onValueChange={(value) =>
@@ -602,7 +604,7 @@ export function AggregateApiModal({
                   {authCustomEnabled && authType === "userpass" ? (
                     <div className="grid gap-3">
                       <div className="grid gap-2">
-                        <Label className="text-xs">发送模式</Label>
+                        <Label className="text-xs">{t("发送模式")}</Label>
                         <Select
                           value={userpassMode}
                           onValueChange={(value) => {
@@ -618,23 +620,23 @@ export function AggregateApiModal({
                             <SelectValue>
                               {(value) => {
                                 const v = String(value || "");
-                                if (v === "headerPair") return "Header 双字段";
-                                if (v === "queryPair") return "Query 双字段";
-                                return "HTTP Basic";
+                                if (v === "headerPair") return t("Header 双字段");
+                                if (v === "queryPair") return t("Query 双字段");
+                                return t("HTTP Basic");
                               }}
                             </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="basic">HTTP Basic</SelectItem>
-                            <SelectItem value="headerPair">Header 双字段</SelectItem>
-                            <SelectItem value="queryPair">Query 双字段</SelectItem>
+                            <SelectItem value="basic">{t("HTTP Basic")}</SelectItem>
+                            <SelectItem value="headerPair">{t("Header 双字段")}</SelectItem>
+                            <SelectItem value="queryPair">{t("Query 双字段")}</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
                       {userpassMode !== "basic" ? (
                         <div className="grid gap-3 md:grid-cols-2">
                           <div className="grid gap-2">
-                            <Label className="text-xs">账号字段名</Label>
+                            <Label className="text-xs">{t("账号字段名")}</Label>
                             <Input
                               value={userpassUsernameName}
                               disabled={!isServiceReady}
@@ -644,7 +646,7 @@ export function AggregateApiModal({
                             />
                           </div>
                           <div className="grid gap-2">
-                            <Label className="text-xs">密码字段名</Label>
+                            <Label className="text-xs">{t("密码字段名")}</Label>
                             <Input
                               value={userpassPasswordName}
                               disabled={!isServiceReady}
@@ -662,9 +664,9 @@ export function AggregateApiModal({
                 <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <Label className="text-sm">自定义 action</Label>
+                      <Label className="text-sm">{t("自定义 action")}</Label>
                       <p className="text-[11px] text-muted-foreground">
-                        开启后将用该 path 覆盖转发 action（例如 GLM 前缀路径）。
+                        {t("开启后将用该 path 覆盖转发 action（例如 GLM 前缀路径）。")}
                       </p>
                     </div>
                     <Switch
@@ -677,11 +679,11 @@ export function AggregateApiModal({
                   </div>
                   {actionCustomEnabled ? (
                     <div className="grid gap-2">
-                      <Label className="text-xs">action path</Label>
+                      <Label className="text-xs">{t("action path")}</Label>
                       <Input
                         value={action}
                         disabled={!isServiceReady}
-                        placeholder="例如：/api/paas/v4/chat/completions"
+                        placeholder={t("例如：/api/paas/v4/chat/completions")}
                         onChange={(e) => setAction(e.target.value)}
                       />
                     </div>
@@ -692,7 +694,7 @@ export function AggregateApiModal({
               {generatedKey ? (
                 <div className="space-y-2 border-t pt-2">
                   <Label className="flex items-center gap-1.5 text-xs text-primary">
-                    <ShieldCheck className="h-3.5 w-3.5" /> 新密钥已生成
+                    <ShieldCheck className="h-3.5 w-3.5" /> {t("新密钥已生成")}
                   </Label>
                   <div className="flex gap-2">
                     <Input
@@ -720,7 +722,7 @@ export function AggregateApiModal({
                   className={buttonVariants({ variant: "ghost" })}
                   type="button"
                 >
-                  取消
+                  {t("取消")}
                 </DialogClose>
               ) : null}
               {!generatedKey ? (
@@ -728,7 +730,7 @@ export function AggregateApiModal({
                   onClick={() => void handleSave()}
                   disabled={!isServiceReady || isLoading}
                 >
-                  {isLoading ? "保存中..." : "完成"}
+                  {isLoading ? t("保存中...") : t("完成")}
                 </Button>
               ) : null}
             </DialogFooter>

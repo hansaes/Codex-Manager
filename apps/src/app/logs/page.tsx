@@ -51,6 +51,7 @@ import { serviceClient } from "@/lib/api/service-client";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
+import { useI18n } from "@/lib/i18n/provider";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import { formatCompactNumber, formatTsFromSeconds } from "@/lib/utils/usage";
@@ -1184,6 +1185,7 @@ function buildSummaryPlaceholder(logs: RequestLog[]): RequestLogFilterSummary {
  * 返回函数执行结果
  */
 function LogsPageContent() {
+  const { t } = useI18n();
   const searchParams = useSearchParams();
   const { serviceStatus } = useAppStore();
   const isPageActive = useDesktopPageActive("/logs/");
@@ -1320,7 +1322,7 @@ function LogsPageContent() {
         queryClient.invalidateQueries({ queryKey: ["today-summary"] }),
         queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
       ]);
-      toast.success("日志已清空");
+      toast.success(t("日志已清空"));
     },
     onError: (error: unknown) => {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -1334,7 +1336,7 @@ function LogsPageContent() {
       await queryClient.invalidateQueries({
         queryKey: ["logs", "gateway-error-list"],
       });
-      toast.success("诊断日志已清空");
+      toast.success(t("诊断日志已清空"));
     },
     onError: (error: unknown) => {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -1418,14 +1420,14 @@ function LogsPageContent() {
 
   const currentFilterLabel =
     filter === "all"
-      ? "全部状态"
+      ? t("全部状态")
       : filter === "2xx"
-        ? "成功请求"
+        ? t("成功请求")
         : filter === "4xx"
-          ? "客户端错误"
-          : "服务端错误";
-  const compactMetaText = `${summary.filteredCount}/${summary.totalCount} 条 · ${currentFilterLabel} · ${
-    serviceStatus.connected ? "5 秒刷新" : "服务未连接"
+          ? t("客户端错误")
+          : t("服务端错误");
+  const compactMetaText = `${summary.filteredCount}/${summary.totalCount} ${t("条")} · ${currentFilterLabel} · ${
+    serviceStatus.connected ? t("5 秒刷新") : t("服务未连接")
   }`;
 
   const renderGatewayErrorContext = (item: GatewayErrorLog) => {
@@ -1439,7 +1441,7 @@ function LogsPageContent() {
   };
 
   const gatewayStageFilterLabel =
-    gatewayStageFilter === "all" ? "全部阶段" : gatewayStageFilter;
+    gatewayStageFilter === "all" ? t("全部阶段") : gatewayStageFilter;
 
   const gatewayErrorLogs = gatewayLogsResult?.items || [];
   const gatewayStageOptions = gatewayLogsResult?.stages || [];
@@ -1468,9 +1470,9 @@ function LogsPageContent() {
 
     try {
       await copyTextToClipboard(payload);
-      toast.success("诊断信息已复制");
+      toast.success(t("诊断信息已复制"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "复制失败");
+      toast.error(error instanceof Error ? error.message : t("复制失败"));
     }
   };
 
@@ -1487,10 +1489,10 @@ function LogsPageContent() {
       >
         <TabsList className="glass-card flex h-11 w-full justify-start overflow-x-auto rounded-xl border-none p-1 no-scrollbar lg:w-fit">
           <TabsTrigger value="requests" className="gap-2 px-5 shrink-0">
-            <Database className="h-4 w-4" /> 请求日志
+            <Database className="h-4 w-4" /> {t("请求日志")}
           </TabsTrigger>
           <TabsTrigger value="gateway-errors" className="gap-2 px-5 shrink-0">
-            <Shield className="h-4 w-4" /> 网关错误诊断
+            <Shield className="h-4 w-4" /> {t("网关错误诊断")}
           </TabsTrigger>
         </TabsList>
 
@@ -1499,7 +1501,7 @@ function LogsPageContent() {
             <CardContent className="grid gap-3 pt-0 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-center">
               <div className="min-w-0">
                 <Input
-                  placeholder="搜索路径、账号或密钥..."
+                  placeholder={t("搜索路径、账号或密钥...")}
                   className="glass-card h-10 rounded-xl px-3"
                   value={search}
                   onChange={(event) => {
@@ -1536,7 +1538,7 @@ function LogsPageContent() {
                     queryClient.invalidateQueries({ queryKey: ["logs"] })
                   }
                 >
-                  <RefreshCw className="mr-1.5 h-4 w-4" /> 刷新
+                  <RefreshCw className="mr-1.5 h-4 w-4" /> {t("刷新")}
                 </Button>
                 <Button
                   variant="destructive"
@@ -1545,7 +1547,7 @@ function LogsPageContent() {
                   onClick={() => setClearConfirmOpen(true)}
                   disabled={clearMutation.isPending}
                 >
-                  <Trash2 className="mr-1.5 h-4 w-4" /> 清空日志
+                  <Trash2 className="mr-1.5 h-4 w-4" /> {t("清空日志")}
                 </Button>
               </div>
               <div className="text-[11px] text-muted-foreground lg:justify-self-end lg:text-right">
@@ -1558,30 +1560,30 @@ function LogsPageContent() {
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <SummaryCard
-              title="当前结果"
+              title={t("当前结果")}
               value={`${summary.filteredCount}`}
-              description={`总日志 ${summary.totalCount} 条`}
+              description={`${t("总日志")} ${summary.totalCount} ${t("条")}`}
               icon={Zap}
               toneClass="bg-primary/12 text-primary"
             />
             <SummaryCard
-              title="2XX 成功"
+              title={t("2XX 成功")}
               value={`${summary.successCount}`}
-              description="状态码 200-299"
+              description={t("状态码 200-299")}
               icon={CheckCircle2}
               toneClass="bg-green-500/12 text-green-500"
             />
             <SummaryCard
-              title="异常请求"
+              title={t("异常请求")}
               value={`${summary.errorCount}`}
-              description="4xx / 5xx 或显式错误"
+              description={t("4xx / 5xx 或显式错误")}
               icon={AlertTriangle}
               toneClass="bg-red-500/12 text-red-500"
             />
             <SummaryCard
-              title="累计词元"
+              title={t("累计Token")}
               value={formatCompactTokenAmount(summary.totalTokens)}
-              description="当前筛选结果中的总词元"
+              description={t("当前筛选结果中的总Token")}
               icon={Database}
               toneClass="bg-amber-500/12 text-amber-500"
             />
@@ -1592,11 +1594,11 @@ function LogsPageContent() {
               <div className="flex w-full flex-col gap-1 xl:flex-row xl:items-center xl:justify-between">
                 <div>
                   <CardTitle className="text-[15px] font-semibold">
-                    请求明细 按{" "}
+                    {t("请求明细 按")}{" "}
                     <span className="font-medium text-foreground">
                       {currentFilterLabel}
                     </span>{" "}
-                    展示
+                    {t("展示")}
                   </CardTitle>
                 </div>
                 <div className="text-xs text-muted-foreground"></div>
@@ -1607,28 +1609,28 @@ function LogsPageContent() {
             <TableHeader>
               <TableRow>
                 <TableHead className="h-12 w-[150px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  时间
+                  {t("时间")}
                 </TableHead>
                 <TableHead className="w-[120px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  类型 / 方法 / 路径
+                  {t("类型 / 方法 / 路径")}
                 </TableHead>
                 <TableHead className="w-[224px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  账号 / 密钥
+                  {t("账号 / 密钥")}
                 </TableHead>
                 <TableHead className="w-[180px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  模型 / 推理 / 等级
+                  {t("模型 / 推理 / 等级")}
                 </TableHead>
                 <TableHead className="w-[92px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  状态
+                  {t("状态")}
                 </TableHead>
                 <TableHead className="w-[110px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  请求时长
+                  {t("请求时长")}
                 </TableHead>
                 <TableHead className="w-[148px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  词元
+                  {t("Token")}
                 </TableHead>
                 <TableHead className="w-[240px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  错误
+                  {t("错误")}
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -1669,8 +1671,8 @@ function LogsPageContent() {
                     className="h-52 px-4 text-center text-sm text-muted-foreground"
                   >
                     {!serviceStatus.connected
-                      ? "服务未连接，无法获取日志"
-                      : "暂无请求日志"}
+                      ? t("服务未连接，无法获取日志")
+                      : t("暂无请求日志")}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -1708,12 +1710,12 @@ function LogsPageContent() {
                     </TableCell>
                     <TableCell className="px-4 py-3 align-top">
                       <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
-                        <span>总 {formatTableTokenAmount(log.totalTokens)}</span>
+                        <span>{t("总")} {formatTableTokenAmount(log.totalTokens)}</span>
                         <span>
-                          输入 {formatTableTokenAmount(log.inputTokens)}
+                          {t("输入")} {formatTableTokenAmount(log.inputTokens)}
                         </span>
                         <span className="opacity-60">
-                          缓存 {formatTableTokenAmount(log.cachedInputTokens)}
+                          {t("缓存")} {formatTableTokenAmount(log.cachedInputTokens)}
                         </span>
                       </div>
                     </TableCell>
@@ -1730,12 +1732,12 @@ function LogsPageContent() {
 
           <div className="flex items-center justify-between px-2">
             <div className="text-xs text-muted-foreground">
-              共 {summary.filteredCount} 条匹配日志
+              {t("共")} {summary.filteredCount} {t("条匹配日志")}
             </div>
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-2">
                 <span className="whitespace-nowrap text-xs text-muted-foreground">
-                  每页显示
+                  {t("每页显示")}
                 </span>
                 <Select
                   value={pageSize}
@@ -1764,10 +1766,10 @@ function LogsPageContent() {
                   disabled={currentPage <= 1}
                   onClick={() => setPage(Math.max(1, currentPage - 1))}
                 >
-                  上一页
+                  {t("上一页")}
                 </Button>
                 <div className="min-w-[68px] text-center text-xs font-medium">
-                  第 {currentPage} / {totalPages} 页
+                  {t("第")} {currentPage} / {totalPages} {t("页")}
                 </div>
                 <Button
                   variant="outline"
@@ -1776,7 +1778,7 @@ function LogsPageContent() {
                   disabled={currentPage >= totalPages}
                   onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
                 >
-                  下一页
+                  {t("下一页")}
                 </Button>
               </div>
             </div>
@@ -1788,16 +1790,16 @@ function LogsPageContent() {
             <CardContent className="grid gap-4 pt-0 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
               <div className="space-y-1">
                 <div className="text-sm font-medium text-foreground">
-                  网关错误诊断
+                  {t("网关错误诊断")}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  专门记录 challenge、无压缩重试和关键网关错误事件，便于排查 Cloudflare 拦截。
+                  {t("专门记录 challenge、无压缩重试和关键网关错误事件，便于排查 Cloudflare 拦截。")}
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3 xl:min-w-[520px] xl:justify-self-end">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="whitespace-nowrap text-xs text-muted-foreground">
-                    阶段筛选
+                    {t("阶段筛选")}
                   </span>
                   <Select
                     value={gatewayStageFilter}
@@ -1810,7 +1812,7 @@ function LogsPageContent() {
                       <SelectValue>{gatewayStageFilterLabel}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">全部阶段</SelectItem>
+                      <SelectItem value="all">{t("全部阶段")}</SelectItem>
                       {gatewayStageOptions.map((stage) => (
                         <SelectItem key={stage} value={stage}>
                           {stage}
@@ -1830,7 +1832,7 @@ function LogsPageContent() {
                       })
                     }
                   >
-                    <RefreshCw className="mr-1.5 h-4 w-4" /> 刷新
+                    <RefreshCw className="mr-1.5 h-4 w-4" /> {t("刷新")}
                   </Button>
                   <Button
                     variant="destructive"
@@ -1839,10 +1841,10 @@ function LogsPageContent() {
                     onClick={() => setClearGatewayConfirmOpen(true)}
                     disabled={clearGatewayMutation.isPending}
                   >
-                    <Trash2 className="mr-1.5 h-4 w-4" /> 清空诊断
+                    <Trash2 className="mr-1.5 h-4 w-4" /> {t("清空诊断")}
                   </Button>
                   <div className="whitespace-nowrap text-xs text-muted-foreground text-right">
-                    当前页 {gatewayErrorLogs.length} 条 / 共 {gatewayTotal} 条
+                    {t("当前页")} {gatewayErrorLogs.length} {t("条")} / {t("共")} {gatewayTotal} {t("条")}
                   </div>
                 </div>
               </div>
@@ -1854,11 +1856,11 @@ function LogsPageContent() {
               <div className="flex w-full flex-col gap-1 xl:flex-row xl:items-center xl:justify-between">
                 <div>
                   <CardTitle className="text-[15px] font-semibold">
-                    错误事件明细
+                    {t("错误事件明细")}
                   </CardTitle>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  challenge / retry / transport
+                  {t("challenge / retry / transport")}
                 </div>
               </div>
             </CardHeader>
@@ -1867,22 +1869,22 @@ function LogsPageContent() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="h-12 w-[150px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                      时间
+                      {t("时间")}
                     </TableHead>
                     <TableHead className="w-[200px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                      阶段
+                      {t("阶段")}
                     </TableHead>
                     <TableHead className="w-[120px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                      方法 / 路径
+                      {t("方法 / 路径")}
                     </TableHead>
                     <TableHead className="w-[120px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                      状态
+                      {t("状态")}
                     </TableHead>
                     <TableHead className="w-[200px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                      上下文
+                      {t("上下文")}
                     </TableHead>
                     <TableHead className="w-[290px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                      消息
+                      {t("消息")}
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1919,7 +1921,7 @@ function LogsPageContent() {
                                 <div className="flex min-w-[240px] flex-col gap-2">
                                   <div className="space-y-0.5">
                                     <div className="text-[10px] text-background/70">
-                                      阶段
+                                      {t("阶段")}
                                     </div>
                                     <div className="font-mono text-[11px]">
                                       {item.stage}
@@ -1927,7 +1929,7 @@ function LogsPageContent() {
                                   </div>
                                   <div className="space-y-0.5">
                                     <div className="text-[10px] text-background/70">
-                                      账号 / 密钥
+                                      {t("账号 / 密钥")}
                                     </div>
                                     <div className="font-mono text-[11px]">
                                       {gatewayIdentity}
@@ -1953,7 +1955,7 @@ function LogsPageContent() {
                                 <div className="flex min-w-[220px] flex-col gap-2">
                                   <div className="space-y-0.5">
                                     <div className="text-[10px] text-background/70">
-                                      方法
+                                      {t("方法")}
                                     </div>
                                     <div className="font-mono text-[11px]">
                                       {gatewayMethod}
@@ -1961,7 +1963,7 @@ function LogsPageContent() {
                                   </div>
                                   <div className="space-y-0.5">
                                     <div className="text-[10px] text-background/70">
-                                      路径
+                                      {t("路径")}
                                     </div>
                                     <div className="font-mono text-[11px]">
                                       {gatewayPath}
@@ -2006,7 +2008,7 @@ function LogsPageContent() {
                                 <div className="flex min-w-[260px] flex-col gap-2">
                                   <div className="space-y-0.5">
                                     <div className="text-[10px] text-background/70">
-                                      消息
+                                      {t("消息")}
                                     </div>
                                     <div className="font-mono text-[11px]">
                                       {gatewayMessage}
@@ -2015,7 +2017,7 @@ function LogsPageContent() {
                                   {gatewayUpstreamUrl ? (
                                     <div className="space-y-0.5">
                                       <div className="text-[10px] text-background/70">
-                                        上游地址
+                                        {t("上游地址")}
                                       </div>
                                       <div className="font-mono text-[11px]">
                                         {gatewayUpstreamUrl}
@@ -2032,7 +2034,7 @@ function LogsPageContent() {
                                 className="h-7 px-2 text-[11px]"
                                 onClick={() => void copyGatewayErrorSummary(item)}
                               >
-                                <Copy className="mr-1 h-3.5 w-3.5" /> 复制诊断
+                                <Copy className="mr-1 h-3.5 w-3.5" /> {t("复制诊断")}
                               </Button>
                             </div>
                           </TableCell>
@@ -2046,8 +2048,8 @@ function LogsPageContent() {
                         className="px-4 py-10 text-center text-sm text-muted-foreground"
                       >
                         {gatewayStageFilter !== "all"
-                          ? "当前筛选下没有匹配的诊断日志"
-                          : "暂无专门错误诊断日志"}
+                          ? t("当前筛选下没有匹配的诊断日志")
+                          : t("暂无专门错误诊断日志")}
                       </TableCell>
                     </TableRow>
                   )}
@@ -2058,12 +2060,12 @@ function LogsPageContent() {
 
           <div className="flex items-center justify-between px-2">
             <div className="text-xs text-muted-foreground">
-              共 {gatewayTotal} 条匹配诊断日志
+              {t("共")} {gatewayTotal} {t("条匹配诊断日志")}
             </div>
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-2">
                 <span className="whitespace-nowrap text-xs text-muted-foreground">
-                  每页显示
+                  {t("每页显示")}
                 </span>
                 <Select
                   value={gatewayPageSize}
@@ -2094,10 +2096,10 @@ function LogsPageContent() {
                     setGatewayPage(Math.max(1, gatewayCurrentPage - 1))
                   }
                 >
-                  上一页
+                  {t("上一页")}
                 </Button>
                 <div className="min-w-[68px] text-center text-xs font-medium">
-                  第 {gatewayCurrentPage} / {gatewayTotalPages} 页
+                  {t("第")} {gatewayCurrentPage} / {gatewayTotalPages} {t("页")}
                 </div>
                 <Button
                   variant="outline"
@@ -2110,7 +2112,7 @@ function LogsPageContent() {
                     )
                   }
                 >
-                  下一页
+                  {t("下一页")}
                 </Button>
               </div>
             </div>
@@ -2121,18 +2123,18 @@ function LogsPageContent() {
       <ConfirmDialog
         open={clearConfirmOpen}
         onOpenChange={setClearConfirmOpen}
-        title="清空请求日志"
-        description="确定清空全部请求日志吗？该操作不可恢复。"
-        confirmText="清空"
+        title={t("清空请求日志")}
+        description={t("确定清空全部请求日志吗？该操作不可恢复。")}
+        confirmText={t("清空")}
         confirmVariant="destructive"
         onConfirm={() => clearMutation.mutate()}
       />
       <ConfirmDialog
         open={clearGatewayConfirmOpen}
         onOpenChange={setClearGatewayConfirmOpen}
-        title="清空网关诊断日志"
-        description="确定清空全部网关错误诊断日志吗？该操作不可恢复。"
-        confirmText="清空"
+        title={t("清空网关诊断日志")}
+        description={t("确定清空全部网关错误诊断日志吗？该操作不可恢复。")}
+        confirmText={t("清空")}
         confirmVariant="destructive"
         onConfirm={() => clearGatewayMutation.mutate()}
       />

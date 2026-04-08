@@ -302,7 +302,7 @@ export function Sidebar() {
     <div
       className={cn(
         "relative z-20 flex shrink-0 flex-col glass-sidebar transition-[width] duration-300 ease-in-out",
-        isSidebarOpen ? "w-64" : "w-16"
+        isSidebarOpen ? "w-56" : "w-16"
       )}
     >
       <div className="flex h-16 items-center px-4 border-b shrink-0">

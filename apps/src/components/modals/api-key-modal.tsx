@@ -23,6 +23,7 @@ import {
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { accountClient } from "@/lib/api/account-client";
 import { useAppStore } from "@/lib/store/useAppStore";
+import { useI18n } from "@/lib/i18n/provider";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import { toast } from "sonner";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -79,6 +80,7 @@ interface ApiKeyModalProps {
  * 返回函数执行结果
  */
 export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
+  const { t } = useI18n();
   const serviceStatus = useAppStore((state) => state.serviceStatus);
   const { canAccessManagementRpc } = useRuntimeCapabilities();
   const [name, setName] = useState("");
@@ -96,8 +98,8 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
   const queryClient = useQueryClient();
   const isServiceReady = canAccessManagementRpc && serviceStatus.connected;
   const unavailableMessage = canAccessManagementRpc
-    ? "服务未连接，平台密钥与模型配置暂不可编辑；连接恢复后可继续操作。"
-    : "当前运行环境暂不支持平台密钥管理。";
+    ? t("服务未连接，平台密钥与模型配置暂不可编辑；连接恢复后可继续操作。")
+    : t("当前运行环境暂不支持平台密钥管理。");
 
   const { data: models } = useQuery({
     queryKey: ["apikey-models"],
@@ -173,8 +175,8 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     if (!isServiceReady) {
       toast.info(
         canAccessManagementRpc
-          ? "服务未连接，暂时无法保存平台密钥"
-          : "当前运行环境暂不支持平台密钥管理",
+          ? t("服务未连接，暂时无法保存平台密钥")
+          : t("当前运行环境暂不支持平台密钥管理"),
       );
       return;
     }
@@ -208,11 +210,11 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
 
       if (apiKey?.id) {
         await accountClient.updateApiKey(apiKey.id, params);
-        toast.success("密钥配置已更新");
+      toast.success(t("密钥配置已更新"));
       } else {
         const result = await accountClient.createApiKey(params);
         setGeneratedKey(result.key);
-        toast.success("平台密钥已创建");
+        toast.success(t("平台密钥已创建"));
       }
 
       await Promise.all([
@@ -246,7 +248,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
   const copyKey = async () => {
     try {
       await copyTextToClipboard(generatedKey);
-      toast.success("密钥已复制");
+      toast.success(t("密钥已复制"));
     } catch (error: unknown) {
       toast.error(error instanceof Error ? error.message : String(error));
     }
@@ -261,11 +263,11 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
               <Key className="h-5 w-5 text-primary" />
             </div>
             <DialogTitle>
-              {apiKey?.id ? "编辑平台密钥" : "创建平台密钥"}
+              {apiKey?.id ? t("编辑平台密钥") : t("创建平台密钥")}
             </DialogTitle>
           </div>
           <DialogDescription>
-            配置网关访问凭据，您可以绑定特定模型、推理等级或自定义上游。
+            {t("配置网关访问凭据，您可以绑定特定模型、推理等级或自定义上游。")}
           </DialogDescription>
         </DialogHeader>
 
@@ -277,17 +279,17 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
           ) : null}
           <div className="grid grid-cols-2 gap-4 items-start">
             <div className="grid gap-2 content-start">
-              <Label htmlFor="name">密钥名称 (可选)</Label>
+              <Label htmlFor="name">{t("密钥名称 (可选)")}</Label>
               <Input
                 id="name"
-                placeholder="例如：主机房 / 测试"
+                placeholder={t("例如：主机房 / 测试")}
                 value={name}
                 disabled={!isServiceReady}
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
             <div className="grid gap-2 content-start">
-              <Label>轮转策略</Label>
+              <Label>{t("轮转策略")}</Label>
               <Select
                 value={rotationStrategy}
                 onValueChange={(val) => {
@@ -299,27 +301,26 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
                 <SelectTrigger className="w-full">
                   <SelectValue>
                     {(value) =>
-                      ROTATION_STRATEGY_LABELS[String(value || "")] ||
-                      "账号轮转"
+                      t(ROTATION_STRATEGY_LABELS[String(value || "")] || "账号轮转")
                     }
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start">
-                  <SelectItem value="account_rotation">账号轮转</SelectItem>
+                  <SelectItem value="account_rotation">{t("账号轮转")}</SelectItem>
                   <SelectItem value="aggregate_api_rotation">
-                    聚合API轮转
+                    {t("聚合API轮转")}
                   </SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <p className="col-span-2 -mt-1 text-[11px] text-muted-foreground">
-              账号轮转保持现有路由逻辑；聚合API轮转会直接透传请求。
+              {t("账号轮转保持现有路由逻辑；聚合API轮转会直接透传请求。")}
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2 content-start">
-              <Label>协议类型</Label>
+              <Label>{t("协议类型")}</Label>
               <Select
                 value={protocolType}
                 onValueChange={(val) => val && setProtocolType(val)}
@@ -328,40 +329,42 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
                 <SelectTrigger className="w-full">
                   <SelectValue>
                     {(value) =>
-                      PROTOCOL_LABELS[String(value || "")] ||
-                      "通配兼容 (Codex / Claude Code / Gemini CLI)"
+                      t(
+                        PROTOCOL_LABELS[String(value || "")] ||
+                          "通配兼容 (Codex / Claude Code / Gemini CLI)",
+                      )
                     }
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start">
                   <SelectItem value="openai_compat">
-                    通配兼容 (Codex / Claude Code / Gemini CLI)
+                    {t("通配兼容 (Codex / Claude Code / Gemini CLI)")}
                   </SelectItem>
                   <SelectItem value="azure_openai">Azure OpenAI</SelectItem>
                 </SelectContent>
               </Select>
               <p className="min-h-[32px] text-[11px] text-muted-foreground">
-                默认按路径通配：<code>/v1/messages*</code> 走 Claude 语义，<code>/v1beta/models/*:generateContent</code> 这类路径走 Gemini 语义，其它标准路径走 Codex / OpenAI 语义。
+                {t("默认按路径通配：")}<code>/v1/messages*</code> {t("走 Claude 语义，")}<code>/v1beta/models/*:generateContent</code> {t("这类路径走 Gemini 语义，其它标准路径走 Codex / OpenAI 语义。")}
               </p>
             </div>
             <div className="grid gap-2 content-start">
-              <Label>绑定模型 (可选)</Label>
+              <Label>{t("绑定模型 (可选)")}</Label>
               <Select
                 value={modelSlug}
                 onValueChange={(val) => val && setModelSlug(val)}
                 disabled={!isServiceReady}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="跟随请求">
+                    <SelectValue placeholder={t("跟随请求")}>
                     {(value) => {
                       const nextValue = String(value || "").trim();
-                      if (!nextValue || nextValue === "auto") return "跟随请求";
+                      if (!nextValue || nextValue === "auto") return t("跟随请求");
                       return modelLabelMap[nextValue] || nextValue;
                     }}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start">
-                  <SelectItem value="auto">跟随请求</SelectItem>
+                  <SelectItem value="auto">{t("跟随请求")}</SelectItem>
                   {models?.map((model) => (
                     <SelectItem key={model.slug} value={model.slug}>
                       {model.slug}
@@ -370,63 +373,63 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">
-                选择“跟随请求”时，会使用请求体里的实际模型；请求日志展示的是最终生效模型。
+                {t("选择“跟随请求”时，会使用请求体里的实际模型；请求日志展示的是最终生效模型。")}
               </p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2 content-start">
-              <Label>推理等级 (可选)</Label>
+              <Label>{t("推理等级 (可选)")}</Label>
               <Select
                 value={reasoningEffort}
                 onValueChange={(val) => val && setReasoningEffort(val)}
                 disabled={!isServiceReady}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="跟随请求等级">
+                    <SelectValue placeholder={t("跟随请求等级")}>
                     {(value) => {
                       const nextValue = String(value || "").trim();
-                      if (!nextValue) return "跟随请求等级";
-                      return REASONING_LABELS[nextValue] || nextValue;
+                      if (!nextValue) return t("跟随请求等级");
+                      return t(REASONING_LABELS[nextValue] || nextValue);
                     }}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start">
-                  <SelectItem value="auto">跟随请求</SelectItem>
-                  <SelectItem value="low">低 (low)</SelectItem>
-                  <SelectItem value="medium">中 (medium)</SelectItem>
-                  <SelectItem value="high">高 (high)</SelectItem>
-                  <SelectItem value="xhigh">极高 (xhigh)</SelectItem>
+                  <SelectItem value="auto">{t("跟随请求")}</SelectItem>
+                  <SelectItem value="low">{t("低 (low)")}</SelectItem>
+                  <SelectItem value="medium">{t("中 (medium)")}</SelectItem>
+                  <SelectItem value="high">{t("高 (high)")}</SelectItem>
+                  <SelectItem value="xhigh">{t("极高 (xhigh)")}</SelectItem>
                 </SelectContent>
               </Select>
               <p className="min-h-[32px] text-[11px] text-muted-foreground">
-                会覆盖请求里的 reasoning effort。
+                {t("会覆盖请求里的 reasoning effort。")}
               </p>
             </div>
             <div className="grid gap-2 content-start">
-              <Label>服务等级 (可选)</Label>
+              <Label>{t("服务等级 (可选)")}</Label>
               <Select
                 value={serviceTier}
                 onValueChange={(val) => val && setServiceTier(val)}
                 disabled={!isServiceReady}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="跟随请求">
+                    <SelectValue placeholder={t("跟随请求")}>
                     {(value) => {
                       const nextValue = String(value || "").trim();
-                      if (!nextValue) return "跟随请求";
-                      return SERVICE_TIER_LABELS[nextValue] || nextValue;
+                      if (!nextValue) return t("跟随请求");
+                      return t(SERVICE_TIER_LABELS[nextValue] || nextValue);
                     }}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start">
-                  <SelectItem value="auto">跟随请求</SelectItem>
+                  <SelectItem value="auto">{t("跟随请求")}</SelectItem>
                   <SelectItem value="fast">Fast</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">
-                Fast 会映射为上游 priority；未设置时跟随请求。
+                {t("Fast 会映射为上游 priority；未设置时跟随请求。")}
               </p>
             </div>
           </div>
@@ -434,7 +437,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
           {protocolType === "azure_openai" ? (
             <div className="grid gap-4 p-4 rounded-xl bg-accent/20 border border-primary/10">
               <div className="grid gap-2">
-                <Label className="text-xs">Azure 接入地址</Label>
+                <Label className="text-xs">{t("Azure 接入地址")}</Label>
                 <Input
                   placeholder="https://your-resource.openai.azure.com"
                   value={azureEndpoint}
@@ -444,7 +447,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
                 />
               </div>
               <div className="grid gap-2">
-                <Label className="text-xs">Azure 接口密钥</Label>
+                <Label className="text-xs">{t("Azure 接口密钥")}</Label>
                 <Input
                   type="password"
                   placeholder="your-azure-key"
@@ -460,7 +463,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
           {generatedKey && (
             <div className="space-y-2 pt-4 border-t">
               <Label className="text-xs text-primary flex items-center gap-1.5">
-                <ShieldCheck className="h-3.5 w-3.5" /> 平台密钥已生成
+                <ShieldCheck className="h-3.5 w-3.5" /> {t("平台密钥已生成")}
               </Label>
               <div className="flex gap-2">
                 <Input
@@ -485,14 +488,14 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
             className={buttonVariants({ variant: "ghost" })}
             type="button"
           >
-            {generatedKey ? "关闭" : "取消"}
+            {generatedKey ? t("关闭") : t("取消")}
           </DialogClose>
           {!generatedKey && (
             <Button
               onClick={handleSave}
               disabled={!isServiceReady || isLoading}
             >
-              {isLoading ? "保存中..." : "完成"}
+              {isLoading ? t("保存中...") : t("完成")}
             </Button>
           )}
         </DialogFooter>

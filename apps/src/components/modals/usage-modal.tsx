@@ -28,6 +28,7 @@ import {
   isSecondaryWindowOnlyUsage,
 } from "@/lib/utils/usage";
 import { Account } from "@/types";
+import { useI18n } from "@/lib/i18n/provider";
 
 interface UsageModalProps {
   account: Account | null;
@@ -71,6 +72,7 @@ function UsageDetailRow({
   emptyText = "--",
   emptyResetText = "未知",
 }: UsageDetailRowProps) {
+  const { t } = useI18n();
   const value = remainPercent ?? 0;
   const toneClasses = {
     blue: {
@@ -110,7 +112,7 @@ function UsageDetailRow({
             {remainPercent == null ? emptyText : `${value}%`}
           </span>
           <span className="ml-1 text-xs text-muted-foreground">
-            {remainPercent == null ? "" : "剩余"}
+            {remainPercent == null ? "" : t("剩余")}
           </span>
         </div>
       </div>
@@ -123,11 +125,11 @@ function UsageDetailRow({
 
       <div className="flex items-center justify-between gap-3 text-[10px] text-muted-foreground">
         <span className="shrink-0">
-          已使用 {remainPercent == null ? "--" : `${Math.max(0, 100 - value)}%`}
+          {t("已使用")} {remainPercent == null ? "--" : `${Math.max(0, 100 - value)}%`}
         </span>
         <span className="flex min-w-0 items-center justify-end gap-1 text-right">
           <Clock className="h-2.5 w-2.5" />
-          重置时间: {formatTsFromSeconds(resetsAt, emptyResetText)}
+          {t("重置时间:")} {formatTsFromSeconds(resetsAt, t(emptyResetText))}
         </span>
       </div>
     </div>
@@ -141,6 +143,7 @@ export default function UsageModal({
   onRefresh,
   isRefreshing,
 }: UsageModalProps) {
+  const { t } = useI18n();
   if (!account) return null;
   const primaryWindowOnly = isPrimaryWindowOnlyUsage(account.usage);
   const secondaryWindowOnly = isSecondaryWindowOnlyUsage(account.usage);
@@ -155,25 +158,25 @@ export default function UsageModal({
             <div className="rounded-full bg-primary/10 p-2 text-primary">
               <Database className="h-5 w-5" />
             </div>
-            <DialogTitle>用量详情</DialogTitle>
+            <DialogTitle>{t("用量详情")}</DialogTitle>
           </div>
           <DialogDescription className="font-medium text-foreground/80">
-            账号: {account.name} ({account.id.slice(0, 8)}...)
+            {t("账号:")} {account.name} ({account.id.slice(0, 8)}...)
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 py-4">
           <div className="space-y-3 rounded-2xl border border-primary/5 bg-accent/10 p-4">
             <div className="space-y-1">
-              <p className="text-sm font-semibold">额度窗口</p>
+              <p className="text-sm font-semibold">{t("额度窗口")}</p>
               <p className="text-[11px] text-muted-foreground">
-                标准 5 小时、7 天周期，以及像 Code Review / Spark 这类专属额度都会在这里按单列依次显示。
+                {t("标准 5 小时、7 天周期，以及像 Code Review / Spark 这类专属额度都会在这里按单列依次显示。")}
               </p>
             </div>
 
             <div className="space-y-2">
               <UsageDetailRow
-                label="5小时额度"
+                label={t("5小时额度")}
                 remainPercent={usageBuckets.primaryRemainPercent}
                 resetsAt={usageBuckets.primaryResetsAt}
                 icon={Clock}
@@ -184,7 +187,7 @@ export default function UsageModal({
               />
 
               <UsageDetailRow
-                label="7天周期额度"
+                label={t("7天周期额度")}
                 remainPercent={usageBuckets.secondaryRemainPercent}
                 resetsAt={usageBuckets.secondaryResetsAt}
                 icon={Calendar}
@@ -212,7 +215,7 @@ export default function UsageModal({
 
           <div className="text-center">
             <p className="text-[10px] italic text-muted-foreground">
-              数据捕获于: {formatTsFromSeconds(account.lastRefreshAt, "未知时间")}
+              {t("数据捕获于:")} {formatTsFromSeconds(account.lastRefreshAt, t("未知时间"))}
             </p>
           </div>
         </div>
@@ -222,11 +225,11 @@ export default function UsageModal({
             className={buttonVariants({ variant: "ghost" })}
             type="button"
           >
-            关闭
+            {t("关闭")}
           </DialogClose>
           <Button onClick={() => onRefresh(account.id)} disabled={isRefreshing} className="gap-2">
             <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
-            {isRefreshing ? "正在刷新..." : "立即刷新"}
+            {isRefreshing ? t("正在刷新...") : t("立即刷新")}
           </Button>
         </DialogFooter>
       </DialogContent>
