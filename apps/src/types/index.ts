@@ -85,6 +85,7 @@ export interface ApiKey {
   serviceTier: string;
   rotationStrategy: string;
   aggregateApiId: string | null;
+  accountPlanFilter: string | null;
   aggregateApiUrl: string | null;
   protocol: string;
   clientType: string;

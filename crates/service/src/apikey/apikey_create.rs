@@ -32,6 +32,7 @@ pub(crate) fn create_api_key(
     static_headers_json: Option<String>,
     rotation_strategy: Option<String>,
     aggregate_api_id: Option<String>,
+    account_plan_filter: Option<String>,
 ) -> Result<ApiKeyCreateResult, String> {
     // 创建平台 Key 并写入存储
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
@@ -52,6 +53,11 @@ pub(crate) fn create_api_key(
     } else {
         None
     };
+    let account_plan_filter = if rotation_strategy == crate::apikey_profile::ROTATION_ACCOUNT {
+        crate::account_plan::normalize_account_plan_filter(account_plan_filter)?
+    } else {
+        None
+    };
     let record = ApiKey {
         id: key_id.clone(),
         name,
@@ -60,6 +66,7 @@ pub(crate) fn create_api_key(
         service_tier: normalize_service_tier_owned(service_tier)?,
         rotation_strategy,
         aggregate_api_id,
+        account_plan_filter,
         aggregate_api_url: None,
         client_type,
         protocol_type,

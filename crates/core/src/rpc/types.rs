@@ -356,6 +356,7 @@ pub struct ApiKeySummary {
     pub service_tier: Option<String>,
     pub rotation_strategy: String,
     pub aggregate_api_id: Option<String>,
+    pub account_plan_filter: Option<String>,
     pub aggregate_api_url: Option<String>,
     pub client_type: String,
     pub protocol_type: String,

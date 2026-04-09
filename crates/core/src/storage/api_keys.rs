@@ -10,6 +10,7 @@ const API_KEY_SELECT_SQL: &str = "SELECT
     p.service_tier,
     COALESCE(k.rotation_strategy, 'account_rotation') AS rotation_strategy,
     k.aggregate_api_id,
+    k.account_plan_filter,
     a.url AS aggregate_api_url,
     COALESCE(p.client_type, 'codex') AS client_type,
     COALESCE(p.protocol_type, 'openai_compat') AS protocol_type,
@@ -39,7 +40,7 @@ impl Storage {
     /// 返回函数执行结果
     pub fn insert_api_key(&self, key: &ApiKey) -> Result<()> {
         self.conn.execute(
-            "INSERT OR REPLACE INTO api_keys (id, name, model_slug, reasoning_effort, key_hash, status, created_at, last_used_at, rotation_strategy, aggregate_api_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT OR REPLACE INTO api_keys (id, name, model_slug, reasoning_effort, key_hash, status, created_at, last_used_at, rotation_strategy, aggregate_api_id, account_plan_filter) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             (
                 &key.id,
                 &key.name,
@@ -51,6 +52,7 @@ impl Storage {
                 &key.last_used_at,
                 &key.rotation_strategy,
                 &key.aggregate_api_id,
+                &key.account_plan_filter,
             ),
         )?;
         self.conn.execute(
@@ -218,10 +220,11 @@ impl Storage {
         key_id: &str,
         rotation_strategy: &str,
         aggregate_api_id: Option<&str>,
+        account_plan_filter: Option<&str>,
     ) -> Result<()> {
         self.conn.execute(
-            "UPDATE api_keys SET rotation_strategy = ?1, aggregate_api_id = ?2 WHERE id = ?3",
-            (rotation_strategy, aggregate_api_id, key_id),
+            "UPDATE api_keys SET rotation_strategy = ?1, aggregate_api_id = ?2, account_plan_filter = ?3 WHERE id = ?4",
+            (rotation_strategy, aggregate_api_id, account_plan_filter, key_id),
         )?;
         Ok(())
     }
@@ -527,10 +530,17 @@ impl Storage {
     pub(super) fn ensure_api_key_rotation_columns(&self) -> Result<()> {
         self.ensure_column("api_keys", "rotation_strategy", "TEXT")?;
         self.ensure_column("api_keys", "aggregate_api_id", "TEXT")?;
+        self.ensure_column("api_keys", "account_plan_filter", "TEXT")?;
         self.conn.execute(
             "UPDATE api_keys
              SET rotation_strategy = COALESCE(NULLIF(TRIM(rotation_strategy), ''), 'account_rotation')
              WHERE rotation_strategy IS NULL OR TRIM(rotation_strategy) = ''",
+            [],
+        )?;
+        self.conn.execute(
+            "UPDATE api_keys
+             SET account_plan_filter = NULL
+             WHERE account_plan_filter IS NOT NULL AND TRIM(account_plan_filter) = ''",
             [],
         )?;
         Ok(())
@@ -680,15 +690,16 @@ fn map_api_key_row(row: &Row<'_>) -> Result<ApiKey> {
         service_tier: row.get(4)?,
         rotation_strategy: row.get(5)?,
         aggregate_api_id: row.get(6)?,
-        aggregate_api_url: row.get(7)?,
-        client_type: row.get(8)?,
-        protocol_type: row.get(9)?,
-        auth_scheme: row.get(10)?,
-        upstream_base_url: row.get(11)?,
-        static_headers_json: row.get(12)?,
-        key_hash: row.get(13)?,
-        status: row.get(14)?,
-        created_at: row.get(15)?,
-        last_used_at: row.get(16)?,
+        account_plan_filter: row.get(7)?,
+        aggregate_api_url: row.get(8)?,
+        client_type: row.get(9)?,
+        protocol_type: row.get(10)?,
+        auth_scheme: row.get(11)?,
+        upstream_base_url: row.get(12)?,
+        static_headers_json: row.get(13)?,
+        key_hash: row.get(14)?,
+        status: row.get(15)?,
+        created_at: row.get(16)?,
+        last_used_at: row.get(17)?,
     })
 }

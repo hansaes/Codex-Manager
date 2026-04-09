@@ -33,6 +33,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let static_headers_json = super::string_param(req, "staticHeadersJson");
             let rotation_strategy = super::string_param(req, "rotationStrategy");
             let aggregate_api_id = super::string_param(req, "aggregateApiId");
+            let account_plan_filter = super::string_param(req, "accountPlanFilter");
             super::value_or_error(apikey_create::create_api_key(
                 name,
                 model_slug,
@@ -43,6 +44,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 static_headers_json,
                 rotation_strategy,
                 aggregate_api_id,
+                account_plan_filter,
             ))
         }
         "apikey/readSecret" => {
@@ -74,6 +76,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let static_headers_json = super::string_param(req, "staticHeadersJson");
             let rotation_strategy = super::string_param(req, "rotationStrategy");
             let aggregate_api_id = super::string_param(req, "aggregateApiId");
+            let account_plan_filter = super::string_param(req, "accountPlanFilter");
             super::ok_or_error(apikey_update_model::update_api_key_model(
                 key_id,
                 name,
@@ -86,6 +89,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 static_headers_json,
                 rotation_strategy,
                 aggregate_api_id,
+                account_plan_filter,
             ))
         }
         "apikey/delete" => {

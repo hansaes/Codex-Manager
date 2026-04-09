@@ -500,6 +500,7 @@ export function normalizeApiKey(item: unknown): ApiKey | null {
     serviceTier: asString(source.serviceTier ?? source.service_tier),
     rotationStrategy: asString(source.rotationStrategy ?? source.rotation_strategy) || "account_rotation",
     aggregateApiId: asString(source.aggregateApiId ?? source.aggregate_api_id) || null,
+    accountPlanFilter: asString(source.accountPlanFilter ?? source.account_plan_filter) || null,
     aggregateApiUrl: asString(source.aggregateApiUrl ?? source.aggregate_api_url) || null,
     protocol: asString(source.protocolType ?? source.protocol_type) || "openai_compat",
     clientType: asString(source.clientType ?? source.client_type),

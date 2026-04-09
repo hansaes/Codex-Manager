@@ -20,9 +20,24 @@ pub(in super::super) enum CandidateSkipReason {
 pub(crate) fn prepare_gateway_candidates(
     storage: &Storage,
     _request_model: Option<&str>,
+    account_plan_filter: Option<&str>,
 ) -> Result<Vec<(Account, Token)>, String> {
     // 中文注释：保持账号原始顺序（按账户排序字段）作为候选顺序，失败时再依次切下一个。
-    super::super::super::collect_gateway_candidates(storage)
+    let mut candidates = super::super::super::collect_gateway_candidates(storage)?;
+    let normalized_filter = account_plan_filter
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("all"));
+    if let Some(plan_filter) = normalized_filter {
+        candidates.retain(|(account, token)| {
+            crate::account_plan::account_matches_plan_filter(
+                storage,
+                account.id.as_str(),
+                token,
+                Some(plan_filter),
+            )
+        });
+    }
+    Ok(candidates)
 }
 
 /// 函数 `free_account_model_override`

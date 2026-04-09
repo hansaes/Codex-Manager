@@ -29,6 +29,7 @@ pub(crate) fn update_api_key_model(
     static_headers_json: Option<String>,
     rotation_strategy: Option<String>,
     aggregate_api_id: Option<String>,
+    account_plan_filter: Option<String>,
 ) -> Result<(), String> {
     if key_id.is_empty() {
         return Err("key id required".to_string());
@@ -61,6 +62,12 @@ pub(crate) fn update_api_key_model(
     } else {
         None
     };
+    let normalized_account_plan_filter =
+        if normalized_rotation_strategy == crate::apikey_profile::ROTATION_ACCOUNT {
+            crate::account_plan::normalize_account_plan_filter(account_plan_filter)?
+        } else {
+            None
+        };
     storage
         .update_api_key_model_config(
             key_id,
@@ -74,6 +81,7 @@ pub(crate) fn update_api_key_model(
             key_id,
             normalized_rotation_strategy.as_str(),
             normalized_aggregate_api_id.as_deref(),
+            normalized_account_plan_filter.as_deref(),
         )
         .map_err(|e| e.to_string())?;
 

@@ -93,6 +93,7 @@ pub(in super::super) fn proxy_validated_request(
         protocol_type,
         rotation_strategy,
         aggregate_api_id,
+        account_plan_filter,
         upstream_base_url,
         static_headers_json,
         response_adapter,
@@ -264,6 +265,7 @@ pub(in super::super) fn proxy_validated_request(
         &request_method,
         model_for_log.as_deref(),
         reasoning_for_log.as_deref(),
+        account_plan_filter.as_deref(),
     ) {
         CandidatePrecheckResult::Ready {
             request,

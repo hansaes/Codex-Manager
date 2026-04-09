@@ -71,6 +71,31 @@ pub(crate) fn is_free_plan_from_credits_json(raw_credits_json: Option<&str>) -> 
     is_free_plan_type(extract_plan_type_from_credits_json(raw_credits_json).as_deref())
 }
 
+pub(crate) fn normalize_account_plan_filter(
+    value: Option<String>,
+) -> Result<Option<String>, String> {
+    let trimmed = value.as_deref().map(str::trim).unwrap_or_default();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("all") || trimmed == "全部" {
+        return Ok(None);
+    }
+
+    let normalized = trimmed.to_ascii_lowercase();
+    let canonical = match normalized.as_str() {
+        "free" => "free",
+        "go" => "go",
+        "plus" => "plus",
+        "pro" => "pro",
+        "team" => "team",
+        "business" => "business",
+        "enterprise" => "enterprise",
+        "edu" | "education" => "edu",
+        "unknown" => "unknown",
+        _ => return Err(format!("unsupported account plan filter: {trimmed}")),
+    };
+
+    Ok(Some(canonical.to_string()))
+}
+
 /// 函数 `resolve_account_plan`
 ///
 /// 作者: gaohongshun
@@ -191,6 +216,28 @@ pub(crate) fn is_free_or_single_window_account(
                 || is_single_window_long_usage_snapshot(&snapshot)
         })
         .unwrap_or(false)
+}
+
+pub(crate) fn account_matches_plan_filter(
+    storage: &Storage,
+    account_id: &str,
+    token: &Token,
+    plan_filter: Option<&str>,
+) -> bool {
+    let Some(filter) = plan_filter.map(str::trim).filter(|value| !value.is_empty()) else {
+        return true;
+    };
+    if filter.eq_ignore_ascii_case("all") {
+        return true;
+    }
+
+    let normalized_filter = filter.to_ascii_lowercase();
+    let snapshot = storage
+        .latest_usage_snapshot_for_account(account_id)
+        .ok()
+        .flatten();
+    resolve_account_plan(Some(token), snapshot.as_ref())
+        .is_some_and(|plan| plan.normalized == normalized_filter)
 }
 
 /// 函数 `is_long_window`

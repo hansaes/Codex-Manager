@@ -60,6 +60,19 @@ const ROTATION_STRATEGY_LABELS: Record<string, string> = {
   aggregate_api_rotation: "聚合API轮转",
 };
 
+const ACCOUNT_PLAN_FILTER_LABELS: Record<string, string> = {
+  all: "全部账号",
+  free: "Free",
+  go: "Go",
+  plus: "Plus",
+  pro: "Pro",
+  team: "Team",
+  business: "Business",
+  enterprise: "Enterprise",
+  edu: "Edu",
+  unknown: "未知计划",
+};
+
 interface ApiKeyModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -89,6 +102,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
   const [reasoningEffort, setReasoningEffort] = useState("");
   const [serviceTier, setServiceTier] = useState("");
   const [rotationStrategy, setRotationStrategy] = useState("account_rotation");
+  const [accountPlanFilter, setAccountPlanFilter] = useState("all");
   const [upstreamBaseUrl, setUpstreamBaseUrl] = useState("");
   const [azureEndpoint, setAzureEndpoint] = useState("");
   const [azureApiKey, setAzureApiKey] = useState("");
@@ -121,6 +135,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
       setReasoningEffort("");
       setServiceTier("");
       setRotationStrategy("account_rotation");
+      setAccountPlanFilter("all");
       setUpstreamBaseUrl("");
       setAzureEndpoint("");
       setAzureApiKey("");
@@ -136,6 +151,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     setReasoningEffort(apiKey.reasoningEffort || "");
     setServiceTier(normalizeEditableServiceTier(apiKey.serviceTier));
     setRotationStrategy(apiKey.rotationStrategy || "account_rotation");
+    setAccountPlanFilter(apiKey.accountPlanFilter || "all");
     setGeneratedKey("");
 
     if (apiKey.protocol === "azure_openai") {
@@ -206,6 +222,10 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
             ? JSON.stringify(staticHeaders)
             : null,
         rotationStrategy,
+        accountPlanFilter:
+          rotationStrategy === "account_rotation" && accountPlanFilter !== "all"
+            ? accountPlanFilter
+            : null,
       };
 
       if (apiKey?.id) {
@@ -317,6 +337,42 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
               {t("账号轮转保持现有路由逻辑；聚合API轮转会直接透传请求。")}
             </p>
           </div>
+
+          {rotationStrategy === "account_rotation" ? (
+            <div className="grid gap-2">
+              <Label>{t("账号组筛选")}</Label>
+              <Select
+                value={accountPlanFilter}
+                onValueChange={(val) => val && setAccountPlanFilter(val)}
+                disabled={!isServiceReady}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {(value) =>
+                      t(
+                        ACCOUNT_PLAN_FILTER_LABELS[String(value || "")] ||
+                          "全部账号",
+                      )
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {Object.entries(ACCOUNT_PLAN_FILTER_LABELS).map(
+                    ([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {t(label)}
+                      </SelectItem>
+                    ),
+                  )}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                {t(
+                  "仅对账号轮转生效，可限制这把平台密钥只从指定账号计划类型中选路由账号。",
+                )}
+              </p>
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2 content-start">

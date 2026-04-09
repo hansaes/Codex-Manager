@@ -99,6 +99,7 @@ interface ApiKeyPayload {
   staticHeadersJson?: string | null;
   rotationStrategy?: string | null;
   aggregateApiId?: string | null;
+  accountPlanFilter?: string | null;
 }
 
 interface AggregateApiPayload {
@@ -542,6 +543,7 @@ export const accountClient = {
         staticHeadersJson: params.staticHeadersJson || null,
         rotationStrategy: params.rotationStrategy || null,
         aggregateApiId: params.aggregateApiId || null,
+        accountPlanFilter: params.accountPlanFilter || null,
       })
     );
     return normalizeApiKeyCreateResult(result);
@@ -566,6 +568,7 @@ export const accountClient = {
         staticHeadersJson: params.staticHeadersJson || null,
         rotationStrategy: params.rotationStrategy || null,
         aggregateApiId: params.aggregateApiId || null,
+        accountPlanFilter: params.accountPlanFilter || null,
       })
     ),
   disableApiKey: (keyId: string) =>

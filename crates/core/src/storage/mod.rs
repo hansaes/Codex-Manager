@@ -203,6 +203,7 @@ pub struct ApiKey {
     pub service_tier: Option<String>,
     pub rotation_strategy: String,
     pub aggregate_api_id: Option<String>,
+    pub account_plan_filter: Option<String>,
     pub aggregate_api_url: Option<String>,
     pub client_type: String,
     pub protocol_type: String,
@@ -555,6 +556,11 @@ impl Storage {
             "043_request_logs_effective_service_tier",
             include_str!("../../migrations/043_request_logs_effective_service_tier.sql"),
             |s| s.ensure_request_log_effective_service_tier_column(),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "044_api_keys_account_plan_filter",
+            include_str!("../../migrations/044_api_keys_account_plan_filter.sql"),
+            |s| s.ensure_api_key_rotation_columns(),
         )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
