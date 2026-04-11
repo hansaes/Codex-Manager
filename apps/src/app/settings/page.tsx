@@ -69,6 +69,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
+import { ConfirmDialog } from "@/components/modals/confirm-dialog";
 import { useI18n } from "@/lib/i18n/provider";
 
 const ENV_DESCRIPTION_MAP: Record<string, string> = {
@@ -652,6 +653,7 @@ export default function SettingsPage() {
   const [envSearch, setEnvSearch] = useState("");
   const [selectedEnvKey, setSelectedEnvKey] = useState<string | null>(null);
   const [envDrafts, setEnvDrafts] = useState<Record<string, string>>({});
+  const [resetAllEnvDialogOpen, setResetAllEnvDialogOpen] = useState(false);
   const [upstreamProxyDraft, setUpstreamProxyDraft] = useState<string | null>(
     null,
   );
@@ -1136,6 +1138,12 @@ export default function SettingsPage() {
       selectedEnvItem?.defaultValue ??
       "")
     : "";
+  const hasCustomizedEnvOverrides = envOverrideCatalog.some((item) => {
+    const defaultValue = item.defaultValue ?? "";
+    const currentValue = snapshot?.envOverrides[item.key] ?? defaultValue;
+    const effectiveValue = envDrafts[item.key] ?? currentValue;
+    return effectiveValue !== defaultValue;
+  });
 
   const activeWorkerPreset = snapshot
     ? (workerRecommendation &&
@@ -1550,6 +1558,27 @@ export default function SettingsPage() {
           delete nextDraft[selectedEnvKey];
           return nextDraft;
         });
+      })
+      .catch(() => undefined);
+  };
+
+  const handleResetAllEnv = () => {
+    if (!snapshot || envOverrideCatalog.length === 0) return;
+    const resetPatch = envOverrideCatalog.reduce<Record<string, string>>(
+      (result, item) => {
+        result[item.key] = "";
+        return result;
+      },
+      {},
+    );
+    void updateSettings
+      .mutateAsync({
+        envOverrides: resetPatch,
+        _silent: true,
+      })
+      .then(() => {
+        setEnvDrafts({});
+        toast.success(t("环境变量已全部恢复默认值"));
       })
       .catch(() => undefined);
   };
@@ -2503,6 +2532,25 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="env" className="space-y-4">
+          <div className="flex flex-col gap-3 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold">{t("环境变量配置")}</h3>
+              <p className="text-sm leading-6 text-muted-foreground">
+                {t("这里可以覆盖运行时环境变量；如果改乱了，可以一键恢复当前页所有变量的默认值。")}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2 self-start sm:self-auto"
+              disabled={!hasCustomizedEnvOverrides || updateSettings.isPending}
+              onClick={() => setResetAllEnvDialogOpen(true)}
+            >
+              <RotateCcw className="h-4 w-4" />
+              {t("全部恢复默认")}
+            </Button>
+          </div>
+
           <div className="grid gap-6 md:grid-cols-[300px_1fr]">
             <Card className="glass-card flex h-[500px] flex-col border-none shadow-md">
               <CardHeader className="pb-3">
@@ -2603,6 +2651,16 @@ export default function SettingsPage() {
                     <Variable className="h-12 w-12 opacity-20" />
                   </div>
                   <p>{t("请从左侧列表选择一个环境变量进行配置")}</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-2"
+                    disabled={!hasCustomizedEnvOverrides || updateSettings.isPending}
+                    onClick={() => setResetAllEnvDialogOpen(true)}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    {t("全部恢复默认")}
+                  </Button>
                 </CardContent>
               )}
             </Card>
@@ -2731,6 +2789,16 @@ export default function SettingsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={resetAllEnvDialogOpen}
+        onOpenChange={setResetAllEnvDialogOpen}
+        title={t("恢复全部环境默认值？")}
+        description={t("会把环境页里所有可配置变量恢复为默认值，并清空你当前尚未保存的环境草稿。")}
+        confirmText={t("确认恢复")}
+        cancelText={t("取消")}
+        onConfirm={handleResetAllEnv}
+      />
     </div>
   );
 }

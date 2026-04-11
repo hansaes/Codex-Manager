@@ -3,8 +3,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use super::{
-    save_persisted_app_setting, set_close_to_tray_on_close_setting, set_env_overrides,
-    set_gateway_account_max_inflight, set_gateway_background_tasks,
+    save_persisted_app_setting, set_close_to_tray_on_close_setting, set_codex_cli_guide_dismissed,
+    set_env_overrides, set_gateway_account_max_inflight, set_gateway_background_tasks,
     set_gateway_free_account_max_model, set_gateway_model_forward_rules, set_gateway_originator,
     set_gateway_residency_requirement, set_gateway_route_strategy,
     set_gateway_sse_keepalive_interval_ms, set_gateway_upstream_proxy_url,
@@ -21,6 +21,7 @@ pub(super) struct AppSettingsPatch {
     update_auto_check: Option<bool>,
     close_to_tray_on_close: Option<bool>,
     lightweight_mode_on_close_to_tray: Option<bool>,
+    codex_cli_guide_dismissed: Option<bool>,
     low_transparency: Option<bool>,
     theme: Option<String>,
     appearance_preset: Option<String>,
@@ -83,6 +84,9 @@ pub(super) fn apply_app_settings_patch(patch: AppSettingsPatch) -> Result<(), St
     }
     if let Some(enabled) = patch.lightweight_mode_on_close_to_tray {
         set_lightweight_mode_on_close_to_tray_setting(enabled)?;
+    }
+    if let Some(dismissed) = patch.codex_cli_guide_dismissed {
+        set_codex_cli_guide_dismissed(dismissed)?;
     }
     if let Some(enabled) = patch.low_transparency {
         set_ui_low_transparency_enabled(enabled)?;

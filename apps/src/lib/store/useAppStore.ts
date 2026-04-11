@@ -11,6 +11,7 @@ interface AppState {
   runtimeCapabilities: RuntimeCapabilities | null;
   isSidebarOpen: boolean;
   pendingRoutePath: string;
+  isCodexCliGuideOpen: boolean;
   
   setServiceStatus: (status: Partial<ServiceStatus>) => void;
   setAppSettings: (settings: Partial<AppSettings>) => void;
@@ -18,6 +19,8 @@ interface AppState {
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   setPendingRoutePath: (path: string) => void;
+  openCodexCliGuide: () => void;
+  closeCodexCliGuide: () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -33,6 +36,7 @@ export const useAppStore = create<AppState>((set) => ({
     closeToTraySupported: false,
     lowTransparency: false,
     lightweightModeOnCloseToTray: false,
+    codexCliGuideDismissed: false,
     webAccessPasswordConfigured: false,
     locale: "zh-CN",
     localeOptions: ["zh-CN", "en", "ru", "ko"],
@@ -93,6 +97,7 @@ export const useAppStore = create<AppState>((set) => ({
   runtimeCapabilities: null,
   isSidebarOpen: true,
   pendingRoutePath: "",
+  isCodexCliGuideOpen: false,
 
   setServiceStatus: (status) => 
     set((state) => ({ serviceStatus: { ...state.serviceStatus, ...status } })),
@@ -107,4 +112,8 @@ export const useAppStore = create<AppState>((set) => ({
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
 
   setPendingRoutePath: (path) => set({ pendingRoutePath: path }),
+
+  openCodexCliGuide: () => set({ isCodexCliGuideOpen: true }),
+
+  closeCodexCliGuide: () => set({ isCodexCliGuideOpen: false }),
 }));

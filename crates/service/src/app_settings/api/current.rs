@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use super::{
     current_background_tasks_snapshot_value, current_close_to_tray_on_close_setting,
-    current_env_overrides, current_gateway_account_max_inflight,
+    current_codex_cli_guide_dismissed, current_env_overrides, current_gateway_account_max_inflight,
     current_gateway_free_account_max_model, current_gateway_model_forward_rules,
     current_gateway_originator, current_gateway_residency_requirement,
     current_gateway_sse_keepalive_interval_ms, current_gateway_upstream_stream_timeout_ms,
@@ -26,8 +26,8 @@ use super::{
     APP_SETTING_GATEWAY_UPSTREAM_STREAM_TIMEOUT_MS_KEY, APP_SETTING_GATEWAY_USER_AGENT_VERSION_KEY,
     APP_SETTING_LIGHTWEIGHT_MODE_ON_CLOSE_TO_TRAY_KEY, APP_SETTING_PLUGIN_MARKET_MODE_KEY,
     APP_SETTING_PLUGIN_MARKET_SOURCE_URL_KEY, APP_SETTING_SERVICE_ADDR_KEY,
-    APP_SETTING_UI_APPEARANCE_PRESET_KEY, APP_SETTING_UI_LOCALE_KEY,
-    APP_SETTING_UI_LOW_TRANSPARENCY_KEY, APP_SETTING_UI_THEME_KEY,
+    APP_SETTING_UI_APPEARANCE_PRESET_KEY, APP_SETTING_UI_CODEX_CLI_GUIDE_DISMISSED_KEY,
+    APP_SETTING_UI_LOCALE_KEY, APP_SETTING_UI_LOW_TRANSPARENCY_KEY, APP_SETTING_UI_THEME_KEY,
     APP_SETTING_UPDATE_AUTO_CHECK_KEY, SERVICE_BIND_MODE_ALL_INTERFACES,
     SERVICE_BIND_MODE_LOOPBACK, SERVICE_BIND_MODE_SETTING_KEY,
 };
@@ -93,6 +93,7 @@ pub(super) fn current_app_settings_value(
     let persisted_close_to_tray = current_close_to_tray_on_close_setting();
     let close_to_tray = close_to_tray_on_close.unwrap_or(persisted_close_to_tray);
     let lightweight_mode_on_close_to_tray = current_lightweight_mode_on_close_to_tray_setting();
+    let codex_cli_guide_dismissed = current_codex_cli_guide_dismissed();
     let low_transparency = current_ui_low_transparency_enabled();
     let theme = current_ui_theme();
     let appearance_preset = current_ui_appearance_preset();
@@ -143,6 +144,7 @@ pub(super) fn current_app_settings_value(
         update_auto_check,
         persisted_close_to_tray,
         lightweight_mode_on_close_to_tray,
+        codex_cli_guide_dismissed,
         low_transparency,
         &theme,
         &appearance_preset,
@@ -177,6 +179,7 @@ pub(super) fn current_app_settings_value(
         "closeToTrayOnClose": close_to_tray,
         "closeToTraySupported": close_to_tray_supported,
         "lightweightModeOnCloseToTray": lightweight_mode_on_close_to_tray,
+        "codexCliGuideDismissed": codex_cli_guide_dismissed,
         "lowTransparency": low_transparency,
         "theme": theme,
         "appearancePreset": appearance_preset,
@@ -324,6 +327,7 @@ fn persist_current_snapshot(
     update_auto_check: bool,
     persisted_close_to_tray: bool,
     lightweight_mode_on_close_to_tray: bool,
+    codex_cli_guide_dismissed: bool,
     low_transparency: bool,
     theme: &str,
     appearance_preset: &str,
@@ -353,6 +357,10 @@ fn persist_current_snapshot(
     let _ = save_persisted_bool_setting(
         APP_SETTING_LIGHTWEIGHT_MODE_ON_CLOSE_TO_TRAY_KEY,
         lightweight_mode_on_close_to_tray,
+    );
+    let _ = save_persisted_bool_setting(
+        APP_SETTING_UI_CODEX_CLI_GUIDE_DISMISSED_KEY,
+        codex_cli_guide_dismissed,
     );
     let _ = save_persisted_bool_setting(APP_SETTING_UI_LOW_TRANSPARENCY_KEY, low_transparency);
     let _ = save_persisted_app_setting(APP_SETTING_UI_THEME_KEY, Some(theme));

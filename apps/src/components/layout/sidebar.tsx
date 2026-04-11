@@ -94,6 +94,7 @@ export function Sidebar() {
     isSidebarOpen,
     toggleSidebar,
     setPendingRoutePath,
+    openCodexCliGuide,
   } = useAppStore();
   const { isDesktopRuntime } = useRuntimeCapabilities();
   const normalizedPathname = normalizeRoutePath(pathname);
@@ -305,8 +306,14 @@ export function Sidebar() {
         isSidebarOpen ? "w-56" : "w-16"
       )}
     >
-      <div className="flex h-16 items-center px-4 border-b shrink-0">
-        <div className="flex items-center gap-2 overflow-hidden">
+      <div className="flex h-16 items-center border-b px-4 shrink-0">
+        <button
+          type="button"
+          onClick={openCodexCliGuide}
+          title={t("重新打开 Codex CLI 引导")}
+          aria-label={t("重新打开 Codex CLI 引导")}
+          className="flex w-full items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left transition-colors duration-200 hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+        >
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <span className="text-sm font-bold">CM</span>
           </div>
@@ -316,7 +323,7 @@ export function Sidebar() {
               <span className="text-xs text-muted-foreground truncate opacity-70">{t("账号池 · 用量管理")}</span>
             </div>
           )}
-        </div>
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto py-4">

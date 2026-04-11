@@ -297,6 +297,7 @@ fn app_settings_set_persists_snapshot_and_password_hash() {
             "updateAutoCheck": false,
             "closeToTrayOnClose": true,
             "lightweightModeOnCloseToTray": true,
+            "codexCliGuideDismissed": true,
             "lowTransparency": true,
             "theme": "dark",
             "appearancePreset": "classic",
@@ -343,6 +344,12 @@ fn app_settings_set_persists_snapshot_and_password_hash() {
         assert_eq!(
             snapshot
                 .get("lightweightModeOnCloseToTray")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            snapshot
+                .get("codexCliGuideDismissed")
                 .and_then(|value| value.as_bool()),
             Some(true)
         );
@@ -449,6 +456,12 @@ fn app_settings_set_persists_snapshot_and_password_hash() {
         );
         assert_eq!(
             storage
+                .get_app_setting(codexmanager_service::APP_SETTING_UI_CODEX_CLI_GUIDE_DISMISSED_KEY)
+                .expect("read codex cli guide dismissed"),
+            Some("1".to_string())
+        );
+        assert_eq!(
+            storage
                 .get_app_setting(
                     codexmanager_service::APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY
                 )
@@ -541,6 +554,26 @@ fn app_settings_set_preserves_dark_one_theme() {
                 .get("appearancePreset")
                 .and_then(|value| value.as_str()),
             Some("classic")
+        );
+    });
+}
+
+#[test]
+fn app_settings_get_defaults_codex_cli_guide_to_false() {
+    with_temp_db(|db_path| {
+        let storage = Storage::open(db_path).expect("open storage");
+        storage
+            .delete_app_setting(codexmanager_service::APP_SETTING_UI_CODEX_CLI_GUIDE_DISMISSED_KEY)
+            .expect("delete codex cli guide dismissed");
+        drop(storage);
+
+        let snapshot = codexmanager_service::app_settings_get().expect("get app settings");
+
+        assert_eq!(
+            snapshot
+                .get("codexCliGuideDismissed")
+                .and_then(|value| value.as_bool()),
+            Some(false)
         );
     });
 }

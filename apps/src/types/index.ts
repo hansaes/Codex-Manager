@@ -395,6 +395,7 @@ export interface AppSettings {
   closeToTraySupported: boolean;
   lowTransparency: boolean;
   lightweightModeOnCloseToTray: boolean;
+  codexCliGuideDismissed: boolean;
   webAccessPasswordConfigured: boolean;
   locale: string;
   localeOptions: string[];

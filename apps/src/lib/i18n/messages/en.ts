@@ -985,4 +985,129 @@ export const EN_MESSAGES: MessageCatalog = {
   "Web 监听地址": "Web listen address",
   "Web 静态资源目录": "Web static assets directory",
   "Web 启动后不自动打开": "Do not auto-open after Web starts",
+  "环境变量配置": "Environment variable configuration",
+  "这里可以覆盖运行时环境变量；如果改乱了，可以一键恢复当前页所有变量的默认值。":
+    "You can override runtime environment variables here. If things get messy, you can restore every variable on this page back to its default with one click.",
+  "全部恢复默认": "Restore all defaults",
+  "环境变量已全部恢复默认值": "All environment variables have been restored to their defaults",
+  "恢复全部环境默认值？": "Restore all environment defaults?",
+  "会把环境页里所有可配置变量恢复为默认值，并清空你当前尚未保存的环境草稿。":
+    "This will restore every configurable variable on the Environment tab to its default value and clear any unsaved drafts.",
+  "确认恢复": "Confirm restore",
+  "Codex CLI 首次接入引导": "Codex CLI first-time setup guide",
+  "先看左侧步骤，再复制右侧模板去写 `config.toml`。只要没有勾选“不再显示”，你下次进入软件时仍会看到它。":
+    "Read the steps on the left first, then copy the template on the right into `config.toml`. If you do not check “Don't show this guide again”, you will see it again the next time you open the app.",
+  "推荐先完整读一遍，再复制模板；这比自己手写 provider 名称和地址更不容易出错。":
+    "Read through it once before copying the template. This is much less error-prone than typing the provider name and address by hand.",
+  "建议按下面的顺序完成接入": "Recommended setup order",
+  "分步导引": "Step-by-step guide",
+  "你当前在第 {current} 步，共 {total} 步。":
+    "You are on step {current} of {total}.",
+  "点击步骤标签可直接跳转，按顺序做不容易漏。":
+    "You can jump directly by clicking a step label, but following them in order makes it easier not to miss anything.",
+  "步骤 {step}": "Step {step}",
+  "第一步：先确认 CodexManager 服务已经可用":
+    "Step 1: Confirm that the CodexManager service is available",
+  "先确认软件本身已经连上本地服务，再去配 CLI。这样能避免你配置写对了，但实际上连的是错端口或者空服务。":
+    "Make sure the app itself is connected to the local service before configuring the CLI. This avoids ending up with a correct config that still points to the wrong port or an empty service.",
+  "打开软件后先看顶部或设置页里的“服务已连接”状态。":
+    "After opening the app, first check the “Service Connected” status in the top bar or on the Settings page.",
+  "如果你改过监听端口，后面的 `base_url` 也必须用同一个端口。":
+    "If you changed the listening port, `base_url` below must use the same port.",
+  "服务没启动、证书异常或端口不一致时，CLI 配置不会生效。":
+    "The CLI config will not work if the service is not running, the certificate is invalid, or the port does not match.",
+  "第二步：把下面这份配置写入 Codex CLI 配置文件":
+    "Step 2: Write the configuration below into the Codex CLI config file",
+  "推荐先复制右侧模板，再按你的实际端口或运行习惯微调。不要手敲 provider 名称，最容易在这里拼错。":
+    "Copy the template on the right first, then adjust it for your actual port and workflow. Do not type the provider name by hand; this is where typos happen most often.",
+  "通常放在 `~/.codex/config.toml`。":
+    "It is usually stored at `~/.codex/config.toml`.",
+  "在 Windows 上一般是 `%USERPROFILE%\\\\.codex\\\\config.toml`。":
+    "On Windows, it is usually `%USERPROFILE%\\\\.codex\\\\config.toml`.",
+  "如果你已经有现成配置，建议先备份，再把这段内容合并进去。":
+    "If you already have a config file, back it up first and then merge this block into it.",
+  "第三步：保存后重新启动 Codex CLI 并验证 provider":
+    "Step 3: Save, restart Codex CLI, and verify the provider",
+  "最后只检查两件关键事：provider 名称一致，和 `base_url` 指向本软件的本地网关。只要这两项错一个，CLI 就不会走 CodexManager。":
+    "At the end, verify only two critical things: the provider name matches, and `base_url` points to this app's local gateway. If either one is wrong, the CLI will not route through CodexManager.",
+  "`model_provider = \"cm\"` 必须和 `[model_providers.cm]` 完全一致。":
+    "`model_provider = \"cm\"` must exactly match `[model_providers.cm]`.",
+  "`base_url` 默认应指向 `https://localhost:48760/v1`。":
+    "`base_url` should normally point to `https://localhost:48760/v1`.",
+  "如果你在设置里换过端口，把这里同步改掉后再重新打开 CLI 测试。":
+    "If you changed the port in Settings, update it here as well and then reopen the CLI to test again.",
+  "使用时最容易忽略的 3 个点": "Three easy-to-miss details",
+  "如果你在设置页改过服务端口，记得同步修改 `base_url`，否则 CLI 会连到旧端口。":
+    "If you changed the service port on the Settings page, remember to update `base_url` too, or the CLI will connect to the old port.",
+  "如果 CLI 已经有其它 `model_providers` 配置，不需要全删，只要保证 `cm` 这一段完整且名字一致即可。":
+    "If the CLI already has other `model_providers`, you do not need to remove them. Just make sure the `cm` section is complete and the name matches.",
+  "只有勾选“下次不再显示这份引导”并点击确认后，软件才会把这个状态写入数据库；否则下次进入仍会再次提醒。":
+    "The app writes this state to the database only after you check “Don't show this guide again” and confirm it. Otherwise, the reminder will appear again next time.",
+  "推荐配置示例": "Recommended configuration sample",
+  "已为每一行补充中文注释，可以直接复制后再按你的环境微调。":
+    "Every line is annotated, so you can copy it directly and then fine-tune it for your environment.",
+  "复制配置": "Copy configuration",
+  "配置模板已复制": "Configuration template copied",
+  "下次不再显示这份引导": "Don't show this guide again",
+  "本次关闭": "Close for now",
+  "保存并关闭": "Save and close",
+  "我已阅读": "I've read it",
+  "上一步": "Previous",
+  "下一步": "Next",
+  "已经是最后一步": "Already on the last step",
+  "重新打开 Codex CLI 引导": "Reopen the Codex CLI guide",
+  "后续将不再显示这份引导": "This guide will no longer be shown",
+  "保存引导状态失败: {message}": "Failed to save guide state: {message}",
+  "主对话模型，推荐直接使用 gpt-5.4 作为默认工作模型":
+    "Primary chat model. It is recommended to use gpt-5.4 as the default working model.",
+  "默认模型提供方，填写 cm 代表走下面定义的本地 provider":
+    "Default model provider. Setting it to cm means using the local provider defined below.",
+  "代码审查或 review 场景使用的模型，这里也保持与主模型一致":
+    "Model used for code review scenarios. Keep it aligned with the primary model here.",
+  "人格预设，none 代表不额外附加风格化人格":
+    "Personality preset. `none` means no extra stylistic persona is added.",
+  "普通执行任务时的推理强度，xhigh 适合复杂代码与分析任务":
+    "Reasoning effort for normal tasks. `xhigh` fits complex coding and analysis work.",
+  "进入 plan mode 时的推理强度，继续保持 xhigh 便于做完整拆解":
+    "Reasoning effort in plan mode. Keep it at `xhigh` to get fuller breakdowns.",
+  "是否输出推理摘要，detailed 表示尽量返回更详细的摘要信息":
+    "Whether to output reasoning summaries. `detailed` returns fuller summary information when possible.",
+  "输出详略程度，medium 兼顾信息量与可读性":
+    "Verbosity level. `medium` balances detail and readability.",
+  "声明当前模型支持 reasoning summary，避免 CLI 错误判断能力":
+    "Declare that the current model supports reasoning summaries so the CLI does not mis-detect its capabilities.",
+  "需要用户审批时采用按需询问模式，危险操作会先确认":
+    "Use on-request approvals so risky operations ask for confirmation first.",
+  "允许 login shell，方便某些环境变量和 shell 初始化脚本生效":
+    "Allow login shell so environment variables and shell init scripts can take effect when needed.",
+  "沙箱模式使用 workspace-write，只允许在工作区内读写":
+    "Use `workspace-write` sandbox mode so reads and writes stay inside the workspace.",
+  "CLI 认证信息存储方式，file 表示保存在本地文件":
+    "CLI auth credential storage mode. `file` stores credentials in a local file.",
+  "ChatGPT 后端接口地址，保持官方默认地址即可":
+    "ChatGPT backend endpoint. The official default URL is fine here.",
+  "MCP OAuth 凭据存储方式，auto 表示交给 CLI 自动选择":
+    "MCP OAuth credential storage mode. `auto` lets the CLI choose automatically.",
+  "启动时自动检查更新，方便跟进新版本":
+    "Automatically check for updates on startup so new versions are easier to follow.",
+  "Web 搜索模式，live 代表允许实时联网搜索":
+    "Web search mode. `live` allows real-time web search.",
+  "审批的审核方，这里设为当前用户本人":
+    "Approval reviewer. Set this to the current user.",
+  "服务层级，fast 通常能兼顾延迟和可用性":
+    "Service tier. `fast` usually balances latency and availability well.",
+  "定义名为 cm 的模型提供方，这个名字必须和上面的 model_provider 保持一致":
+    "Define a model provider named cm. This name must match the `model_provider` above.",
+  "这个 provider 下的审批策略，继续沿用 on-request":
+    "Approval policy for this provider. Keep using `on-request`.",
+  "这个 provider 下的沙箱策略，继续使用 workspace-write":
+    "Sandbox policy for this provider. Keep using `workspace-write`.",
+  "这个 provider 下是否允许联网搜索，live 表示开启":
+    "Whether web search is enabled for this provider. `live` means enabled.",
+  "展示名称，可写成 OpenAI 方便识别":
+    "Display name. You can set it to `OpenAI` for easier recognition.",
+  "本地网关地址，默认走 CodexManager 暴露出来的 48760 端口":
+    "Local gateway address. By default this uses port 48760 exposed by CodexManager.",
+  "与本软件网关对接时使用 responses 协议":
+    "Use the `responses` protocol when connecting through this app's gateway.",
 };

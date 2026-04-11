@@ -3,6 +3,7 @@ pub const APP_SETTING_CLOSE_TO_TRAY_ON_CLOSE_KEY: &str = "app.close_to_tray_on_c
 pub const APP_SETTING_LIGHTWEIGHT_MODE_ON_CLOSE_TO_TRAY_KEY: &str =
     "app.lightweight_mode_on_close_to_tray";
 pub const APP_SETTING_UI_LOW_TRANSPARENCY_KEY: &str = "ui.low_transparency";
+pub const APP_SETTING_UI_CODEX_CLI_GUIDE_DISMISSED_KEY: &str = "ui.codex_cli_guide_dismissed";
 pub const APP_SETTING_UI_THEME_KEY: &str = "ui.theme";
 pub const APP_SETTING_UI_APPEARANCE_PRESET_KEY: &str = "ui.appearance_preset";
 pub const APP_SETTING_UI_LOCALE_KEY: &str = "ui.locale";

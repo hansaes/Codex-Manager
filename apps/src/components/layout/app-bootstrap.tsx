@@ -17,6 +17,7 @@ import {
 import { appClient } from "@/lib/api/app-client";
 import { loadRuntimeCapabilities } from "@/lib/api/transport";
 import { Button } from "@/components/ui/button";
+import { CodexCliOnboardingDialog } from "@/components/layout/codex-cli-onboarding-dialog";
 import { applyAppearancePreset } from "@/lib/appearance";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import {
@@ -76,7 +77,10 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     setServiceStatus,
     setAppSettings,
     setRuntimeCapabilities,
+    closeCodexCliGuide,
     serviceStatus,
+    appSettings,
+    isCodexCliGuideOpen,
     runtimeCapabilities,
   } = useAppStore();
   const { setTheme } = useTheme();
@@ -93,6 +97,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const serviceStatusRef = useRef(serviceStatus);
   const runtimeCapabilitiesRef = useRef(runtimeCapabilities);
   const [error, setError] = useState<string | null>(null);
+  const [guideSessionDismissed, setGuideSessionDismissed] = useState(false);
   const supportsLocalServiceStart = canManageService;
 
   useEffect(() => {
@@ -575,6 +580,40 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const handleGuideOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      return;
+    }
+    if (isCodexCliGuideOpen) {
+      closeCodexCliGuide();
+      return;
+    }
+    setGuideSessionDismissed(true);
+  }, [closeCodexCliGuide, isCodexCliGuideOpen]);
+
+  const handleGuideAcknowledge = useCallback(
+    async (dismissPermanently: boolean) => {
+      if (dismissPermanently) {
+        try {
+          const settings = await appClient.setSettings({
+            codexCliGuideDismissed: true,
+          });
+          setAppSettings(settings);
+          toast.success(t("后续将不再显示这份引导"));
+        } catch (guideError: unknown) {
+          const message =
+            guideError instanceof Error ? guideError.message : String(guideError);
+          toast.error(t("保存引导状态失败: {message}", { message }));
+          throw guideError;
+        }
+      }
+
+      closeCodexCliGuide();
+      setGuideSessionDismissed(true);
+    },
+    [closeCodexCliGuide, setAppSettings, t]
+  );
+
   useEffect(() => {
     if (hasBootstrappedOnce.current) {
       return;
@@ -600,10 +639,24 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
 
   const showLoading = isInitializing && !hasInitializedOnce.current;
   const showError = !!error && !hasInitializedOnce.current;
+  const showCodexGuide =
+    isCodexCliGuideOpen ||
+    serviceStatus.connected &&
+    !showLoading &&
+    !showError &&
+    !isUnsupportedWebRuntime &&
+    !guideSessionDismissed &&
+    !appSettings.codexCliGuideDismissed;
   return (
     <>
       {/* Always keep children mounted to prevent Header/Sidebar remounting 'reload' feel */}
       {children}
+
+      <CodexCliOnboardingDialog
+        open={showCodexGuide}
+        onOpenChange={handleGuideOpenChange}
+        onAcknowledge={handleGuideAcknowledge}
+      />
 
       {(showLoading || showError) && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background">

@@ -1368,6 +1368,7 @@ export function normalizeAppSettings(payload: unknown): AppSettings {
       source.lightweightModeOnCloseToTray,
       false
     ),
+    codexCliGuideDismissed: asBoolean(source.codexCliGuideDismissed, false),
     webAccessPasswordConfigured: asBoolean(
       source.webAccessPasswordConfigured,
       false
