@@ -444,6 +444,21 @@ pub(crate) fn current_originator() -> String {
     runtime_config::current_originator()
 }
 
+/// 函数 `default_originator`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-11
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 返回 Codex 默认 originator
+pub(crate) fn default_originator() -> &'static str {
+    runtime_config::default_originator()
+}
+
 /// 函数 `current_wire_originator`
 ///
 /// 作者: gaohongshun
@@ -472,6 +487,21 @@ pub(crate) fn current_wire_originator() -> String {
 /// 返回函数执行结果
 pub(crate) fn current_codex_user_agent_version() -> String {
     runtime_config::current_codex_user_agent_version()
+}
+
+/// 函数 `default_codex_user_agent_version`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-11
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 返回 Codex 默认 User-Agent 版本
+pub(crate) fn default_codex_user_agent_version() -> &'static str {
+    runtime_config::default_codex_user_agent_version()
 }
 
 /// 函数 `set_originator`

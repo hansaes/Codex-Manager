@@ -1,5 +1,9 @@
 import { create } from "zustand";
 import { AppSettings, RuntimeCapabilities, ServiceStatus } from "../../types";
+import {
+  DEFAULT_CODEX_ORIGINATOR,
+  DEFAULT_CODEX_USER_AGENT_VERSION,
+} from "../constants/codex";
 
 interface AppState {
   serviceStatus: ServiceStatus;
@@ -55,8 +59,10 @@ export const useAppStore = create<AppState>((set) => ({
     ],
     modelForwardRules: "",
     accountMaxInflight: 1,
-    gatewayOriginator: "codex_cli_rs",
-    gatewayUserAgentVersion: "0.101.0",
+    gatewayOriginator: DEFAULT_CODEX_ORIGINATOR,
+    gatewayOriginatorDefault: DEFAULT_CODEX_ORIGINATOR,
+    gatewayUserAgentVersion: DEFAULT_CODEX_USER_AGENT_VERSION,
+    gatewayUserAgentVersionDefault: DEFAULT_CODEX_USER_AGENT_VERSION,
     gatewayResidencyRequirement: "",
     gatewayResidencyRequirementOptions: ["", "us"],
     pluginMarketMode: "builtin",

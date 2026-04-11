@@ -7,6 +7,10 @@ import { toast } from "sonner";
 import { appClient } from "@/lib/api/app-client";
 import { getAppErrorMessage } from "@/lib/api/transport";
 import { useAppStore } from "@/lib/store/useAppStore";
+import {
+  DEFAULT_CODEX_ORIGINATOR,
+  DEFAULT_CODEX_USER_AGENT_VERSION,
+} from "@/lib/constants/codex";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
@@ -767,6 +771,42 @@ export default function SettingsPage() {
     },
   });
 
+  const syncCodexLatestVersion = useMutation({
+    mutationFn: () => appClient.getCodexLatestVersion(),
+    onSuccess: (result) => {
+      const latestVersion =
+        typeof result?.version === "string" ? result.version.trim() : "";
+      if (!latestVersion) {
+        toast.error(t("未获取到有效的 Codex latest 版本号"));
+        return;
+      }
+      if (latestVersion === snapshot.gatewayUserAgentVersion) {
+        setGatewayUserAgentVersionDraft(null);
+        toast.success(
+          `${t("当前版本号已与 Codex latest 一致")}: ${latestVersion}`,
+        );
+        return;
+      }
+      void updateSettings
+        .mutateAsync({
+          gatewayUserAgentVersion: latestVersion,
+          _silent: true,
+        })
+        .then((nextSnapshot) => {
+          setGatewayUserAgentVersionDraft(null);
+          toast.success(
+            `${t("已同步 Codex latest 版本号")}: ${nextSnapshot.gatewayUserAgentVersion}`,
+          );
+        })
+        .catch(() => undefined);
+    },
+    onError: (error: unknown) => {
+      toast.error(
+        `${t("获取 Codex latest 版本失败")}: ${getAppErrorMessage(error)}`,
+      );
+    },
+  });
+
   const checkUpdate = useMutation({
     mutationFn: (request?: CheckUpdateRequest) => {
       void request;
@@ -1071,11 +1111,17 @@ export default function SettingsPage() {
 
   const upstreamProxyInput =
     upstreamProxyDraft ?? (snapshot?.upstreamProxyUrl || "");
+  const gatewayOriginatorDefault =
+    snapshot?.gatewayOriginatorDefault || DEFAULT_CODEX_ORIGINATOR;
+  const gatewayUserAgentVersionDefault =
+    snapshot?.gatewayUserAgentVersionDefault ||
+    DEFAULT_CODEX_USER_AGENT_VERSION;
   const gatewayOriginatorInput =
-    gatewayOriginatorDraft ?? (snapshot?.gatewayOriginator || "codex_cli_rs");
+    gatewayOriginatorDraft ??
+    (snapshot?.gatewayOriginator || gatewayOriginatorDefault);
   const gatewayUserAgentVersionInput =
     gatewayUserAgentVersionDraft ??
-    (snapshot?.gatewayUserAgentVersion || "0.101.0");
+    (snapshot?.gatewayUserAgentVersion || gatewayUserAgentVersionDefault);
   const transportInputValues = {
     sseKeepaliveIntervalMs:
       transportDraft.sseKeepaliveIntervalMs ??
@@ -1991,7 +2037,7 @@ export default function SettingsPage() {
                     if (gatewayOriginatorDraft == null) return;
                     if (
                       gatewayOriginatorInput ===
-                      (snapshot.gatewayOriginator || "codex_cli_rs")
+                      (snapshot.gatewayOriginator || gatewayOriginatorDefault)
                     ) {
                       setGatewayOriginatorDraft(null);
                       return;
@@ -2006,39 +2052,60 @@ export default function SettingsPage() {
                 />
                 <p className="text-[10px] text-muted-foreground">
                   {t("对齐官方 Codex 的上游 Originator。默认值为")}{" "}
-                  <code>codex_cli_rs</code>
+                  <code>{gatewayOriginatorDefault}</code>
                   {t("，会同步影响登录和网关上游请求头。")}
                 </p>
               </div>
 
               <div className="grid gap-2">
                 <Label>{t("User-Agent 版本")}</Label>
-                <Input
-                  className="h-10 max-w-md font-mono"
-                  value={gatewayUserAgentVersionInput}
-                  onChange={(event) =>
-                    setGatewayUserAgentVersionDraft(event.target.value)
-                  }
-                  onBlur={() => {
-                    if (gatewayUserAgentVersionDraft == null) return;
-                    if (
-                      gatewayUserAgentVersionInput ===
-                      (snapshot.gatewayUserAgentVersion || "0.101.0")
-                    ) {
-                      setGatewayUserAgentVersionDraft(null);
-                      return;
+                <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                  <Input
+                    className="h-10 max-w-md font-mono"
+                    value={gatewayUserAgentVersionInput}
+                    onChange={(event) =>
+                      setGatewayUserAgentVersionDraft(event.target.value)
                     }
-                    void updateSettings
-                      .mutateAsync({
-                        gatewayUserAgentVersion: gatewayUserAgentVersionInput,
-                      })
-                      .then(() => setGatewayUserAgentVersionDraft(null))
-                      .catch(() => undefined);
-                  }}
-                />
+                    onBlur={() => {
+                      if (gatewayUserAgentVersionDraft == null) return;
+                      if (
+                        gatewayUserAgentVersionInput ===
+                        (snapshot.gatewayUserAgentVersion ||
+                          gatewayUserAgentVersionDefault)
+                      ) {
+                        setGatewayUserAgentVersionDraft(null);
+                        return;
+                      }
+                      void updateSettings
+                        .mutateAsync({
+                          gatewayUserAgentVersion: gatewayUserAgentVersionInput,
+                        })
+                        .then(() => setGatewayUserAgentVersionDraft(null))
+                        .catch(() => undefined);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-10 w-fit gap-2"
+                    disabled={
+                      syncCodexLatestVersion.isPending || updateSettings.isPending
+                    }
+                    onClick={() => syncCodexLatestVersion.mutate()}
+                  >
+                    <RefreshCw
+                      className={cn(
+                        "h-4 w-4",
+                        syncCodexLatestVersion.isPending && "animate-spin",
+                      )}
+                    />
+                    {t("同步 Codex Latest")}
+                  </Button>
+                </div>
                 <p className="text-[10px] text-muted-foreground">
                   {t("控制真实出站")} <code>User-Agent</code> {t("里的版本号，默认值为")}{" "}
-                  <code>0.101.0</code>。 {t("官方 Codex 升级后，可以在这里手动同步。")}
+                  <code>{gatewayUserAgentVersionDefault}</code>。{" "}
+                  {t("点击右侧按钮可读取 @openai/codex 的 latest 版本并立即同步。")}
                 </p>
               </div>
 

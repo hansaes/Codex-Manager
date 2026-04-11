@@ -36,7 +36,7 @@ fn append_client_version_query(url: &str) -> String {
     let separator = if url.contains('?') { '&' } else { '?' };
     format!(
         "{url}{separator}client_version={}",
-        super::super::upstream::header_profile::CODEX_CLIENT_VERSION
+        crate::gateway::current_codex_user_agent_version()
     )
 }
 
@@ -437,6 +437,9 @@ mod tests {
     /// 无
     #[test]
     fn append_client_version_query_adds_missing_param() {
+        let _guard = crate::test_env_guard();
+        crate::gateway::set_codex_user_agent_version("0.101.0")
+            .expect("set default codex user agent version");
         let actual = append_client_version_query("https://example.com/backend-api/codex/models");
         assert_eq!(
             actual,
@@ -457,6 +460,9 @@ mod tests {
     /// 无
     #[test]
     fn append_client_version_query_preserves_existing_query() {
+        let _guard = crate::test_env_guard();
+        crate::gateway::set_codex_user_agent_version("0.101.0")
+            .expect("set default codex user agent version");
         let actual =
             append_client_version_query("https://example.com/backend-api/codex/models?limit=20");
         assert_eq!(
@@ -478,6 +484,9 @@ mod tests {
     /// 无
     #[test]
     fn append_client_version_query_does_not_duplicate_param() {
+        let _guard = crate::test_env_guard();
+        crate::gateway::set_codex_user_agent_version("0.101.0")
+            .expect("set default codex user agent version");
         let actual = append_client_version_query(
             "https://example.com/backend-api/codex/models?client_version=0.101.0",
         );

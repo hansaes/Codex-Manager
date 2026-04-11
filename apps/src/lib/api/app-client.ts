@@ -1,5 +1,5 @@
 import { invoke, invokeFirst } from "./transport";
-import { AppSettings } from "../../types";
+import { AppSettings, CodexLatestVersionInfo } from "../../types";
 import { normalizeAppSettings } from "./normalize";
 
 export const appClient = {
@@ -13,6 +13,8 @@ export const appClient = {
   },
   getGatewayConcurrencyRecommendation: () =>
     invoke<unknown>("service_gateway_concurrency_recommend_get"),
+  getCodexLatestVersion: () =>
+    invoke<CodexLatestVersionInfo>("service_gateway_codex_latest_version_get"),
 
   getCloseToTray: () => invoke<boolean>("app_close_to_tray_on_close_get"),
   setCloseToTray: (enabled: boolean) =>

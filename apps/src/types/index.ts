@@ -408,7 +408,9 @@ export interface AppSettings {
   modelForwardRules: string;
   accountMaxInflight: number;
   gatewayOriginator: string;
+  gatewayOriginatorDefault: string;
   gatewayUserAgentVersion: string;
+  gatewayUserAgentVersionDefault: string;
   gatewayResidencyRequirement: string;
   gatewayResidencyRequirementOptions: string[];
   pluginMarketMode: string;
@@ -424,6 +426,13 @@ export interface AppSettings {
   theme: string;
   appearancePreset: string;
   [key: string]: unknown;
+}
+
+export interface CodexLatestVersionInfo {
+  packageName: string;
+  version: string;
+  distTag: string;
+  registryUrl: string;
 }
 
 export interface ServiceInitializationResult {

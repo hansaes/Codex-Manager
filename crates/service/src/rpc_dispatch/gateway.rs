@@ -47,6 +47,9 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "gateway/concurrencyRecommendation/get" => {
             super::as_json(crate::gateway::current_gateway_concurrency_recommendation())
         }
+        "gateway/codexLatestVersion/get" => {
+            super::value_or_error(crate::fetch_codex_latest_version())
+        }
         "gateway/upstreamProxy/get" => super::as_json(serde_json::json!({
             "proxyUrl": crate::gateway::current_upstream_proxy_url(),
             "envKey": "CODEXMANAGER_UPSTREAM_PROXY_URL",

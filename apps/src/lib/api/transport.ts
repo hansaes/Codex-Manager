@@ -134,6 +134,9 @@ const WEB_COMMAND_MAP: Record<string, WebCommandDescriptor> = {
   service_gateway_concurrency_recommend_get: {
     rpcMethod: "gateway/concurrencyRecommendation/get",
   },
+  service_gateway_codex_latest_version_get: {
+    rpcMethod: "gateway/codexLatestVersion/get",
+  },
   service_requestlog_list: { rpcMethod: "requestlog/list" },
   service_requestlog_error_list: { rpcMethod: "requestlog/error_list" },
   service_requestlog_error_clear: { rpcMethod: "requestlog/error_clear" },

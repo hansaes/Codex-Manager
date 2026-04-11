@@ -33,6 +33,10 @@ import {
   UsageAggregateSummary,
 } from "@/types";
 import {
+  DEFAULT_CODEX_ORIGINATOR,
+  DEFAULT_CODEX_USER_AGENT_VERSION,
+} from "@/lib/constants/codex";
+import {
   calcAvailability,
   getUsageDisplayBuckets,
   isLowQuotaUsage,
@@ -1385,8 +1389,15 @@ export function normalizeAppSettings(payload: unknown): AppSettings {
     ),
     modelForwardRules: asString(source.modelForwardRules ?? source.model_forward_rules),
     accountMaxInflight: asInteger(source.accountMaxInflight, 1, 0),
-    gatewayOriginator: asString(source.gatewayOriginator) || "codex_cli_rs",
-    gatewayUserAgentVersion: asString(source.gatewayUserAgentVersion) || "0.101.0",
+    gatewayOriginator:
+      asString(source.gatewayOriginator) || DEFAULT_CODEX_ORIGINATOR,
+    gatewayOriginatorDefault:
+      asString(source.gatewayOriginatorDefault) || DEFAULT_CODEX_ORIGINATOR,
+    gatewayUserAgentVersion:
+      asString(source.gatewayUserAgentVersion) || DEFAULT_CODEX_USER_AGENT_VERSION,
+    gatewayUserAgentVersionDefault:
+      asString(source.gatewayUserAgentVersionDefault) ||
+      DEFAULT_CODEX_USER_AGENT_VERSION,
     gatewayResidencyRequirement: asString(source.gatewayResidencyRequirement),
     gatewayResidencyRequirementOptions: asArray(
       source.gatewayResidencyRequirementOptions

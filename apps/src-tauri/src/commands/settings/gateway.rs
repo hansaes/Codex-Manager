@@ -186,6 +186,24 @@ pub async fn service_gateway_concurrency_recommend_get(
     rpc_call_in_background("gateway/concurrencyRecommendation/get", addr, None).await
 }
 
+/// 函数 `service_gateway_codex_latest_version_get`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-11
+///
+/// # 参数
+/// - addr: 参数 addr
+///
+/// # 返回
+/// 返回函数执行结果
+#[tauri::command]
+pub async fn service_gateway_codex_latest_version_get(
+    addr: Option<String>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("gateway/codexLatestVersion/get", addr, None).await
+}
+
 /// 函数 `service_gateway_upstream_proxy_get`
 ///
 /// 作者: gaohongshun

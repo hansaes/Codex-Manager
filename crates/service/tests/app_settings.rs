@@ -400,9 +400,21 @@ fn app_settings_set_persists_snapshot_and_password_hash() {
         );
         assert_eq!(
             snapshot
+                .get("gatewayOriginatorDefault")
+                .and_then(|value| value.as_str()),
+            Some("codex_cli_rs")
+        );
+        assert_eq!(
+            snapshot
                 .get("gatewayUserAgentVersion")
                 .and_then(|value| value.as_str()),
             Some("0.101.2")
+        );
+        assert_eq!(
+            snapshot
+                .get("gatewayUserAgentVersionDefault")
+                .and_then(|value| value.as_str()),
+            Some("0.101.0")
         );
         assert_eq!(
             snapshot
@@ -681,9 +693,21 @@ fn sync_runtime_settings_from_storage_applies_saved_runtime_values() {
         );
         assert_eq!(
             snapshot
+                .get("gatewayOriginatorDefault")
+                .and_then(|value| value.as_str()),
+            Some("codex_cli_rs")
+        );
+        assert_eq!(
+            snapshot
                 .get("gatewayUserAgentVersion")
                 .and_then(|value| value.as_str()),
             Some("0.101.3")
+        );
+        assert_eq!(
+            snapshot
+                .get("gatewayUserAgentVersionDefault")
+                .and_then(|value| value.as_str()),
+            Some("0.101.0")
         );
         assert_eq!(
             snapshot
@@ -840,7 +864,19 @@ fn app_settings_get_loads_env_backed_dedicated_settings_when_storage_missing() {
         );
         assert_eq!(
             snapshot
+                .get("gatewayOriginatorDefault")
+                .and_then(|value| value.as_str()),
+            Some("codex_cli_rs")
+        );
+        assert_eq!(
+            snapshot
                 .get("gatewayUserAgentVersion")
+                .and_then(|value| value.as_str()),
+            Some("0.101.0")
+        );
+        assert_eq!(
+            snapshot
+                .get("gatewayUserAgentVersionDefault")
                 .and_then(|value| value.as_str()),
             Some("0.101.0")
         );

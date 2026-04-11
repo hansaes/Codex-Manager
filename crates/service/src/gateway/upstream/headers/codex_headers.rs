@@ -1,4 +1,3 @@
-pub(crate) const CODEX_CLIENT_VERSION: &str = "0.101.0";
 const OPENAI_ORGANIZATION_ENV: &str = "OPENAI_ORGANIZATION";
 const OPENAI_PROJECT_ENV: &str = "OPENAI_PROJECT";
 const OPENAI_ORGANIZATION_HEADER_NAME: &str = "OpenAI-Organization";
@@ -258,7 +257,11 @@ pub(crate) fn build_codex_compact_upstream_headers(
     headers
 }
 
-fn append_optional_env_header(headers: &mut Vec<(String, String)>, header_name: &str, env_name: &str) {
+fn append_optional_env_header(
+    headers: &mut Vec<(String, String)>,
+    header_name: &str,
+    env_name: &str,
+) {
     if let Some(value) = std::env::var(env_name)
         .ok()
         .map(|value| value.trim().to_string())

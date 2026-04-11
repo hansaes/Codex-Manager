@@ -14,7 +14,8 @@ use super::{
     current_gateway_user_agent_version, current_lightweight_mode_on_close_to_tray_setting,
     current_saved_service_addr, current_service_bind_mode, current_ui_appearance_preset,
     current_ui_locale, current_ui_low_transparency_enabled, current_ui_theme,
-    current_update_auto_check_enabled, env_override_catalog_value, env_override_reserved_keys,
+    current_update_auto_check_enabled, default_gateway_originator,
+    default_gateway_user_agent_version, env_override_catalog_value, env_override_reserved_keys,
     env_override_unsupported_keys, residency_requirement_options, save_env_overrides_value,
     save_persisted_app_setting, save_persisted_bool_setting, sync_runtime_settings_from_storage,
     APP_SETTING_CLOSE_TO_TRAY_ON_CLOSE_KEY, APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY,
@@ -111,6 +112,8 @@ pub(super) fn current_app_settings_value(
     let account_max_inflight = current_gateway_account_max_inflight();
     let gateway_originator = current_gateway_originator();
     let gateway_user_agent_version = current_gateway_user_agent_version();
+    let gateway_originator_default = default_gateway_originator();
+    let gateway_user_agent_version_default = default_gateway_user_agent_version();
     let gateway_residency_requirement = current_gateway_residency_requirement().unwrap_or_default();
     let free_account_max_model_options =
         load_free_account_max_model_options(&free_account_max_model);
@@ -192,7 +195,9 @@ pub(super) fn current_app_settings_value(
         "accountMaxInflight": account_max_inflight,
         "freeAccountMaxModelOptions": free_account_max_model_options,
         "gatewayOriginator": gateway_originator,
+        "gatewayOriginatorDefault": gateway_originator_default,
         "gatewayUserAgentVersion": gateway_user_agent_version,
+        "gatewayUserAgentVersionDefault": gateway_user_agent_version_default,
         "gatewayResidencyRequirement": gateway_residency_requirement,
         "pluginMarketMode": plugin_market_mode,
         "pluginMarketSourceUrl": plugin_market_source_url,

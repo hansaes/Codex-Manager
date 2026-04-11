@@ -524,6 +524,21 @@ pub(crate) fn current_originator() -> String {
     crate::lock_utils::read_recover(originator_cell(), "originator").clone()
 }
 
+/// 函数 `default_originator`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-11
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 返回 Codex 默认 originator
+pub(crate) fn default_originator() -> &'static str {
+    DEFAULT_ORIGINATOR
+}
+
 /// 函数 `current_wire_originator`
 ///
 /// 作者: gaohongshun
@@ -574,6 +589,21 @@ pub(crate) fn current_codex_user_agent_version() -> String {
     ensure_runtime_config_loaded();
     crate::lock_utils::read_recover(codex_user_agent_version_cell(), "codex_user_agent_version")
         .clone()
+}
+
+/// 函数 `default_codex_user_agent_version`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-11
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 返回 Codex 默认 User-Agent 版本
+pub(crate) fn default_codex_user_agent_version() -> &'static str {
+    DEFAULT_CODEX_USER_AGENT_VERSION
 }
 
 /// 函数 `set_codex_user_agent_version`
