@@ -4,6 +4,35 @@ use super::{
 };
 use serde_json::json;
 
+const STRICT_REQUEST_PARAM_ALLOWLIST_ENV: &str = "CODEXMANAGER_STRICT_REQUEST_PARAM_ALLOWLIST";
+
+struct RuntimeEnvGuard {
+    name: &'static str,
+    previous_value: Option<String>,
+}
+
+impl RuntimeEnvGuard {
+    fn set(name: &'static str, value: &str) -> Self {
+        let previous_value = std::env::var(name).ok();
+        std::env::set_var(name, value);
+        crate::gateway::reload_runtime_config_from_env();
+        Self {
+            name,
+            previous_value,
+        }
+    }
+}
+
+impl Drop for RuntimeEnvGuard {
+    fn drop(&mut self) {
+        match self.previous_value.as_deref() {
+            Some(value) => std::env::set_var(self.name, value),
+            None => std::env::remove_var(self.name),
+        }
+        crate::gateway::reload_runtime_config_from_env();
+    }
+}
+
 /// 函数 `chat_completions_stream_enforces_include_usage`
 ///
 /// 作者: gaohongshun
@@ -95,6 +124,8 @@ fn chat_completions_stream_preserves_options_while_enabling_usage() {
 /// 无
 #[test]
 fn chat_completions_uses_reasoning_effort_and_drops_non_official_keys() {
+    let _env_guard = crate::test_env_guard();
+    let _strict_guard = RuntimeEnvGuard::set(STRICT_REQUEST_PARAM_ALLOWLIST_ENV, "1");
     let body = json!({
         "model": "gpt-4.1",
         "messages": [{ "role": "user", "content": "hi" }],
@@ -540,7 +571,7 @@ fn responses_dynamic_tools_are_mapped_to_tools_for_codex_backend() {
     );
 }
 
-/// 函数 `responses_retains_service_tier_for_codex_supported_fields`
+/// 函数 `responses_drops_priority_service_tier_for_codex_backend`
 ///
 /// 作者: gaohongshun
 ///
@@ -552,7 +583,7 @@ fn responses_dynamic_tools_are_mapped_to_tools_for_codex_backend() {
 /// # 返回
 /// 无
 #[test]
-fn responses_retains_service_tier_for_codex_supported_fields() {
+fn responses_drops_priority_service_tier_for_codex_backend() {
     let body = json!({
         "model": "gpt-5.3-codex",
         "instructions": "stay",
@@ -592,12 +623,7 @@ fn responses_retains_service_tier_for_codex_supported_fields() {
     assert!(value.get("include").is_some());
     assert!(value.get("prompt_cache_key").is_some());
     assert!(value.get("text").is_some());
-    assert_eq!(
-        value
-            .get("service_tier")
-            .and_then(serde_json::Value::as_str),
-        Some("priority")
-    );
+    assert!(value.get("service_tier").is_none());
     assert!(value.get("temperature").is_none());
     assert!(value.get("user").is_none());
 }
@@ -1012,8 +1038,8 @@ fn responses_passthrough_for_non_codex_upstream() {
     );
     assert!(value.get("service_tier").is_some());
     assert!(value.get("user").is_some());
-    assert!(value.get("encrypted_content").is_none());
-    assert!(value.get("unknown_field").is_none());
+    assert!(value.get("encrypted_content").is_some());
+    assert!(value.get("unknown_field").is_some());
 }
 
 #[test]

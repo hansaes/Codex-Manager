@@ -2847,7 +2847,7 @@ fn gateway_invalid_refresh_token_marks_first_account_unavailable_and_fails_over(
     let first_body =
         String::from_utf8(decode_upstream_request_body(&first)).expect("first body utf8");
     assert!(
-        first_body.contains("\"service_tier\":\"priority\""),
+        !first_body.contains("\"service_tier\""),
         "unexpected first upstream body: {first_body}"
     );
     assert_eq!(second.path, "/oauth/token");

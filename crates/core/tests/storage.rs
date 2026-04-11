@@ -493,7 +493,7 @@ fn storage_account_usage_filters_support_sql_pagination() {
         storage
             .account_count_active_available(None, None)
             .expect("count active available"),
-        3
+        4
     );
     assert_eq!(
         storage
@@ -510,6 +510,15 @@ fn storage_account_usage_filters_support_sql_pagination() {
         .map(|account| account.id.as_str())
         .collect::<Vec<_>>();
     assert_eq!(active_ids, vec!["acc-active-1", "acc-low-1"]);
+
+    let next_active_page = storage
+        .list_accounts_active_available(None, None, Some((2, 2)))
+        .expect("list next active page");
+    let next_active_ids = next_active_page
+        .iter()
+        .map(|account| account.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(next_active_ids, vec!["acc-healthy-1", "acc-no-snapshot"]);
 
     let low_quota_accounts = storage
         .list_accounts_low_quota(None, None, None)

@@ -3,12 +3,12 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TrySendError};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const DEFAULT_TRACE_QUEUE_CAPACITY: usize = 2048;
+const DEFAULT_TRACE_QUEUE_CAPACITY: usize = 0;
 const TRACE_FLUSH_WAIT_TIMEOUT_MS: u64 = 200;
 const ENV_TRACE_QUEUE_CAPACITY: &str = "CODEXMANAGER_TRACE_QUEUE_CAPACITY";
 const ENV_GEMINI_TRACE_DIAGNOSTICS: &str = "CODEXMANAGER_GEMINI_TRACE_DIAGNOSTICS";
@@ -28,8 +28,38 @@ enum TraceCommand {
     ResetPath(PathBuf),
 }
 
+enum TraceCommandSender {
+    Bounded(SyncSender<TraceCommand>),
+    Unbounded(Sender<TraceCommand>),
+}
+
+enum TraceSendError {
+    Full,
+    Disconnected,
+}
+
+impl TraceCommandSender {
+    fn send(&self, command: TraceCommand) -> Result<(), TraceSendError> {
+        match self {
+            Self::Bounded(tx) => tx.send(command).map_err(|_| TraceSendError::Disconnected),
+            Self::Unbounded(tx) => tx.send(command).map_err(|_| TraceSendError::Disconnected),
+        }
+    }
+
+    fn try_send(&self, command: TraceCommand) -> Result<(), TraceSendError> {
+        match self {
+            Self::Bounded(tx) => match tx.try_send(command) {
+                Ok(()) => Ok(()),
+                Err(TrySendError::Full(_)) => Err(TraceSendError::Full),
+                Err(TrySendError::Disconnected(_)) => Err(TraceSendError::Disconnected),
+            },
+            Self::Unbounded(tx) => tx.send(command).map_err(|_| TraceSendError::Disconnected),
+        }
+    }
+}
+
 struct TraceAsyncWriter {
-    tx: SyncSender<TraceCommand>,
+    tx: TraceCommandSender,
     dropped: AtomicU64,
     queue_capacity: usize,
 }
@@ -48,7 +78,13 @@ impl TraceAsyncWriter {
     /// 返回函数执行结果
     fn new(path: PathBuf) -> Self {
         let queue_capacity = trace_queue_capacity();
-        let (tx, rx) = mpsc::sync_channel::<TraceCommand>(queue_capacity);
+        let (tx, rx) = if queue_capacity == 0 {
+            let (tx, rx) = mpsc::channel::<TraceCommand>();
+            (TraceCommandSender::Unbounded(tx), rx)
+        } else {
+            let (tx, rx) = mpsc::sync_channel::<TraceCommand>(queue_capacity);
+            (TraceCommandSender::Bounded(tx), rx)
+        };
         let _ = thread::Builder::new()
             .name("gateway-trace-writer".to_string())
             .spawn(move || trace_writer_loop(rx, TraceFileWriter::new(path)));
@@ -97,7 +133,7 @@ impl TraceAsyncWriter {
             ack: None,
         }) {
             Ok(()) => {}
-            Err(TrySendError::Full(_)) => {
+            Err(TraceSendError::Full) => {
                 let dropped = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
                 if dropped == 1 || dropped % 1024 == 0 {
                     log::warn!(
@@ -107,7 +143,7 @@ impl TraceAsyncWriter {
                     );
                 }
             }
-            Err(TrySendError::Disconnected(_)) => {
+            Err(TraceSendError::Disconnected) => {
                 log::warn!("gateway trace enqueue failed: writer channel closed");
             }
         }
@@ -567,7 +603,6 @@ fn trace_queue_capacity() -> usize {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| *value > 0)
         .unwrap_or(DEFAULT_TRACE_QUEUE_CAPACITY)
 }
 
@@ -1144,7 +1179,7 @@ pub(crate) fn log_failed_request(
 mod tests {
     use super::{
         clear_trace_error, has_error_text, log_failed_request, mark_trace_has_error,
-        trace_has_error,
+        trace_has_error, trace_queue_capacity,
     };
 
     /// 函数 `has_error_text_ignores_empty_and_dash`
@@ -1219,5 +1254,13 @@ mod tests {
             None,
             Some(18),
         );
+    }
+
+    #[test]
+    fn trace_queue_capacity_zero_means_unbounded() {
+        let _guard = crate::test_env_guard();
+        std::env::set_var("CODEXMANAGER_TRACE_QUEUE_CAPACITY", "0");
+
+        assert_eq!(trace_queue_capacity(), 0);
     }
 }

@@ -16,6 +16,8 @@ use crate::storage_helpers::{hash_platform_key, open_storage};
 const RESPONSES_PATH: &str = "/v1/responses";
 const RESPONSES_WS_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
 const RESPONSES_WS_ERROR_CODE: &str = "responses_websocket_error";
+const OPENAI_ORGANIZATION_ENV: &str = "OPENAI_ORGANIZATION";
+const OPENAI_PROJECT_ENV: &str = "OPENAI_PROJECT";
 
 #[derive(Clone)]
 struct WsRequestContext {
@@ -732,6 +734,13 @@ fn build_upstream_websocket_request(
     )?;
     insert_header(
         headers,
+        "version",
+        &crate::gateway::current_codex_user_agent_version(),
+    )?;
+    append_optional_env_header(headers, "OpenAI-Organization", OPENAI_ORGANIZATION_ENV)?;
+    append_optional_env_header(headers, "OpenAI-Project", OPENAI_PROJECT_ENV)?;
+    insert_header(
+        headers,
         "originator",
         &crate::gateway::current_wire_originator(),
     )?;
@@ -745,6 +754,7 @@ fn build_upstream_websocket_request(
     }
     if let Some(session_id) = context.incoming_headers.session_id() {
         insert_header(headers, "session_id", session_id)?;
+        insert_header(headers, "x-codex-window-id", format!("{session_id}:0").as_str())?;
     }
     if let Some(client_request_id) = context.incoming_headers.client_request_id() {
         insert_header(headers, "x-client-request-id", client_request_id)?;
@@ -765,6 +775,21 @@ fn build_upstream_websocket_request(
         insert_header(headers, "x-responsesapi-include-timing-metrics", "true")?;
     }
     Ok(request)
+}
+
+fn append_optional_env_header(
+    headers: &mut HeaderMap,
+    header_name: &str,
+    env_name: &str,
+) -> Result<(), WsSessionError> {
+    if let Some(value) = std::env::var(env_name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        insert_header(headers, header_name, value.as_str())?;
+    }
+    Ok(())
 }
 
 fn ensure_rustls_crypto_provider() {

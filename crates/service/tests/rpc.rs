@@ -885,7 +885,7 @@ fn rpc_account_list_active_filter_uses_backend_filtered_pagination() {
     assert_eq!(items.len(), 2, "unexpected filtered page size: {result}");
     assert_eq!(
         result.get("total").and_then(|value| value.as_i64()),
-        Some(3)
+        Some(4)
     );
     let ids = items
         .iter()

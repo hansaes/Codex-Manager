@@ -433,14 +433,14 @@ fn gateway_claude_protocol_end_to_end_uses_codex_headers() {
     );
     assert_eq!(
         captured.headers.get("openai-beta").map(String::as_str),
-        Some("responses_websockets=2026-02-06")
+        None
     );
     assert_eq!(
         captured
             .headers
             .get("x-responsesapi-include-timing-metrics")
             .map(String::as_str),
-        Some("true")
+        None
     );
     assert_eq!(
         captured.headers.get("originator").map(String::as_str),

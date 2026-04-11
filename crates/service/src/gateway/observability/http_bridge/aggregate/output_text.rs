@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
 const OUTPUT_TEXT_LIMIT_BYTES_ENV: &str = "CODEXMANAGER_HTTP_BRIDGE_OUTPUT_TEXT_LIMIT_BYTES";
-const DEFAULT_OUTPUT_TEXT_LIMIT_BYTES: usize = 128 * 1024;
+const DEFAULT_OUTPUT_TEXT_LIMIT_BYTES: usize = 0;
 pub(in super::super) const OUTPUT_TEXT_TRUNCATED_MARKER: &str = "[output_text truncated]";
 static OUTPUT_TEXT_LIMIT_BYTES: AtomicUsize = AtomicUsize::new(DEFAULT_OUTPUT_TEXT_LIMIT_BYTES);
 static OUTPUT_TEXT_LIMIT_LOADED: OnceLock<()> = OnceLock::new();
@@ -865,9 +865,39 @@ fn extract_object_string_field(raw: &str, key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_error_hint_from_body, limit_upstream_error_hint, summarize_upstream_error_hint,
-        UpstreamResponseBridgeResult, UPSTREAM_ERROR_HINT_LIMIT_BYTES,
+        extract_error_hint_from_body, limit_upstream_error_hint, output_text_limit_bytes,
+        reload_from_env, summarize_upstream_error_hint, UpstreamResponseBridgeResult,
+        UPSTREAM_ERROR_HINT_LIMIT_BYTES,
     };
+
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn clear(key: &'static str) -> Self {
+            let original = std::env::var_os(key);
+            std::env::remove_var(key);
+            Self { key, original }
+        }
+
+        fn set(key: &'static str, value: &str) -> Self {
+            let original = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.original {
+                std::env::set_var(self.key, value);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
 
     /// 函数 `summarize_upstream_error_hint_recognizes_challenge_html`
     ///
@@ -1049,5 +1079,25 @@ mod tests {
             ..UpstreamResponseBridgeResult::default()
         };
         assert_eq!(bridge.error_message(true).as_deref(), Some("网络抖动"));
+    }
+
+    #[test]
+    fn output_text_limit_defaults_to_unbounded_when_env_missing() {
+        let _guard = crate::test_env_guard();
+        let _env_guard = EnvGuard::clear("CODEXMANAGER_HTTP_BRIDGE_OUTPUT_TEXT_LIMIT_BYTES");
+
+        reload_from_env();
+
+        assert_eq!(output_text_limit_bytes(), 0);
+    }
+
+    #[test]
+    fn output_text_limit_invalid_value_falls_back_to_unbounded() {
+        let _guard = crate::test_env_guard();
+        let _env_guard = EnvGuard::set("CODEXMANAGER_HTTP_BRIDGE_OUTPUT_TEXT_LIMIT_BYTES", "abc");
+
+        reload_from_env();
+
+        assert_eq!(output_text_limit_bytes(), 0);
     }
 }

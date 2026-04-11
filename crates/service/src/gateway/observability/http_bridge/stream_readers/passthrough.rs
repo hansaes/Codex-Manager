@@ -1,11 +1,13 @@
 use super::{
     classify_upstream_stream_read_error, inspect_sse_frame_for_protocol, merge_usage,
-    sse_keepalive_interval, stream_reader_disconnected_message,
+    stream_idle_timed_out, stream_idle_timeout_message, stream_reader_disconnected_message,
+    stream_wait_timeout,
     upstream_hint_or_stream_incomplete_message, Arc, Cursor, Mutex, PassthroughSseCollector,
     PassthroughSseProtocol, Read, SseKeepAliveFrame, SseTerminal, UpstreamSseFramePump,
     UpstreamSseFramePumpItem,
 };
 use crate::gateway::http_bridge::extract_error_hint_from_body;
+use std::time::Instant;
 
 pub(crate) struct PassthroughSseUsageReader {
     upstream: UpstreamSseFramePump,
@@ -13,6 +15,7 @@ pub(crate) struct PassthroughSseUsageReader {
     usage_collector: Arc<Mutex<PassthroughSseCollector>>,
     keepalive_frame: SseKeepAliveFrame,
     protocol: PassthroughSseProtocol,
+    last_upstream_activity: Instant,
     finished: bool,
 }
 
@@ -40,6 +43,7 @@ impl PassthroughSseUsageReader {
             usage_collector,
             keepalive_frame,
             protocol,
+            last_upstream_activity: Instant::now(),
             finished: false,
         }
     }
@@ -106,8 +110,12 @@ impl PassthroughSseUsageReader {
     /// # 返回
     /// 返回函数执行结果
     fn next_chunk(&mut self) -> std::io::Result<Vec<u8>> {
-        match self.upstream.recv_timeout(sse_keepalive_interval()) {
+        match self
+            .upstream
+            .recv_timeout(stream_wait_timeout(self.last_upstream_activity))
+        {
             Ok(UpstreamSseFramePumpItem::Frame(frame)) => {
+                self.last_upstream_activity = Instant::now();
                 self.update_usage_from_frame(&frame);
                 Ok(frame.concat().into_bytes())
             }
@@ -124,6 +132,7 @@ impl PassthroughSseUsageReader {
                 Ok(Vec::new())
             }
             Ok(UpstreamSseFramePumpItem::Error(err)) => {
+                self.last_upstream_activity = Instant::now();
                 if let Ok(mut collector) = self.usage_collector.lock() {
                     collector
                         .terminal_error
@@ -133,6 +142,15 @@ impl PassthroughSseUsageReader {
                 Ok(Vec::new())
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if stream_idle_timed_out(self.last_upstream_activity) {
+                    if let Ok(mut collector) = self.usage_collector.lock() {
+                        collector
+                            .terminal_error
+                            .get_or_insert_with(stream_idle_timeout_message);
+                    }
+                    self.finished = true;
+                    return Ok(Vec::new());
+                }
                 Ok(self.keepalive_frame.bytes().to_vec())
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {

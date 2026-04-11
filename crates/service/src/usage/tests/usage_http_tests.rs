@@ -45,8 +45,8 @@ impl UsageHeaderRuntimeRestore {
     /// 返回函数执行结果
     fn capture() -> Self {
         Self {
-            originator: crate::current_gateway_originator(),
-            residency_requirement: crate::current_gateway_residency_requirement(),
+            originator: crate::gateway::current_originator(),
+            residency_requirement: crate::gateway::current_residency_requirement(),
         }
     }
 }
@@ -361,8 +361,8 @@ fn refresh_token_auth_error_reason_from_message_tracks_canonical_messages() {
 #[test]
 fn usage_http_default_headers_follow_gateway_runtime_profile() {
     let (_guard, _restore) = usage_header_runtime_scope();
-    crate::set_gateway_originator("codex_cli_rs_usage").expect("set gateway originator");
-    crate::set_gateway_residency_requirement(Some("us"))
+    crate::gateway::set_originator("codex_cli_rs_usage").expect("set gateway originator");
+    crate::gateway::set_residency_requirement(Some("us"))
         .expect("set gateway residency requirement");
 
     let headers = super::build_usage_http_default_headers();
@@ -371,7 +371,7 @@ fn usage_http_default_headers_follow_gateway_runtime_profile() {
         headers
             .get("originator")
             .and_then(|value| value.to_str().ok()),
-        Some("codex_cli_rs")
+        Some("codex_cli_rs_usage")
     );
     assert_eq!(
         headers

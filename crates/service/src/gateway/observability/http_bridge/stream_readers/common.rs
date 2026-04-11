@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const DEFAULT_SSE_KEEPALIVE_INTERVAL_MS: u64 = 15_000;
 const ENV_SSE_KEEPALIVE_INTERVAL_MS: &str = "CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS";
@@ -11,6 +11,7 @@ const ENV_SSE_KEEPALIVE_INTERVAL_MS: &str = "CODEXMANAGER_SSE_KEEPALIVE_INTERVAL
 static SSE_KEEPALIVE_INTERVAL_MS: AtomicU64 = AtomicU64::new(DEFAULT_SSE_KEEPALIVE_INTERVAL_MS);
 const STREAM_INCOMPLETE_FALLBACK_MESSAGE: &str = "网络抖动";
 const STREAM_READ_FAILED_FALLBACK_MESSAGE: &str = "stream read failed";
+const STREAM_IDLE_TIMEOUT_FALLBACK_MESSAGE: &str = "stream idle timeout";
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PassthroughSseCollector {
@@ -175,6 +176,27 @@ pub(super) fn reload_from_env() {
 pub(super) fn sse_keepalive_interval() -> Duration {
     let interval_ms = SSE_KEEPALIVE_INTERVAL_MS.load(Ordering::Relaxed);
     Duration::from_millis(interval_ms.max(1))
+}
+
+pub(super) fn stream_wait_timeout(last_upstream_activity: Instant) -> Duration {
+    let keepalive = sse_keepalive_interval();
+    let Some(idle_timeout) = crate::gateway::upstream_stream_timeout() else {
+        return keepalive;
+    };
+    let elapsed = last_upstream_activity.elapsed();
+    if elapsed >= idle_timeout {
+        return Duration::from_millis(1);
+    }
+    keepalive.min(idle_timeout.saturating_sub(elapsed).max(Duration::from_millis(1)))
+}
+
+pub(super) fn stream_idle_timed_out(last_upstream_activity: Instant) -> bool {
+    crate::gateway::upstream_stream_timeout()
+        .is_some_and(|idle_timeout| last_upstream_activity.elapsed() >= idle_timeout)
+}
+
+pub(super) fn stream_idle_timeout_message() -> String {
+    STREAM_IDLE_TIMEOUT_FALLBACK_MESSAGE.to_string()
 }
 
 /// 函数 `current_sse_keepalive_interval_ms`

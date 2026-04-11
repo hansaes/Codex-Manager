@@ -27,7 +27,7 @@ pub(super) fn read_request_body(
             Err(_) => break,
         };
         body.extend_from_slice(&chunk[..read]);
-        if body.len() > max_body_bytes {
+        if max_body_bytes > 0 && body.len() > max_body_bytes {
             return Err(super::LocalValidationError::new(
                 413,
                 format!("request body too large: content-length>{max_body_bytes}"),

@@ -85,6 +85,25 @@ impl RequestGateLock {
         }))
     }
 
+    pub(crate) fn acquire(self: &Arc<Self>) -> Result<RequestGateGuard, RequestGateAcquireError> {
+        let state = match self.state.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                log::warn!("event=lock_poisoned lock=request_gate_state action=skip_wait");
+                return Err(RequestGateAcquireError::Poisoned);
+            }
+        };
+        let Ok(mut state) = self.available.wait_while(state, |state| state.held) else {
+            log::warn!("event=lock_poisoned lock=request_gate_state action=skip_wait_while");
+            return Err(RequestGateAcquireError::Poisoned);
+        };
+        state.held = true;
+        drop(state);
+        Ok(RequestGateGuard {
+            lock: Arc::clone(self),
+        })
+    }
+
     /// 函数 `acquire_with_timeout`
     ///
     /// 作者: gaohongshun

@@ -35,14 +35,13 @@ static TOKEN_EXCHANGE_ISSUER: OnceLock<RwLock<String>> = OnceLock::new();
 pub(crate) const DEFAULT_GATEWAY_DEBUG: bool = false;
 const DEFAULT_UPSTREAM_CONNECT_TIMEOUT_SECS: u64 = 15;
 const DEFAULT_UPSTREAM_TOTAL_TIMEOUT_MS: u64 = 0;
-const DEFAULT_UPSTREAM_STREAM_TIMEOUT_MS: u64 = 600_000;
-// 中文注释：默认把单账号并发收紧到 1，避免多个长连接 Codex 会话同时压到同一账号上。
-const DEFAULT_ACCOUNT_MAX_INFLIGHT: usize = 1;
-const DEFAULT_STRICT_REQUEST_PARAM_ALLOWLIST: bool = true;
+const DEFAULT_UPSTREAM_STREAM_TIMEOUT_MS: u64 = 300_000;
+const DEFAULT_ACCOUNT_MAX_INFLIGHT: usize = 0;
+const DEFAULT_STRICT_REQUEST_PARAM_ALLOWLIST: bool = false;
 const DEFAULT_ENABLE_REQUEST_COMPRESSION: bool = true;
-const DEFAULT_REQUEST_GATE_WAIT_TIMEOUT_MS: u64 = 300;
+const DEFAULT_REQUEST_GATE_WAIT_TIMEOUT_MS: u64 = 0;
 const DEFAULT_TRACE_BODY_PREVIEW_MAX_BYTES: usize = 0;
-const DEFAULT_FRONT_PROXY_MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
+const DEFAULT_FRONT_PROXY_MAX_BODY_BYTES: usize = 0;
 const DEFAULT_FREE_ACCOUNT_MAX_MODEL: &str = "auto";
 const DEFAULT_MODEL_FORWARD_RULES: &str = "";
 const DEFAULT_CODEX_USER_AGENT_VERSION: &str = "0.101.0";
@@ -393,9 +392,14 @@ pub(crate) fn strict_request_param_allowlist_enabled() -> bool {
 ///
 /// # 返回
 /// 返回函数执行结果
-pub(crate) fn request_gate_wait_timeout() -> Duration {
+pub(crate) fn request_gate_wait_timeout() -> Option<Duration> {
     ensure_runtime_config_loaded();
-    Duration::from_millis(REQUEST_GATE_WAIT_TIMEOUT_MS.load(Ordering::Relaxed))
+    let timeout_ms = REQUEST_GATE_WAIT_TIMEOUT_MS.load(Ordering::Relaxed);
+    if timeout_ms == 0 {
+        None
+    } else {
+        Some(Duration::from_millis(timeout_ms))
+    }
 }
 
 /// 函数 `trace_body_preview_max_bytes`

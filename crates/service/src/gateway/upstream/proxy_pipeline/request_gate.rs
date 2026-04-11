@@ -1,5 +1,5 @@
 use super::super::support::deadline;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// 函数 `acquire_request_gate`
 ///
@@ -36,12 +36,18 @@ pub(in super::super) fn acquire_request_gate(
             Some(guard)
         }
         Ok(None) => {
-            let effective_wait = deadline::cap_wait(request_gate_wait_timeout, request_deadline)
-                .unwrap_or(Duration::from_millis(0));
-            let wait_result = if effective_wait.is_zero() {
-                Ok(None)
-            } else {
-                request_gate_lock.acquire_with_timeout(effective_wait)
+            let wait_result = match request_gate_wait_timeout {
+                Some(wait_timeout) => match deadline::cap_wait(wait_timeout, request_deadline) {
+                    Some(effective_wait) if !effective_wait.is_zero() => {
+                        request_gate_lock.acquire_with_timeout(effective_wait)
+                    }
+                    _ => Ok(None),
+                },
+                None => match deadline::remaining(request_deadline) {
+                    Some(remaining) if remaining.is_zero() => Ok(None),
+                    Some(remaining) => request_gate_lock.acquire_with_timeout(remaining),
+                    None => request_gate_lock.acquire().map(Some),
+                },
             };
             if let Ok(Some(guard)) = wait_result {
                 super::super::super::trace_log::log_request_gate_acquired(

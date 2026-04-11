@@ -1,12 +1,14 @@
 use super::{
     append_output_text, classify_upstream_stream_read_error, collect_output_text_from_event_fields,
-    json, mark_collector_terminal_success, sse_keepalive_interval,
-    stream_reader_disconnected_message, upstream_hint_or_stream_incomplete_message, Arc, Cursor,
-    Map, Mutex, PassthroughSseCollector, Read, ToolNameRestoreMap, UpstreamSseFramePump,
+    json, mark_collector_terminal_success, stream_idle_timed_out, stream_idle_timeout_message,
+    stream_reader_disconnected_message, stream_wait_timeout,
+    upstream_hint_or_stream_incomplete_message, Arc, Cursor, Map, Mutex,
+    PassthroughSseCollector, Read, ToolNameRestoreMap, UpstreamSseFramePump,
     UpstreamSseFramePumpItem, Value,
 };
 use crate::gateway::{build_gemini_error_body, GeminiStreamOutputMode};
 use std::collections::BTreeMap;
+use std::time::Instant;
 
 pub(crate) struct GeminiSseReader {
     upstream: UpstreamSseFramePump,
@@ -16,6 +18,7 @@ pub(crate) struct GeminiSseReader {
     tool_name_restore_map: Option<ToolNameRestoreMap>,
     output_mode: GeminiStreamOutputMode,
     wrap_response_envelope: bool,
+    last_upstream_activity: Instant,
 }
 
 #[derive(Default)]
@@ -57,13 +60,18 @@ impl GeminiSseReader {
             tool_name_restore_map,
             output_mode,
             wrap_response_envelope,
+            last_upstream_activity: Instant::now(),
         }
     }
 
     fn next_chunk(&mut self) -> std::io::Result<Vec<u8>> {
         loop {
-            match self.upstream.recv_timeout(sse_keepalive_interval()) {
+            match self
+                .upstream
+                .recv_timeout(stream_wait_timeout(self.last_upstream_activity))
+            {
                 Ok(UpstreamSseFramePumpItem::Frame(frame)) => {
+                    self.last_upstream_activity = Instant::now();
                     let mapped = self.process_sse_frame(&frame);
                     if !mapped.is_empty() {
                         return Ok(mapped);
@@ -71,14 +79,22 @@ impl GeminiSseReader {
                     continue;
                 }
                 Ok(UpstreamSseFramePumpItem::Eof) => {
+                    self.last_upstream_activity = Instant::now();
                     self.mark_stream_incomplete_if_needed();
                     return Ok(self.finish_stream());
                 }
                 Ok(UpstreamSseFramePumpItem::Error(err)) => {
+                    self.last_upstream_activity = Instant::now();
                     self.mark_stream_read_error(classify_upstream_stream_read_error(&err));
                     return Ok(self.finish_stream());
                 }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if stream_idle_timed_out(self.last_upstream_activity) {
+                        self.mark_stream_read_error(stream_idle_timeout_message());
+                        return Ok(self.finish_stream());
+                    }
+                    continue;
+                }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     self.mark_stream_read_error(stream_reader_disconnected_message());
                     return Ok(self.finish_stream());

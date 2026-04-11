@@ -20,9 +20,9 @@ const DEFAULT_ROUTE_HEALTH_P2C_ORDERED_WINDOW: usize = 3;
 // 中文注释：balanced 默认应严格轮询所有可用账号；仅在显式调大窗口时才启用健康度换头。
 const DEFAULT_ROUTE_HEALTH_P2C_BALANCED_WINDOW: usize = 1;
 // 中文注释：Route 状态（按 key_id + model 维度）用于 round-robin 起点与 P2C nonce。
-// 为避免 key/model 高基数导致 HashMap 无限增长，默认增加 TTL + 容量上限；不会影响“短时间内连续请求”的既有语义。
-const DEFAULT_ROUTE_STATE_TTL_SECS: u64 = 6 * 60 * 60;
-const DEFAULT_ROUTE_STATE_CAPACITY: usize = 4096;
+// 为贴近 Codex 默认行为，TTL 与容量默认关闭；只有显式配置时才启用回收限制。
+const DEFAULT_ROUTE_STATE_TTL_SECS: u64 = 0;
+const DEFAULT_ROUTE_STATE_CAPACITY: usize = 0;
 const ROUTE_STATE_MAINTENANCE_EVERY: u64 = 64;
 
 static ROUTE_MODE: AtomicU8 = AtomicU8::new(ROUTE_MODE_ORDERED);

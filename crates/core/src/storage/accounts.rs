@@ -913,8 +913,7 @@ fn account_usage_filter_clause(
     match mode {
         AccountUsageQueryMode::ActiveAvailable => format!(
             "LOWER(TRIM(COALESCE({account_alias}.status, ''))) NOT IN ('inactive', 'disabled', 'unavailable', 'banned')
-             AND {usage_alias}.account_id IS NOT NULL
-             AND ({})",
+             AND ({usage_alias}.account_id IS NULL OR ({}))",
             available_usage_clause(usage_alias)
         ),
         AccountUsageQueryMode::LowQuota => format!(
@@ -1139,12 +1138,19 @@ mod tests {
         let candidates = storage
             .list_gateway_candidates()
             .expect("list gateway candidates");
-        let ids = candidates
+        let mut ids = candidates
             .into_iter()
             .map(|(account, _)| account.id)
             .collect::<Vec<_>>();
+        ids.sort();
 
-        assert_eq!(ids, vec!["acc-active-ok".to_string()]);
+        assert_eq!(
+            ids,
+            vec![
+                "acc-active-missing".to_string(),
+                "acc-active-ok".to_string()
+            ]
+        );
     }
 
     #[test]

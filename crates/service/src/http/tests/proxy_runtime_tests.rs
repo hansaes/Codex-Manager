@@ -136,6 +136,30 @@ fn request_without_content_length_over_limit_returns_413() {
     assert!(text.contains("request body too large: content-length>8"));
 }
 
+#[test]
+fn zero_front_proxy_limit_disables_body_rejection() {
+    let _guard = crate::test_env_guard();
+    let _guard = EnvGuard::set("CODEXMANAGER_FRONT_PROXY_MAX_BODY_BYTES", "0");
+    crate::gateway::reload_runtime_config_from_env();
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    let state = ProxyState {
+        backend_base_url: "http://127.0.0.1:1".to_string(),
+        client: Client::new(),
+    };
+    let request = HttpRequest::builder()
+        .method("POST")
+        .uri("/rpc")
+        .body(Body::from(vec![b'x'; 64]))
+        .expect("request");
+
+    let response = runtime.block_on(proxy_handler(State(state), request));
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+}
+
 /// 函数 `backend_send_failure_returns_502`
 ///
 /// 作者: gaohongshun
@@ -436,6 +460,8 @@ async fn unsupported_responses_websocket_returns_426() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn official_responses_websocket_proxies_frames_and_headers() {
     let _guard = crate::test_env_guard();
+    let _org_guard = EnvGuard::set("OPENAI_ORGANIZATION", "org_ws_test");
+    let _project_guard = EnvGuard::set("OPENAI_PROJECT", "proj_ws_test");
     let db_path = new_test_db_path("codexmanager-proxy-runtime-ws-supported");
     let _db_guard = EnvGuard::set("CODEXMANAGER_DB_PATH", db_path.to_string_lossy().as_ref());
     let storage = init_test_storage(&db_path);
@@ -576,6 +602,7 @@ async fn official_responses_websocket_proxies_frames_and_headers() {
         .await
         .expect("capture timeout")
         .expect("capture result");
+    let expected_version = crate::gateway::current_codex_user_agent_version();
     assert_eq!(capture.path, "/chatgpt.com/backend-api/codex/responses");
     assert_eq!(
         capture.headers.get("authorization").map(String::as_str),
@@ -593,8 +620,30 @@ async fn official_responses_websocket_proxies_frames_and_headers() {
         Some("responses_websockets=2026-02-06")
     );
     assert_eq!(
+        capture.headers.get("version").map(String::as_str),
+        Some(expected_version.as_str())
+    );
+    assert_eq!(
+        capture
+            .headers
+            .get("openai-organization")
+            .map(String::as_str),
+        Some("org_ws_test")
+    );
+    assert_eq!(
+        capture.headers.get("openai-project").map(String::as_str),
+        Some("proj_ws_test")
+    );
+    assert_eq!(
         capture.headers.get("session_id").map(String::as_str),
         Some("session_ws_1")
+    );
+    assert_eq!(
+        capture
+            .headers
+            .get("x-codex-window-id")
+            .map(String::as_str),
+        Some("session_ws_1:0")
     );
     assert_eq!(
         capture

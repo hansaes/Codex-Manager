@@ -27,7 +27,7 @@ fn effective_request_timeout_non_stream_uses_total_only() {
     );
 }
 
-/// 函数 `effective_request_timeout_stream_uses_max_total_and_stream`
+/// 函数 `effective_request_timeout_stream_keeps_total_deadline_only`
 ///
 /// 作者: gaohongshun
 ///
@@ -39,14 +39,14 @@ fn effective_request_timeout_non_stream_uses_total_only() {
 /// # 返回
 /// 无
 #[test]
-fn effective_request_timeout_stream_uses_max_total_and_stream() {
+fn effective_request_timeout_stream_keeps_total_deadline_only() {
     assert_eq!(
         effective_request_timeout(
             Some(Duration::from_secs(120)),
             Some(Duration::from_secs(300)),
             true
         ),
-        Some(Duration::from_secs(300))
+        Some(Duration::from_secs(120))
     );
     assert_eq!(
         effective_request_timeout(
@@ -58,7 +58,7 @@ fn effective_request_timeout_stream_uses_max_total_and_stream() {
     );
 }
 
-/// 函数 `effective_request_timeout_stream_falls_back_when_one_side_missing`
+/// 函数 `effective_request_timeout_stream_ignores_stream_only_timeout`
 ///
 /// 作者: gaohongshun
 ///
@@ -70,14 +70,11 @@ fn effective_request_timeout_stream_uses_max_total_and_stream() {
 /// # 返回
 /// 无
 #[test]
-fn effective_request_timeout_stream_falls_back_when_one_side_missing() {
+fn effective_request_timeout_stream_ignores_stream_only_timeout() {
     assert_eq!(
         effective_request_timeout(Some(Duration::from_secs(120)), None, true),
         Some(Duration::from_secs(120))
     );
-    assert_eq!(
-        effective_request_timeout(None, Some(Duration::from_secs(300)), true),
-        Some(Duration::from_secs(300))
-    );
+    assert_eq!(effective_request_timeout(None, Some(Duration::from_secs(300)), true), None);
     assert_eq!(effective_request_timeout(None, None, true), None);
 }

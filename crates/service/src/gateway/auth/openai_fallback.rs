@@ -201,7 +201,7 @@ pub(super) fn try_openai_fallback(
     request_path: &str,
     incoming_headers: &super::IncomingHeaderSnapshot,
     body: &Bytes,
-    is_stream: bool,
+    _is_stream: bool,
     upstream_base: &str,
     account: &Account,
     token: &mut Token,
@@ -258,8 +258,6 @@ pub(super) fn try_openai_fallback(
             incoming_subagent: incoming_headers.subagent(),
             fallback_session_id: request_affinity.fallback_session_id,
             strip_session_affinity,
-            is_stream,
-            include_timing_metrics: true,
             has_body: !body.is_empty(),
         };
         super::upstream::header_profile::build_codex_compact_upstream_headers(header_input)
@@ -276,8 +274,6 @@ pub(super) fn try_openai_fallback(
             incoming_turn_state: request_affinity.incoming_turn_state,
             include_turn_state: !is_openai_api_target,
             strip_session_affinity,
-            is_stream,
-            include_timing_metrics: true,
             has_body: !body.is_empty(),
         };
         super::upstream::header_profile::build_codex_upstream_headers(header_input)

@@ -15,18 +15,10 @@ use std::time::{Duration, Instant};
 /// 返回函数执行结果
 fn effective_request_timeout(
     total_timeout: Option<Duration>,
-    stream_timeout: Option<Duration>,
-    is_stream: bool,
+    _stream_timeout: Option<Duration>,
+    _is_stream: bool,
 ) -> Option<Duration> {
-    if !is_stream {
-        return total_timeout;
-    }
-    match (total_timeout, stream_timeout) {
-        (Some(total_timeout), Some(stream_timeout)) => Some(total_timeout.max(stream_timeout)),
-        (Some(total_timeout), None) => Some(total_timeout),
-        (None, Some(stream_timeout)) => Some(stream_timeout),
-        (None, None) => None,
-    }
+    total_timeout
 }
 
 /// 函数 `request_deadline`
@@ -109,18 +101,8 @@ pub(in super::super) fn cap_wait(wait: Duration, deadline: Option<Instant>) -> O
 /// 返回函数执行结果
 pub(in super::super) fn send_timeout(
     deadline: Option<Instant>,
-    is_stream: bool,
+    _is_stream: bool,
 ) -> Option<Duration> {
-    if is_stream {
-        let configured = super::super::super::upstream_stream_timeout();
-        return match (configured, remaining(deadline)) {
-            (Some(configured), Some(remaining)) => Some(configured.min(remaining)),
-            (Some(configured), None) => Some(configured),
-            (None, Some(remaining)) => Some(remaining),
-            (None, None) => None,
-        }
-        .map(|timeout| timeout.max(Duration::from_millis(1)));
-    }
     remaining(deadline).map(|remaining| remaining.max(Duration::from_millis(1)))
 }
 

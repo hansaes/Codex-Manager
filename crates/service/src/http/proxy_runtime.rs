@@ -95,7 +95,7 @@ async fn proxy_handler(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.trim().parse::<u64>().ok())
     {
-        if content_length > max_body_bytes as u64 {
+        if max_body_bytes > 0 && content_length > max_body_bytes as u64 {
             let message = format!("request body too large: content-length={content_length}");
             log_proxy_error(
                 StatusCode::PAYLOAD_TOO_LARGE,
@@ -107,10 +107,19 @@ async fn proxy_handler(
     }
 
     let outbound_headers = filter_request_headers(&parts.headers);
-    let body_bytes = match to_bytes(body, max_body_bytes).await {
+    let read_limit = if max_body_bytes == 0 {
+        usize::MAX
+    } else {
+        max_body_bytes
+    };
+    let body_bytes = match to_bytes(body, read_limit).await {
         Ok(bytes) => bytes,
         Err(_) => {
-            let message = format!("request body too large: content-length>{max_body_bytes}");
+            let message = if max_body_bytes == 0 {
+                "request body too large".to_string()
+            } else {
+                format!("request body too large: content-length>{max_body_bytes}")
+            };
             log_proxy_error(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 target_url.as_str(),

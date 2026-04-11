@@ -77,7 +77,7 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
         "前置代理最大请求体（字节）",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "16777216",
+        "0",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_GATEWAY_KEEPALIVE_FAILURE_BACKOFF_MAX_SECS",
@@ -105,7 +105,7 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
         "HTTP 桥输出截断上限（字节）",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "131072",
+        "0",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_HTTP_QUEUE_FACTOR",
@@ -182,7 +182,7 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
         "Prompt 缓存容量",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "4096",
+        "0",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_PROMPT_CACHE_CLEANUP_INTERVAL_SECS",
@@ -196,7 +196,7 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
         "Prompt 缓存 TTL（秒）",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "3600",
+        "0",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_PROXY_LIST",
@@ -217,7 +217,7 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
         "请求闸门等待超时（毫秒）",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "300",
+        "0",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_ROUTE_HEALTH_P2C_BALANCED_WINDOW",
@@ -245,21 +245,21 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
         "路由状态容量",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "4096",
+        "0",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_ROUTE_STATE_TTL_SECS",
         "路由状态 TTL（秒）",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "21600",
+        "0",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_STRICT_REQUEST_PARAM_ALLOWLIST",
         "严格请求参数白名单",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "1",
+        "0",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS",
@@ -280,7 +280,7 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
         "Trace 队列容量",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "2048",
+        "0",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_UPDATE_PRERELEASE",
@@ -304,13 +304,6 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
         "https://chatgpt.com/backend-api/codex",
     ),
     EnvOverrideCatalogItem::new(
-        "CODEXMANAGER_UPSTREAM_CLIENT_TIMEOUT_SECS",
-        "上游客户端超时（秒）",
-        ENV_OVERRIDE_SCOPE_SERVICE,
-        ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "0",
-    ),
-    EnvOverrideCatalogItem::new(
         "CODEXMANAGER_UPSTREAM_CONNECT_TIMEOUT_SECS",
         "上游连接超时（秒）",
         ENV_OVERRIDE_SCOPE_SERVICE,
@@ -322,7 +315,7 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
         "上游流式空闲超时（毫秒）",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "600000",
+        "300000",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_UPSTREAM_TOTAL_TIMEOUT_MS",
@@ -364,7 +357,7 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
         "每账号保留用量快照数",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "200",
+        "0",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_WEB_ADDR",

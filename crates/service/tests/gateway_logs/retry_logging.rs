@@ -130,8 +130,8 @@ fn gateway_stateless_retry_strips_encrypted_content_on_invalid_encrypted_content
     let first_body: serde_json::Value =
         serde_json::from_slice(&first.body).expect("parse first request body");
     assert!(
-        first_body.get("encrypted_content").is_none(),
-        "OpenAI v1 strict allowlist must drop non-official encrypted_content field"
+        first_body.get("encrypted_content").is_some(),
+        "default passthrough should preserve encrypted_content before stateless retry"
     );
 
     assert!(!second.headers.contains_key("x-codex-turn-state"));
