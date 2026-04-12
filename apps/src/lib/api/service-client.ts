@@ -72,6 +72,20 @@ export const serviceClient = {
     );
     return normalizeStartupSnapshot(result);
   },
+  syncCodexModelsCache: (params: {
+    userAgent: string;
+    models: Array<Record<string, unknown>>;
+    codexHome?: string | null;
+    etag?: string | null;
+    fetchedAt?: string;
+  }) =>
+    invoke<unknown>("service_sync_codex_models_cache", {
+      userAgent: params.userAgent,
+      models: params.models,
+      codexHome: params.codexHome || null,
+      etag: params.etag || null,
+      fetchedAt: params.fetchedAt || new Date().toISOString(),
+    }),
 
   getGatewayTransport: () => invoke<unknown>("service_gateway_transport_get", withAddr()),
   setGatewayTransport: (settings: Record<string, unknown>) =>

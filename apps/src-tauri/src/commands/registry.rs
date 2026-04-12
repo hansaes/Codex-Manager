@@ -6,6 +6,7 @@ macro_rules! invoke_handler {
             crate::commands::service::service_stop,
             crate::commands::service::service_initialize,
             crate::commands::service::service_rpc_token,
+            crate::commands::service::service_sync_codex_models_cache,
             crate::commands::startup::service_startup_snapshot,
             // account
             crate::commands::account::remote::service_account_list,

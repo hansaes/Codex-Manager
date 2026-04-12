@@ -1,14 +1,18 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { accountClient, ManagedModelPayload } from "@/lib/api/account-client";
+import { serviceClient } from "@/lib/api/service-client";
+import { serializeManagedModelCatalogForCodexCache } from "@/lib/api/model-catalog";
 import { getAppErrorMessage } from "@/lib/api/transport";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
 import { useAppStore } from "@/lib/store/useAppStore";
+import { ManagedModelCatalog } from "@/types";
 
 const MANAGED_MODEL_QUERY_KEY = ["managed-model-catalog"];
 
@@ -16,10 +20,12 @@ export function useManagedModels() {
   const queryClient = useQueryClient();
   const { t } = useI18n();
   const serviceStatus = useAppStore((state) => state.serviceStatus);
-  const { canAccessManagementRpc } = useRuntimeCapabilities();
+  const { canAccessManagementRpc, isDesktopRuntime } = useRuntimeCapabilities();
   const isServiceReady = canAccessManagementRpc && serviceStatus.connected;
   const isPageActive = useDesktopPageActive("/models/");
   const isQueryEnabled = useDeferredDesktopActivation(isServiceReady && isPageActive);
+  const codexUserAgentRef = useRef("");
+  const syncedCatalogFingerprintRef = useRef("");
 
   const ensureServiceReady = (actionLabel: string): boolean => {
     if (isServiceReady) {
@@ -27,6 +33,66 @@ export function useManagedModels() {
     }
     toast.info(`${t("服务未连接，暂时无法")} ${t(actionLabel)}`);
     return false;
+  };
+
+  const resolveCodexUserAgent = async (): Promise<string> => {
+    const cachedUserAgent = codexUserAgentRef.current.trim();
+    if (cachedUserAgent.includes("codex_cli_rs/")) {
+      return cachedUserAgent;
+    }
+
+    const initializeResult = await serviceClient.initialize(serviceStatus.addr);
+    const userAgent = String(initializeResult.userAgent || "").trim();
+    if (!userAgent.includes("codex_cli_rs/")) {
+      throw new Error("当前服务未返回可用的 Codex CLI 标识");
+    }
+
+    codexUserAgentRef.current = userAgent;
+    return userAgent;
+  };
+
+  const syncCatalogToCodexCache = async (
+    catalog: ManagedModelCatalog | null | undefined,
+  ): Promise<string | null> => {
+    if (!catalog) {
+      return "模型目录为空";
+    }
+
+    if (!isDesktopRuntime) {
+      return null;
+    }
+
+    if (!isServiceReady) {
+      return "服务未连接";
+    }
+
+    const models = serializeManagedModelCatalogForCodexCache(catalog.items || []);
+    if (models.length === 0) {
+      return "模型目录为空";
+    }
+
+    const fingerprint = JSON.stringify(models);
+    if (syncedCatalogFingerprintRef.current === fingerprint) {
+      return null;
+    }
+
+    try {
+      const userAgent = await resolveCodexUserAgent();
+      await serviceClient.syncCodexModelsCache({
+        userAgent,
+        models,
+      });
+      syncedCatalogFingerprintRef.current = fingerprint;
+      return null;
+    } catch (error) {
+      return getAppErrorMessage(error);
+    }
+  };
+
+  const reloadManagedCatalog = async (): Promise<ManagedModelCatalog> => {
+    const catalog = await accountClient.listManagedModels(false);
+    queryClient.setQueryData(MANAGED_MODEL_QUERY_KEY, catalog);
+    return catalog;
   };
 
   const query = useQuery({
@@ -48,8 +114,13 @@ export function useManagedModels() {
     mutationFn: (refreshRemote: boolean) => accountClient.listManagedModels(refreshRemote),
     onSuccess: async (catalog) => {
       queryClient.setQueryData(MANAGED_MODEL_QUERY_KEY, catalog);
+      const cacheSyncError = await syncCatalogToCodexCache(catalog);
       await invalidateAll();
-      toast.success(t("模型目录已刷新"));
+      if (cacheSyncError) {
+        toast.error(`${t("模型目录已刷新，但同步 Codex 模型缓存失败")}: ${cacheSyncError}`);
+      } else {
+        toast.success(t("模型目录已刷新"));
+      }
     },
     onError: (error: unknown) => {
       toast.error(`${t("刷新模型失败")}: ${getAppErrorMessage(error)}`);
@@ -59,8 +130,14 @@ export function useManagedModels() {
   const saveMutation = useMutation({
     mutationFn: (params: ManagedModelPayload) => accountClient.saveManagedModel(params),
     onSuccess: async () => {
+      const catalog = await reloadManagedCatalog();
+      const cacheSyncError = await syncCatalogToCodexCache(catalog);
       await invalidateAll();
-      toast.success(t("模型已保存"));
+      if (cacheSyncError) {
+        toast.error(`${t("模型已保存，但同步 Codex 模型缓存失败")}: ${cacheSyncError}`);
+      } else {
+        toast.success(t("模型已保存"));
+      }
     },
     onError: (error: unknown) => {
       toast.error(`${t("保存模型失败")}: ${getAppErrorMessage(error)}`);
@@ -70,13 +147,41 @@ export function useManagedModels() {
   const deleteMutation = useMutation({
     mutationFn: (slug: string) => accountClient.deleteManagedModel(slug),
     onSuccess: async () => {
+      const catalog = await reloadManagedCatalog();
+      const cacheSyncError = await syncCatalogToCodexCache(catalog);
       await invalidateAll();
-      toast.success(t("模型已删除"));
+      if (cacheSyncError) {
+        toast.error(`${t("模型已删除，但同步 Codex 模型缓存失败")}: ${cacheSyncError}`);
+      } else {
+        toast.success(t("模型已删除"));
+      }
     },
     onError: (error: unknown) => {
       toast.error(`${t("删除模型失败")}: ${getAppErrorMessage(error)}`);
     },
   });
+
+  useEffect(() => {
+    codexUserAgentRef.current = "";
+    syncedCatalogFingerprintRef.current = "";
+  }, [serviceStatus.addr]);
+
+  useEffect(() => {
+    if (!isDesktopRuntime || !isServiceReady || !query.data || query.dataUpdatedAt === 0) {
+      return;
+    }
+
+    void syncCatalogToCodexCache(query.data).then((errorMessage) => {
+      if (errorMessage) {
+        console.warn("sync codex models cache failed", errorMessage);
+      }
+    });
+  }, [
+    isDesktopRuntime,
+    isServiceReady,
+    query.data,
+    query.dataUpdatedAt,
+  ]);
 
   return {
     models: query.data?.items || [],

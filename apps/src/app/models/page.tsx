@@ -2,15 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Boxes,
   MoreVertical,
   PencilLine,
   Plus,
   RefreshCw,
   Search,
-  ShieldCheck,
   Trash2,
-  WandSparkles,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,28 +45,18 @@ import { formatTsFromSeconds } from "@/lib/utils/usage";
 
 type ModelFilter = "all" | "api" | "custom" | "edited";
 
-function StatCard({
-  title,
+function MiniStatBadge({
+  label,
   value,
-  caption,
-  icon: Icon,
 }: {
-  title: string;
+  label: string;
   value: string;
-  caption: string;
-  icon: typeof Boxes;
 }) {
   return (
-    <Card className="glass-card overflow-hidden border-none shadow-md backdrop-blur-md">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <Icon className="h-4 w-4 text-primary" />
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
-        <p className="mt-1 text-xs text-muted-foreground">{caption}</p>
-      </CardContent>
-    </Card>
+    <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/45 px-3 py-1.5 text-xs text-muted-foreground">
+      <span>{label}</span>
+      <span className="font-semibold text-foreground">{value}</span>
+    </div>
   );
 }
 
@@ -145,94 +132,115 @@ export default function ModelsPage() {
     });
   }, [filter, models, search]);
 
+  const currentFilterLabel = useMemo(() => {
+    switch (filter) {
+      case "api":
+        return t("仅 API 可用");
+      case "custom":
+        return t("仅自定义");
+      case "edited":
+        return t("仅本地覆写");
+      default:
+        return t("全部模型");
+    }
+  }, [filter, t]);
+
   return (
     <>
-      <div className="space-y-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div className="space-y-3 animate-in fade-in duration-500">
+        <div className="space-y-2">
           <div className="space-y-2">
             <Badge className="w-fit rounded-full bg-primary/10 px-3 py-1 text-primary">
               {t("模型目录")}
             </Badge>
-            <h1 className="text-3xl font-semibold tracking-tight">{t("模型管理")}</h1>
-            <p className="max-w-3xl text-sm text-muted-foreground">
-              {t("这里维护本地结构化模型目录。默认绑定模型会优先展示 supportedInApi=true 的模型，而 Codex CLI 仍会拿到完整目录。")}
-            </p>
-            <p className="max-w-3xl text-xs text-muted-foreground">
-              {t("已运行中的 Codex 会话会缓存启动时的模型目录；保存后如需让 `/model` 看到最新模型与说明，请重启该会话。")}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => void refreshRemote()} disabled={isRefreshing}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-              {t("远端并入")}
-            </Button>
-            <Button
-              onClick={() => {
-                setEditingSlug(null);
-                setModalOpen(true);
-              }}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              {t("新增自定义模型")}
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-4">
-          <StatCard
-            title={t("模型总数")}
-            value={`${stats.total}`}
-            caption={t("当前结构化目录中的模型条目")}
-            icon={Boxes}
-          />
-          <StatCard
-            title={t("API 可用")}
-            value={`${stats.apiEnabled}`}
-            caption={t("默认绑定模型优先展示这一组")}
-            icon={ShieldCheck}
-          />
-          <StatCard
-            title={t("自定义模型")}
-            value={`${stats.custom}`}
-            caption={t("用户手工新增的模型")}
-            icon={WandSparkles}
-          />
-          <StatCard
-            title={t("本地覆写")}
-            value={`${stats.edited}`}
-            caption={t("远端刷新时优先保留本地版本")}
-            icon={PencilLine}
-          />
-        </div>
-
-        <Card className="glass-card border-none shadow-md backdrop-blur-md">
-          <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center">
-            <div className="flex flex-1 items-center gap-2 rounded-xl border border-border/60 bg-background/35 px-3 py-2">
-              <Search className="h-4 w-4 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder={t("搜索 slug、显示名称或描述")}
-                className="border-none bg-transparent px-0 shadow-none focus-visible:ring-0"
-              />
+            <div className="space-y-1">
+              <h1 className="text-3xl font-semibold tracking-tight">{t("模型管理")}</h1>
+              <p className="max-w-4xl text-sm leading-6 text-muted-foreground">
+                {t("这里维护本地结构化模型目录。默认绑定模型会优先展示 supportedInApi=true 的模型，而 Codex CLI 仍会拿到完整目录。")}
+              </p>
             </div>
-            <Select value={filter} onValueChange={(value) => setFilter(value as ModelFilter)}>
-              <SelectTrigger className="w-full md:w-[220px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("全部模型")}</SelectItem>
-                <SelectItem value="api">{t("仅 API 可用")}</SelectItem>
-                <SelectItem value="custom">{t("仅自定义")}</SelectItem>
-                <SelectItem value="edited">{t("仅本地覆写")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Badge variant="secondary" className="rounded-full px-3 py-1">
+                {t("完整目录会同步到 Codex CLI")}
+              </Badge>
+              <Badge variant="secondary" className="rounded-full px-3 py-1">
+                {t("默认绑定优先展示 API 可用模型")}
+              </Badge>
+              <Badge variant="secondary" className="rounded-full px-3 py-1">
+                {t("远端刷新可与本地覆写共存")}
+              </Badge>
+            </div>
+          </div>
+        </div>
 
         <Card className="glass-card border-none shadow-md backdrop-blur-md">
           <CardHeader className="pb-3">
-            <CardTitle>{t("模型目录明细")}</CardTitle>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <CardTitle>{t("模型目录明细")}</CardTitle>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("按 slug、显示名称或描述快速定位，并结合来源与覆写状态查看当前目录。")}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2 lg:justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => void refreshRemote()}
+                    disabled={isRefreshing}
+                  >
+                    <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                    {t("远端并入")}
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setEditingSlug(null);
+                      setModalOpen(true);
+                    }}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    {t("新增自定义模型")}
+                  </Button>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <MiniStatBadge label={t("模型总数")} value={`${stats.total}`} />
+                <MiniStatBadge label={t("API 可用")} value={`${stats.apiEnabled}`} />
+                <MiniStatBadge label={t("自定义模型")} value={`${stats.custom}`} />
+                <MiniStatBadge label={t("本地覆写")} value={`${stats.edited}`} />
+                <Badge variant="secondary" className="rounded-full px-3 py-1">
+                  {t("当前筛选")} {currentFilterLabel}
+                </Badge>
+                <Badge variant="secondary" className="rounded-full px-3 py-1">
+                  {t("共 {count} 条", { count: filteredModels.length })}
+                </Badge>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="flex h-10 items-center gap-2 rounded-xl border border-border/60 bg-background/35 px-3">
+                  <Search className="h-4 w-4 text-muted-foreground" />
+                  <Input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder={t("搜索 slug、显示名称或描述")}
+                    className="h-full border-none bg-transparent px-0 shadow-none focus-visible:ring-0"
+                  />
+                </div>
+                <Select value={filter} onValueChange={(value) => setFilter(value as ModelFilter)}>
+                  <SelectTrigger className="h-10 w-full rounded-xl px-3">
+                    <SelectValue>{currentFilterLabel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t("全部模型")}</SelectItem>
+                    <SelectItem value="api">{t("仅 API 可用")}</SelectItem>
+                    <SelectItem value="custom">{t("仅自定义")}</SelectItem>
+                    <SelectItem value="edited">{t("仅本地覆写")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {t("保存后会自动同步到 `~/.codex/models_cache.json`；如需让 `/model` 立即看到最新模型与说明，仍需重启正在运行中的 Codex 会话。")}
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {!isServiceReady ? (
@@ -257,6 +265,7 @@ export default function ModelsPage() {
                       <TableHead>{t("模型")}</TableHead>
                       <TableHead>{t("来源")}</TableHead>
                       <TableHead>{t("API")}</TableHead>
+                      <TableHead>{t("可见性")}</TableHead>
                       <TableHead>{t("推理等级")}</TableHead>
                       <TableHead>{t("更新时间")}</TableHead>
                       <TableHead className="w-[60px] text-right">{t("操作")}</TableHead>
@@ -280,7 +289,9 @@ export default function ModelsPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-2">
-                            <Badge variant={model.sourceKind === "custom" ? "default" : "secondary"}>
+                            <Badge
+                              variant={model.sourceKind === "custom" ? "default" : "secondary"}
+                            >
                               {model.sourceKind === "custom" ? t("自定义") : t("远端")}
                             </Badge>
                             {model.userEdited ? (
@@ -290,9 +301,20 @@ export default function ModelsPage() {
                         </TableCell>
                         <TableCell>
                           {model.supportedInApi ? (
-                            <Badge className="bg-emerald-500/10 text-emerald-600">{t("可用")}</Badge>
+                            <Badge className="bg-emerald-500/10 text-emerald-600">
+                              {t("可用")}
+                            </Badge>
                           ) : (
                             <Badge variant="outline">{t("隐藏")}</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {model.visibility === "list" ? (
+                            <Badge className="bg-primary/10 text-primary">list</Badge>
+                          ) : model.visibility === "hide" ? (
+                            <Badge variant="outline">hide</Badge>
+                          ) : (
+                            <Badge variant="secondary">{t("未设置")}</Badge>
                           )}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
@@ -305,7 +327,7 @@ export default function ModelsPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
-                            <DropdownMenuTrigger>
+                            <DropdownMenuTrigger render={<span />} nativeButton={false}>
                               <Button variant="ghost" size="icon" aria-label={t("模型操作")}>
                                 <MoreVertical className="h-4 w-4" />
                               </Button>

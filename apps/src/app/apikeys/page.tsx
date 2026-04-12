@@ -9,7 +9,6 @@ import {
   EyeOff,
   MoreVertical,
   Plus,
-  RefreshCw,
   Settings2,
   Zap,
   Trash2,
@@ -148,10 +147,8 @@ export default function ApiKeysPage() {
     isServiceReady,
     deleteApiKey,
     toggleApiKeyStatus,
-    refreshModels,
     readApiKeySecret,
     isToggling,
-    isRefreshingModels,
   } = useApiKeys();
   const isPageActive = useDesktopPageActive("/apikeys/");
   const isUsageQueryEnabled = useDeferredDesktopActivation(isServiceReady);
@@ -359,15 +356,6 @@ export default function ApiKeysPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            className="glass-card h-10 gap-2"
-            onClick={() => refreshModels(true)}
-            disabled={!isServiceReady || isRefreshingModels}
-          >
-            <RefreshCw className={isRefreshingModels ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-            {t("刷新模型")}
-          </Button>
           <Button
             className="h-10 gap-2 shadow-lg shadow-primary/20"
             onClick={openCreateModal}

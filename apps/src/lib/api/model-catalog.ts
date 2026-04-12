@@ -158,3 +158,111 @@ export function serializeManagedModelForRpc(
     available_in_plans: model.availableInPlans,
   };
 }
+
+function omitNullishEntries(source: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(source).filter(([, value]) => value !== null && value !== undefined)
+  );
+}
+
+function serializeModelForCodexCache(
+  model: ManagedModelInfo | ModelInfo
+): Record<string, unknown> {
+  const serialized = omitNullishEntries(serializeManagedModelForRpc(model));
+
+  return {
+    ...serialized,
+    display_name:
+      typeof serialized.display_name === "string" && serialized.display_name.trim()
+        ? serialized.display_name
+        : model.slug,
+    supported_reasoning_levels: Array.isArray(serialized.supported_reasoning_levels)
+      ? serialized.supported_reasoning_levels
+      : [],
+    shell_type:
+      typeof serialized.shell_type === "string" && serialized.shell_type.trim()
+        ? serialized.shell_type
+        : "shell_command",
+    visibility:
+      typeof serialized.visibility === "string" && serialized.visibility.trim()
+        ? serialized.visibility
+        : "list",
+    supported_in_api:
+      typeof serialized.supported_in_api === "boolean" ? serialized.supported_in_api : true,
+    priority:
+      typeof serialized.priority === "number" && Number.isFinite(serialized.priority)
+        ? serialized.priority
+        : 0,
+    additional_speed_tiers: Array.isArray(serialized.additional_speed_tiers)
+      ? serialized.additional_speed_tiers
+      : [],
+    base_instructions:
+      typeof serialized.base_instructions === "string" ? serialized.base_instructions : "",
+    supports_reasoning_summaries:
+      typeof serialized.supports_reasoning_summaries === "boolean"
+        ? serialized.supports_reasoning_summaries
+        : false,
+    default_reasoning_summary:
+      typeof serialized.default_reasoning_summary === "string" &&
+      serialized.default_reasoning_summary.trim()
+        ? serialized.default_reasoning_summary
+        : "auto",
+    support_verbosity:
+      typeof serialized.support_verbosity === "boolean" ? serialized.support_verbosity : false,
+    web_search_tool_type:
+      typeof serialized.web_search_tool_type === "string" &&
+      serialized.web_search_tool_type.trim()
+        ? serialized.web_search_tool_type
+        : "text",
+    truncation_policy:
+      serialized.truncation_policy && typeof serialized.truncation_policy === "object"
+        ? serialized.truncation_policy
+        : { mode: "tokens", limit: 10000 },
+    supports_parallel_tool_calls:
+      typeof serialized.supports_parallel_tool_calls === "boolean"
+        ? serialized.supports_parallel_tool_calls
+        : false,
+    effective_context_window_percent:
+      typeof serialized.effective_context_window_percent === "number" &&
+      Number.isFinite(serialized.effective_context_window_percent)
+        ? serialized.effective_context_window_percent
+        : 95,
+    experimental_supported_tools: Array.isArray(serialized.experimental_supported_tools)
+      ? serialized.experimental_supported_tools
+      : [],
+    input_modalities:
+      Array.isArray(serialized.input_modalities) && serialized.input_modalities.length > 0
+        ? serialized.input_modalities
+        : ["text", "image"],
+    supports_search_tool:
+      typeof serialized.supports_search_tool === "boolean"
+        ? serialized.supports_search_tool
+        : false,
+  };
+}
+
+function readModelSortIndex(model: ManagedModelInfo | ModelInfo): number {
+  if ("sortIndex" in model && typeof model.sortIndex === "number") {
+    return model.sortIndex;
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
+export function serializeManagedModelCatalogForCodexCache(
+  models: Array<ManagedModelInfo | ModelInfo>
+): Array<Record<string, unknown>> {
+  return [...models]
+    .sort((left, right) => {
+      if (left.priority !== right.priority) {
+        return left.priority - right.priority;
+      }
+
+      const sortIndexDelta = readModelSortIndex(left) - readModelSortIndex(right);
+      if (sortIndexDelta !== 0) {
+        return sortIndexDelta;
+      }
+
+      return left.slug.localeCompare(right.slug);
+    })
+    .map((model) => serializeModelForCodexCache(model));
+}
