@@ -95,7 +95,10 @@ import { Account } from "@/types";
 type StatusFilter = "all" | "available" | "low_quota" | "banned";
 type AccountExportMode = "single" | "multiple";
 const ACCOUNT_SORT_STEP = 5;
-type TranslateFn = (key: string, values?: Record<string, string | number>) => string;
+type TranslateFn = (
+  key: string,
+  values?: Record<string, string | number>,
+) => string;
 
 /**
  * 函数 `formatAccountPlanValueLabel`
@@ -152,9 +155,11 @@ function formatAccountPlanValueLabel(value: string, t: TranslateFn) {
  * 返回函数执行结果
  */
 function normalizeAccountPlanKey(account: Account) {
-  return String(account.planType || "")
-    .trim()
-    .toLowerCase() || "unknown";
+  return (
+    String(account.planType || "")
+      .trim()
+      .toLowerCase() || "unknown"
+  );
 }
 
 /**
@@ -273,7 +278,11 @@ function QuotaProgress({
             <Icon className={cn("h-3 w-3", palette.icon)} />
             <span>{label}</span>
           </div>
-          {caption ? <div className="truncate text-[9px] text-muted-foreground/80">{caption}</div> : null}
+          {caption ? (
+            <div className="truncate text-[9px] text-muted-foreground/80">
+              {caption}
+            </div>
+          ) : null}
         </div>
         <span className="font-medium">
           {remainPercent == null ? emptyText : `${value}%`}
@@ -305,7 +314,9 @@ function QuotaOverviewCell({ items }: { items: QuotaSummaryItem[] }) {
                 <div className="flex items-center justify-between text-[10px]">
                   <span className="text-muted-foreground">{item.label}</span>
                   <span className="font-medium text-foreground/80">
-                    {item.remainPercent == null ? item.emptyText ?? "--" : `${item.remainPercent}%`}
+                    {item.remainPercent == null
+                      ? (item.emptyText ?? "--")
+                      : `${item.remainPercent}%`}
                   </span>
                 </div>
                 <Progress
@@ -380,7 +391,10 @@ function QuotaOverviewCell({ items }: { items: QuotaSummaryItem[] }) {
  * # 返回
  * 返回函数执行结果
  */
-function getAccountStatusAction(account: Account, t: TranslateFn): {
+function getAccountStatusAction(
+  account: Account,
+  t: TranslateFn,
+): {
   action: "enable" | "disable" | null;
   label: string;
   icon: LucideIcon;
@@ -413,7 +427,10 @@ function getAccountStatusAction(account: Account, t: TranslateFn): {
  * # 返回
  * 返回函数执行结果
  */
-function formatAccountPlanLabel(account: Account, t: TranslateFn): string | null {
+function formatAccountPlanLabel(
+  account: Account,
+  t: TranslateFn,
+): string | null {
   const normalized = normalizeAccountPlanKey(account);
   return normalized === "unknown"
     ? null
@@ -622,7 +639,9 @@ function AccountInfoCell({
       <TooltipTrigger render={<div />} className="block cursor-help text-left">
         <div className="flex flex-col overflow-hidden">
           <div className="flex items-center gap-2 overflow-hidden">
-            <span className="truncate text-sm font-semibold">{account.name}</span>
+            <span className="truncate text-sm font-semibold">
+              {account.name}
+            </span>
             {accountPlanLabel ? (
               <Badge
                 variant="secondary"
@@ -647,7 +666,8 @@ function AccountInfoCell({
             {account.id.slice(0, 16)}...
           </span>
           <span className="mt-1 text-[10px] text-muted-foreground">
-            {t("最近刷新")}: {formatTsFromSeconds(account.lastRefreshAt, t("从未刷新"))}
+            {t("最近刷新")}:{" "}
+            {formatTsFromSeconds(account.lastRefreshAt, t("从未刷新"))}
           </span>
         </div>
       </TooltipTrigger>
@@ -655,11 +675,15 @@ function AccountInfoCell({
         <div className="flex min-w-[260px] flex-col gap-2">
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="space-y-0.5">
-              <div className="text-[10px] text-background/70">{t("账号类型")}</div>
+              <div className="text-[10px] text-background/70">
+                {t("账号类型")}
+              </div>
               <div className="font-medium">{accountPlanLabel || t("未知")}</div>
             </div>
             <div className="space-y-0.5">
-              <div className="text-[10px] text-background/70">{t("当前状态")}</div>
+              <div className="text-[10px] text-background/70">
+                {t("当前状态")}
+              </div>
               <div className="font-medium">
                 {t(account.availabilityText || "未知")}
               </div>
@@ -688,7 +712,8 @@ function AccountInfoCell({
 export default function AccountsPage() {
   const router = useRouter();
   const { t } = useI18n();
-  const { isDesktopRuntime, canUseBrowserDownloadExport } = useRuntimeCapabilities();
+  const { isDesktopRuntime, canUseBrowserDownloadExport } =
+    useRuntimeCapabilities();
   const {
     accounts,
     planTypes,
@@ -749,12 +774,16 @@ export default function AccountsPage() {
     | { kind: "selected"; ids: string[]; count: number }
     | null
   >(null);
-  const importFileActionLabel = isDesktopRuntime ? t("按文件导入") : t("选择文件导入");
+  const importFileActionLabel = isDesktopRuntime
+    ? t("按文件导入")
+    : t("选择文件导入");
   const importDirectoryActionLabel = isDesktopRuntime
     ? t("按文件夹导入")
     : t("选择目录导入");
   const exportActionLabel =
-    !isDesktopRuntime && canUseBrowserDownloadExport ? t("导出到浏览器") : t("导出账号");
+    !isDesktopRuntime && canUseBrowserDownloadExport
+      ? t("导出到浏览器")
+      : t("导出账号");
   const exportActionShortcut = isExporting
     ? "..."
     : !isDesktopRuntime && canUseBrowserDownloadExport
@@ -836,7 +865,8 @@ export default function AccountsPage() {
     return filteredAccounts.slice(offset, offset + pageSizeNumber);
   }, [filteredAccounts, pageSizeNumber, safePage]);
   const filteredAccountIndexMap = useMemo(
-    () => new Map(filteredAccounts.map((account, index) => [account.id, index])),
+    () =>
+      new Map(filteredAccounts.map((account, index) => [account.id, index])),
     [filteredAccounts],
   );
 
@@ -847,7 +877,9 @@ export default function AccountsPage() {
   const currentEditingAccount = useMemo(
     () =>
       accountEditorState
-        ? accounts.find((account) => account.id === accountEditorState.accountId) ?? null
+        ? (accounts.find(
+            (account) => account.id === accountEditorState.accountId,
+          ) ?? null)
         : null,
     [accountEditorState, accounts],
   );
@@ -1188,7 +1220,11 @@ export default function AccountsPage() {
       return;
     }
 
-    reorderedAccounts.splice(direction === "up" ? anchorIndex : anchorIndex + 1, 0, account);
+    reorderedAccounts.splice(
+      direction === "up" ? anchorIndex : anchorIndex + 1,
+      0,
+      account,
+    );
     const updates = buildAccountOrderUpdates(reorderedAccounts);
     if (!updates.length) {
       toast.info(t("账号顺序未变化"));
@@ -1331,7 +1367,9 @@ export default function AccountsPage() {
       {!isServiceReady ? (
         <Card className="glass-card border-none shadow-sm">
           <CardContent className="pt-6 text-sm text-muted-foreground">
-            {t("服务未连接，账号列表与相关操作暂不可用；连接恢复后会自动继续加载。")}
+            {t(
+              "服务未连接，账号列表与相关操作暂不可用；连接恢复后会自动继续加载。",
+            )}
           </CardContent>
         </Card>
       ) : null}
@@ -1359,7 +1397,8 @@ export default function AccountsPage() {
                 </SelectItem>
                 {planTypes.map((planType) => (
                   <SelectItem key={planType.value} value={planType.value}>
-                    {formatAccountPlanValueLabel(planType.value, t)} ({planType.count})
+                    {formatAccountPlanValueLabel(planType.value, t)} (
+                    {planType.count})
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1421,7 +1460,10 @@ export default function AccountsPage() {
                     onClick={() => refreshAllAccounts()}
                   >
                     <RefreshCw
-                      className={cn("mr-2 h-4 w-4", isRefreshingAllAccounts && "animate-spin")}
+                      className={cn(
+                        "mr-2 h-4 w-4",
+                        isRefreshingAllAccounts && "animate-spin",
+                      )}
                     />
                     {t("刷新账号用量")}
                     <DropdownMenuShortcut>ALL</DropdownMenuShortcut>
@@ -1461,12 +1503,15 @@ export default function AccountsPage() {
                     disabled={!isServiceReady}
                     onClick={() => importByDirectory()}
                   >
-                    <FolderOpen className="mr-2 h-4 w-4" /> {importDirectoryActionLabel}
+                    <FolderOpen className="mr-2 h-4 w-4" />{" "}
+                    {importDirectoryActionLabel}
                     <DropdownMenuShortcut>DIR</DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="h-9 rounded-lg px-2"
-                    disabled={!isServiceReady || isExporting || accounts.length === 0}
+                    disabled={
+                      !isServiceReady || isExporting || accounts.length === 0
+                    }
                     onClick={openExportDialog}
                   >
                     <Download className="mr-2 h-4 w-4" />
@@ -1488,7 +1533,9 @@ export default function AccountsPage() {
                       isReorderingAccounts ||
                       accounts.length < 2
                     }
-                    onClick={() => void handleApplyAccountSizeSort("large-first")}
+                    onClick={() =>
+                      void handleApplyAccountSizeSort("large-first")
+                    }
                   >
                     <ArrowUpDown className="mr-2 h-4 w-4" />
                     {t("大号优先排序")}
@@ -1501,7 +1548,9 @@ export default function AccountsPage() {
                       isReorderingAccounts ||
                       accounts.length < 2
                     }
-                    onClick={() => void handleApplyAccountSizeSort("small-first")}
+                    onClick={() =>
+                      void handleApplyAccountSizeSort("small-first")
+                    }
                   >
                     <ArrowDown className="mr-2 h-4 w-4" />
                     {t("小号优先排序")}
@@ -1514,7 +1563,11 @@ export default function AccountsPage() {
                     {t("清理")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem
-                    disabled={!isServiceReady || !effectiveSelectedIds.length || isDeletingMany}
+                    disabled={
+                      !isServiceReady ||
+                      !effectiveSelectedIds.length ||
+                      isDeletingMany
+                    }
                     variant="destructive"
                     className="h-9 rounded-lg px-2"
                     onClick={handleDeleteSelected}
@@ -1530,7 +1583,8 @@ export default function AccountsPage() {
                     disabled={!isServiceReady}
                     onClick={() => deleteUnavailableFree()}
                   >
-                    <Trash2 className="mr-2 h-4 w-4" /> {t("清理免费不可用账号")}
+                    <Trash2 className="mr-2 h-4 w-4" />{" "}
+                    {t("清理免费不可用账号")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     variant="destructive"
@@ -1552,7 +1606,9 @@ export default function AccountsPage() {
           <DialogHeader>
             <DialogTitle>{t("导出账号")}</DialogTitle>
             <DialogDescription>
-              {t("导出范围会自动按当前选择决定；如果没有选中账号，就导出全部。")}
+              {t(
+                "导出范围会自动按当前选择决定；如果没有选中账号，就导出全部。",
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -1564,9 +1620,7 @@ export default function AccountsPage() {
               <Select
                 value={exportModeDraft}
                 onValueChange={(value) =>
-                  setExportModeDraft(
-                    value === "single" ? "single" : "multiple",
-                  )
+                  setExportModeDraft(value === "single" ? "single" : "multiple")
                 }
               >
                 <SelectTrigger
@@ -1574,7 +1628,9 @@ export default function AccountsPage() {
                   className="glass-card h-10 rounded-xl"
                 >
                   <SelectValue>
-                    {(value) => formatAccountExportModeLabel(String(value || ""), t)}
+                    {(value) =>
+                      formatAccountExportModeLabel(String(value || ""), t)
+                    }
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -1584,14 +1640,21 @@ export default function AccountsPage() {
               </Select>
               <div className="text-xs text-muted-foreground">
                 {exportModeDraft === "single"
-                  ? t("导出为一个 `accounts.json` 数组文件，适合整体备份和再次导入。")
-                  : t("每个账号导出为一个独立 JSON 文件，适合逐个分发或单独管理。")}
+                  ? t(
+                      "导出为一个 `accounts.json` 数组文件，适合整体备份和再次导入。",
+                    )
+                  : t(
+                      "每个账号导出为一个独立 JSON 文件，适合逐个分发或单独管理。",
+                    )}
               </div>
             </div>
           </div>
           <DialogFooter>
             <DialogClose
-              className={cn(buttonVariants({ variant: "outline" }), "rounded-xl")}
+              className={cn(
+                buttonVariants({ variant: "outline" }),
+                "rounded-xl",
+              )}
               disabled={isExporting}
             >
               {t("取消")}
@@ -1624,7 +1687,9 @@ export default function AccountsPage() {
                   />
                 </TableHead>
                 <TableHead className="max-w-[220px]">{t("账号信息")}</TableHead>
-                <TableHead className="min-w-[250px] text-center">{t("额度详情")}</TableHead>
+                <TableHead className="min-w-[250px] text-center">
+                  {t("额度详情")}
+                </TableHead>
                 <TableHead className="w-[156px]">{t("顺序")}</TableHead>
                 <TableHead>{t("状态")}</TableHead>
                 <TableHead className="table-sticky-action-head w-[112px] text-center">
@@ -1669,76 +1734,82 @@ export default function AccountsPage() {
                     </div>
                   </TableCell>
                 </TableRow>
-                ) : (
-                  visibleAccounts.map((account) => {
-                    const primaryWindowOnly = isPrimaryWindowOnlyUsage(
-                      account.usage,
-                    );
-                    const secondaryWindowOnly = isSecondaryWindowOnlyUsage(
-                      account.usage,
-                    );
-                    const usageBuckets = getUsageDisplayBuckets(account.usage);
-                    const extraUsageRows = getExtraUsageDisplayRows(account.usage);
-                    const quotaItems: QuotaSummaryItem[] = [
-                      {
-                        id: `${account.id}-primary`,
-                        label: t("5小时"),
-                        remainPercent: account.primaryRemainPercent,
-                        resetsAt: usageBuckets.primaryResetsAt,
-                        icon: RefreshCw,
-                        tone: "green",
-                        caption: t("标准模型窗口"),
-                        emptyText: secondaryWindowOnly ? t("未提供") : "--",
-                        emptyResetText: secondaryWindowOnly ? t("未提供") : t("未知"),
-                      },
-                      {
-                        id: `${account.id}-secondary`,
-                        label: t("7天"),
-                        remainPercent: account.secondaryRemainPercent,
-                        resetsAt: usageBuckets.secondaryResetsAt,
-                        icon: RefreshCw,
-                        tone: "blue",
-                        caption: t("长周期窗口"),
-                        emptyText: primaryWindowOnly ? t("未提供") : "--",
-                        emptyResetText: primaryWindowOnly ? t("未提供") : t("未知"),
-                      },
-                      ...extraUsageRows.map((item) => ({
-                        id: item.id,
-                        label: `${t(item.label, item.labelValues)}${item.labelSuffix ? t(item.labelSuffix) : ""}`,
-                        remainPercent: item.remainPercent,
-                        resetsAt: item.resetsAt,
-                        icon: Zap,
-                        tone: "amber" as const,
-                        caption: t(item.windowLabel, item.windowLabelValues),
-                        emptyText: "--",
-                        emptyResetText: t("未知"),
-                      })),
-                    ];
-                    const statusAction = getAccountStatusAction(account, t);
-                    const StatusActionIcon = statusAction.icon;
-                    const filteredIndex =
-                      filteredAccountIndexMap.get(account.id) ?? -1;
-                    const canMoveUp = filteredIndex > 0;
-                    const canMoveDown =
-                      filteredIndex !== -1 &&
-                      filteredIndex < filteredAccounts.length - 1;
-                    return (
-                      <TableRow key={account.id} className="group">
-                        <TableCell className="text-center">
-                          <Checkbox
-                            checked={effectiveSelectedIds.includes(account.id)}
-                            onCheckedChange={() => toggleSelect(account.id)}
-                          />
-                        </TableCell>
-                        <TableCell className="max-w-[220px]">
-                          <AccountInfoCell
-                            account={account}
-                            isPreferred={account.preferred}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <QuotaOverviewCell items={quotaItems} />
-                        </TableCell>
+              ) : (
+                visibleAccounts.map((account) => {
+                  const primaryWindowOnly = isPrimaryWindowOnlyUsage(
+                    account.usage,
+                  );
+                  const secondaryWindowOnly = isSecondaryWindowOnlyUsage(
+                    account.usage,
+                  );
+                  const usageBuckets = getUsageDisplayBuckets(account.usage);
+                  const extraUsageRows = getExtraUsageDisplayRows(
+                    account.usage,
+                  );
+                  const quotaItems: QuotaSummaryItem[] = [
+                    {
+                      id: `${account.id}-primary`,
+                      label: t("5小时"),
+                      remainPercent: account.primaryRemainPercent,
+                      resetsAt: usageBuckets.primaryResetsAt,
+                      icon: RefreshCw,
+                      tone: "green",
+                      caption: t("标准模型窗口"),
+                      emptyText: secondaryWindowOnly ? t("未提供") : "--",
+                      emptyResetText: secondaryWindowOnly
+                        ? t("未提供")
+                        : t("未知"),
+                    },
+                    {
+                      id: `${account.id}-secondary`,
+                      label: t("7天"),
+                      remainPercent: account.secondaryRemainPercent,
+                      resetsAt: usageBuckets.secondaryResetsAt,
+                      icon: RefreshCw,
+                      tone: "blue",
+                      caption: t("长周期窗口"),
+                      emptyText: primaryWindowOnly ? t("未提供") : "--",
+                      emptyResetText: primaryWindowOnly
+                        ? t("未提供")
+                        : t("未知"),
+                    },
+                    ...extraUsageRows.map((item) => ({
+                      id: item.id,
+                      label: `${t(item.label, item.labelValues)}${item.labelSuffix ? t(item.labelSuffix) : ""}`,
+                      remainPercent: item.remainPercent,
+                      resetsAt: item.resetsAt,
+                      icon: Zap,
+                      tone: "amber" as const,
+                      caption: t(item.windowLabel, item.windowLabelValues),
+                      emptyText: "--",
+                      emptyResetText: t("未知"),
+                    })),
+                  ];
+                  const statusAction = getAccountStatusAction(account, t);
+                  const StatusActionIcon = statusAction.icon;
+                  const filteredIndex =
+                    filteredAccountIndexMap.get(account.id) ?? -1;
+                  const canMoveUp = filteredIndex > 0;
+                  const canMoveDown =
+                    filteredIndex !== -1 &&
+                    filteredIndex < filteredAccounts.length - 1;
+                  return (
+                    <TableRow key={account.id} className="group">
+                      <TableCell className="text-center">
+                        <Checkbox
+                          checked={effectiveSelectedIds.includes(account.id)}
+                          onCheckedChange={() => toggleSelect(account.id)}
+                        />
+                      </TableCell>
+                      <TableCell className="max-w-[220px]">
+                        <AccountInfoCell
+                          account={account}
+                          isPreferred={account.preferred}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <QuotaOverviewCell items={quotaItems} />
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <span className="rounded bg-muted/50 px-2 py-0.5 font-mono text-xs">
@@ -1754,7 +1825,9 @@ export default function AccountsPage() {
                               isReorderingAccounts ||
                               isUpdatingProfileAccountId === account.id
                             }
-                            onClick={() => void handleMoveAccount(account, "up")}
+                            onClick={() =>
+                              void handleMoveAccount(account, "up")
+                            }
                             title={t("上移一位")}
                           >
                             <ArrowUp className="h-3.5 w-3.5" />
@@ -1769,7 +1842,9 @@ export default function AccountsPage() {
                               isReorderingAccounts ||
                               isUpdatingProfileAccountId === account.id
                             }
-                            onClick={() => void handleMoveAccount(account, "down")}
+                            onClick={() =>
+                              void handleMoveAccount(account, "down")
+                            }
                             title={t("下移一位")}
                           >
                             <ArrowDown className="h-3.5 w-3.5" />
@@ -1840,7 +1915,9 @@ export default function AccountsPage() {
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem
                                 className="gap-2"
-                                disabled={!isServiceReady || isUpdatingPreferred}
+                                disabled={
+                                  !isServiceReady || isUpdatingPreferred
+                                }
                                 onClick={() =>
                                   account.preferred
                                     ? clearPreferredAccount(account.id)
@@ -1871,19 +1948,7 @@ export default function AccountsPage() {
                                 <StatusActionIcon className="h-4 w-4" />
                                 {statusAction.label}
                               </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="gap-2"
-                                onClick={() =>
-                                  router.push(
-                                    buildStaticRouteUrl(
-                                      "/logs",
-                                      `?query=${encodeURIComponent(account.id)}`,
-                                    ),
-                                  )
-                                }
-                              >
-                                <ExternalLink className="h-4 w-4" /> {t("详情与日志")}
-                              </DropdownMenuItem>
+
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 className="gap-2 text-red-500"
@@ -1989,7 +2054,9 @@ export default function AccountsPage() {
           }
         }}
         title={
-          deleteDialogState?.kind === "single" ? t("删除账号") : t("批量删除账号")
+          deleteDialogState?.kind === "single"
+            ? t("删除账号")
+            : t("批量删除账号")
         }
         description={
           deleteDialogState?.kind === "single"
@@ -2029,7 +2096,9 @@ export default function AccountsPage() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="account-tags-input">{t("标签（逗号分隔）")}</Label>
+                <Label htmlFor="account-tags-input">
+                  {t("标签（逗号分隔）")}
+                </Label>
                 <Input
                   id="account-tags-input"
                   value={tagsDraft}
@@ -2085,7 +2154,8 @@ export default function AccountsPage() {
                 <div>{t("账号类型")}</div>
                 <div className="font-medium text-foreground/80">
                   {currentEditingAccount
-                    ? formatAccountPlanLabel(currentEditingAccount, t) || t("未知")
+                    ? formatAccountPlanLabel(currentEditingAccount, t) ||
+                      t("未知")
                     : t("未知")}
                 </div>
               </div>
