@@ -16,6 +16,11 @@ import {
   normalizeUsageList,
   normalizeUsageSnapshot,
 } from "./normalize";
+import {
+  readChatgptAuthTokensRefreshResult,
+  readCurrentAccessTokenAccountReadResult,
+  readLoginStatusResult,
+} from "./account-auth";
 import { serializeManagedModelForRpc } from "./model-catalog";
 import {
   AccountListResult,
@@ -413,14 +418,7 @@ export const accountClient = {
   },
   async getLoginStatus(loginId: string): Promise<LoginStatusResult> {
     const result = await invoke<unknown>("service_login_status", withAddr({ loginId }));
-    const source =
-      result && typeof result === "object" && !Array.isArray(result)
-        ? (result as Record<string, unknown>)
-        : {};
-    return {
-      status: typeof source.status === "string" ? source.status.trim() : "",
-      error: typeof source.error === "string" ? source.error.trim() : "",
-    };
+    return readLoginStatusResult(result);
   },
   completeLogin: (state: string, code: string, redirectUri: string) =>
     invoke("service_login_complete", withAddr({ state, code, redirectUri })),
@@ -440,17 +438,7 @@ export const accountClient = {
       "service_account_read",
       withAddr({ refreshToken })
     );
-    const source =
-      result && typeof result === "object" && !Array.isArray(result)
-        ? (result as Record<string, unknown>)
-        : {};
-    return {
-      account:
-        source.account && typeof source.account === "object" && !Array.isArray(source.account)
-          ? (source.account as CurrentAccessTokenAccountReadResult["account"])
-          : null,
-      requiresOpenaiAuth: Boolean(source.requiresOpenaiAuth),
-    };
+    return readCurrentAccessTokenAccountReadResult(result);
   },
   logoutCurrentAccessTokenAccount: () =>
     invoke("service_account_logout", withAddr()),
@@ -461,18 +449,7 @@ export const accountClient = {
       "service_chatgpt_auth_tokens_refresh",
       withAddr({ previousAccountId: previousAccountId || null })
     );
-    const source =
-      result && typeof result === "object" && !Array.isArray(result)
-        ? (result as Record<string, unknown>)
-        : {};
-    return {
-      accessToken: String(source.accessToken || "").trim(),
-      chatgptAccountId: String(source.chatgptAccountId || "").trim(),
-      chatgptPlanType:
-        typeof source.chatgptPlanType === "string"
-          ? source.chatgptPlanType.trim()
-          : null,
-    };
+    return readChatgptAuthTokensRefreshResult(result);
   },
 
   async listAggregateApis(): Promise<AggregateApi[]> {
