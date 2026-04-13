@@ -21,6 +21,16 @@ import {
   readCurrentAccessTokenAccountReadResult,
   readLoginStatusResult,
 } from "./account-auth";
+import {
+  AccountExportResult,
+  AccountImportError,
+  AccountImportResult,
+  DeleteUnavailableFreeResult,
+  readAccountExportResult,
+  readAccountImportResult,
+  readApiKeySecret,
+  readDeleteUnavailableFreeResult,
+} from "./account-maintenance";
 import { serializeManagedModelForRpc } from "./model-catalog";
 import {
   AccountListResult,
@@ -43,36 +53,9 @@ import {
   UsageAggregateSummary,
 } from "../../types";
 
-interface AccountImportResult {
-  canceled?: boolean;
-  total?: number;
-  created?: number;
-  updated?: number;
-  failed?: number;
-  errors?: AccountImportError[];
-  fileCount?: number;
-  directoryPath?: string;
-  contents?: string[];
-}
-
-interface AccountImportError {
-  index: number;
-  message: string;
-}
-
-interface AccountExportResult {
-  canceled?: boolean;
-  exported?: number;
-  outputDir?: string;
-}
-
 export interface AccountExportPayload {
   selectedAccountIds?: string[];
   exportMode?: "single" | "multiple";
-}
-
-interface DeleteUnavailableFreeResult {
-  deleted?: number;
 }
 
 interface LoginStartPayload {
@@ -281,9 +264,8 @@ async function importAccountContents(contents: string[]): Promise<AccountImportR
   const merged = createEmptyImportResult();
   let processed = 0;
   for (const batch of batches) {
-    const imported = await invoke<AccountImportResult>(
-      "service_account_import",
-      withAddr({ contents: batch })
+    const imported = readAccountImportResult(
+      await invoke<unknown>("service_account_import", withAddr({ contents: batch }))
     );
     mergeImportResult(merged, imported, processed);
     processed += batch.length;
@@ -301,8 +283,10 @@ export const accountClient = {
     invoke("service_account_delete", withAddr({ accountId })),
   deleteMany: (accountIds: string[]) =>
     invoke("service_account_delete_many", withAddr({ accountIds })),
-  deleteUnavailableFree: () =>
-    invoke<DeleteUnavailableFreeResult>("service_account_delete_unavailable_free", withAddr()),
+  deleteUnavailableFree: async (): Promise<DeleteUnavailableFreeResult> =>
+    readDeleteUnavailableFreeResult(
+      await invoke<unknown>("service_account_delete_unavailable_free", withAddr())
+    ),
   updateSort: (accountId: string, sort: number) =>
     invoke("service_account_update", withAddr({ accountId, sort })),
   updateProfile: (accountId: string, params: AccountUpdatePayload) =>
@@ -333,9 +317,8 @@ export const accountClient = {
     invoke("service_account_update", withAddr({ accountId, status: "active" })),
   import: importAccountContents,
   async importByDirectory(): Promise<AccountImportResult> {
-    const picked = await invoke<AccountImportResult>(
-      "service_account_import_by_directory",
-      withAddr()
+    const picked = readAccountImportResult(
+      await invoke<unknown>("service_account_import_by_directory", withAddr())
     );
     if (picked?.canceled || !Array.isArray(picked?.contents) || picked.contents.length === 0) {
       return picked;
@@ -350,9 +333,8 @@ export const accountClient = {
     };
   },
   async importByFile(): Promise<AccountImportResult> {
-    const picked = await invoke<AccountImportResult>(
-      "service_account_import_by_file",
-      withAddr()
+    const picked = readAccountImportResult(
+      await invoke<unknown>("service_account_import_by_file", withAddr())
     );
     if (picked?.canceled || !Array.isArray(picked?.contents) || picked.contents.length === 0) {
       return picked;
@@ -365,8 +347,8 @@ export const accountClient = {
       fileCount: picked.fileCount || picked.contents.length,
     };
   },
-  export: (params?: AccountExportPayload) =>
-    invoke<AccountExportResult>(
+  export: async (params?: AccountExportPayload): Promise<AccountExportResult> =>
+    readAccountExportResult(await invoke<unknown>(
       "service_account_export_by_account_files",
       withAddr({
         selectedAccountIds: Array.isArray(params?.selectedAccountIds)
@@ -374,7 +356,7 @@ export const accountClient = {
           : [],
         exportMode: params?.exportMode || "multiple",
       })
-    ),
+    )),
 
   async getUsage(accountId: string): Promise<AccountUsage | null> {
     const result = await invoke<unknown>("service_usage_read", withAddr({ accountId }));
@@ -611,10 +593,10 @@ export const accountClient = {
   deleteManagedModel: (slug: string) =>
     invoke("service_model_catalog_delete", withAddr({ slug })),
   async readApiKeySecret(keyId: string): Promise<string> {
-    const result = await invoke<{ key?: string }>(
+    const result = await invoke<unknown>(
       "service_apikey_read_secret",
       withAddr({ keyId })
     );
-    return String(result?.key || "").trim();
+    return readApiKeySecret(result);
   },
 };
