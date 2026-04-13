@@ -24,6 +24,13 @@ import {
   applyAppearancePreset,
   normalizeAppearancePreset,
 } from "@/lib/appearance";
+import {
+  DEFAULT_GATEWAY_MODE,
+  GATEWAY_MODE_ENV_KEY,
+  normalizeGatewayMode,
+  toGatewayModeOverride,
+  type GatewayMode,
+} from "@/lib/gateway-mode";
 import { AppSettings, BackgroundTaskSettings } from "@/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -72,7 +79,6 @@ import {
   Variable,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { LanguageSwitcher } from "@/components/layout/language-switcher";
 import { ConfirmDialog } from "@/components/modals/confirm-dialog";
 import { useI18n } from "@/lib/i18n/provider";
 
@@ -112,6 +118,16 @@ const ROUTE_STRATEGY_LABELS: Record<string, string> = {
 const SERVICE_LISTEN_MODE_LABELS: Record<string, string> = {
   loopback: "仅本机 (localhost)",
   all_interfaces: "全部网卡 (0.0.0.0)",
+};
+
+const GATEWAY_MODE_LABELS: Record<GatewayMode, string> = {
+  transparent: "透传模式",
+  enhanced: "强兼容模式",
+};
+
+const GATEWAY_MODE_HINTS: Record<GatewayMode, string> = {
+  transparent: "尽量保持原始 Codex 请求与响应形态，适合标准代理链路。",
+  enhanced: "对请求参数与响应结构做更多兼容处理，适合兼容性优先场景。",
 };
 
 const RESIDENCY_REQUIREMENT_LABELS: Record<string, string> = {
@@ -945,6 +961,12 @@ export default function SettingsPage() {
   const gatewayUserAgentVersionInput =
     gatewayUserAgentVersionDraft ??
     (snapshot?.gatewayUserAgentVersion || gatewayUserAgentVersionDefault);
+  const gatewayModeOverride = String(
+    snapshot?.envOverrides[GATEWAY_MODE_ENV_KEY] ?? "",
+  ).trim();
+  const gatewayModeValue = normalizeGatewayMode(
+    gatewayModeOverride || DEFAULT_GATEWAY_MODE,
+  );
   const transportInputValues = {
     sseKeepaliveIntervalMs:
       transportDraft.sseKeepaliveIntervalMs ??
@@ -1453,14 +1475,66 @@ export default function SettingsPage() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Globe className="h-4 w-4 text-primary" />
-                <CardTitle className="text-base">{t("界面语言")}</CardTitle>
+                <CardTitle className="text-base">{t("Gateway 模式")}</CardTitle>
               </div>
               <CardDescription>
-                {t("切换应用界面语言，设置后会立即生效并持久化保存。")}
+                {t("控制 Gateway 请求采用原始透传还是更激进的兼容改写。")}
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <LanguageSwitcher triggerClassName="w-full md:w-[220px]" />
+            <CardContent className="space-y-5">
+              <div className="grid gap-2">
+                <Label>{t("请求兼容模式")}</Label>
+                <Select
+                  value={gatewayModeValue}
+                  onValueChange={(value) => {
+                    const nextMode = normalizeGatewayMode(value);
+                    const nextOverride = toGatewayModeOverride(nextMode);
+                    if (nextOverride === gatewayModeOverride) {
+                      return;
+                    }
+                    updateSettings.mutate({
+                      envOverrides: {
+                        [GATEWAY_MODE_ENV_KEY]: nextOverride,
+                      },
+                    });
+                  }}
+                >
+                  <SelectTrigger className="w-full md:w-[320px]">
+                    <SelectValue placeholder={t("选择 Gateway 模式")}>
+                      {(value) => {
+                        const nextMode = normalizeGatewayMode(value);
+                        return t(GATEWAY_MODE_LABELS[nextMode]);
+                      }}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="transparent">
+                      {t(GATEWAY_MODE_LABELS.transparent)}
+                    </SelectItem>
+                    <SelectItem value="enhanced">
+                      {t(GATEWAY_MODE_LABELS.enhanced)}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="rounded-2xl border border-border/50 bg-background/45 p-4 text-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-muted-foreground">{t("当前模式")}</span>
+                  <code className="text-xs text-primary">
+                    {gatewayModeValue}
+                  </code>
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {t(GATEWAY_MODE_HINTS[gatewayModeValue])}
+                </p>
+              </div>
+
+              <p className="text-[10px] text-muted-foreground">
+                {t("透传模式为默认值。")} <code>{GATEWAY_MODE_ENV_KEY}</code>{" "}
+                {t("在强兼容模式下会被写成")} <code>enhanced</code>{" "}
+                {t("以启用更强的请求兼容处理。")}
+              </p>
             </CardContent>
           </Card>
 
@@ -1644,6 +1718,7 @@ export default function SettingsPage() {
               </p>
             </CardContent>
           </Card>
+
         </TabsContent>
 
         <TabsContent value="appearance" className="space-y-6">
