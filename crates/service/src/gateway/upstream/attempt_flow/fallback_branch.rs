@@ -2,6 +2,7 @@ use bytes::Bytes;
 use codexmanager_core::storage::{Account, Storage, Token};
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
+use crate::gateway::upstream::support::failover_policy::{follow_up_action, FollowUpAction};
 
 const REQUEST_ID_HEADER: &str = "x-request-id";
 const OAI_REQUEST_ID_HEADER: &str = "x-oai-request-id";
@@ -28,10 +29,13 @@ pub(super) enum FallbackBranchResult {
 /// # 返回
 /// 返回函数执行结果
 fn should_failover_after_fallback_non_success(status: u16, has_more_candidates: bool) -> bool {
-    if !has_more_candidates {
-        return false;
-    }
-    matches!(status, 401 | 403 | 404 | 408 | 409 | 429)
+    matches!(
+        follow_up_action(
+            crate::gateway::upstream::support::failover_policy::should_failover_after_fallback_non_success(status),
+            has_more_candidates,
+        ),
+        FollowUpAction::Failover
+    )
 }
 
 /// 函数 `extract_response_header`
