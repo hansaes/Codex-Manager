@@ -232,12 +232,10 @@ pub(super) fn finalize_upstream_response(
                 .unwrap_or_else(|| "upstream response incomplete".to_string()),
         );
     }
-    let gateway_failover = final_error.as_deref().is_some_and(|error| {
-        crate::account_status::should_failover_for_gateway_error(error, has_more_candidates)
-    });
-    let usage_limit_failover = final_error
+    let gateway_error_follow_up = final_error
         .as_deref()
-        .is_some_and(crate::account_status::is_usage_limit_gateway_error);
+        .map(|error| crate::account_status::analyze_gateway_error(error, has_more_candidates));
+    let gateway_failover = gateway_error_follow_up.is_some_and(|follow_up| follow_up.should_failover);
 
     let upstream_stream_failed = client_is_stream
         && (!bridge.stream_terminal_seen || bridge.stream_terminal_error.is_some());
@@ -269,14 +267,17 @@ pub(super) fn finalize_upstream_response(
         super::super::super::record_route_quality(account_id, 502);
     }
 
-    if usage_limit_failover {
+    if gateway_error_follow_up.is_some_and(|follow_up| follow_up.should_mark_default_cooldown) {
         super::super::super::mark_account_cooldown(
             account_id,
             super::super::super::CooldownReason::Default,
         );
     }
 
-    if let Some(error) = final_error.as_deref() {
+    if gateway_error_follow_up.is_some_and(|follow_up| follow_up.should_mark_account_unavailable) {
+        let error = final_error
+            .as_deref()
+            .expect("final_error should exist when follow-up marks account");
         let _ = context.mark_account_unavailable_for_gateway_error(account_id, error);
     }
 

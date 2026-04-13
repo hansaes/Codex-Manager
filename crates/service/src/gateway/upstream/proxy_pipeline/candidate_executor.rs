@@ -243,13 +243,16 @@ pub(in super::super) fn execute_candidate_sequence(
                 status_code,
                 message,
             } => {
-                if crate::account_status::should_failover_for_gateway_error(
+                let gateway_error_follow_up = crate::account_status::analyze_gateway_error(
                     &message,
                     context.has_more_candidates(idx),
-                ) {
-                    let _ =
-                        context.mark_account_unavailable_for_gateway_error(&account.id, &message);
-                    if crate::account_status::is_usage_limit_gateway_error(&message) {
+                );
+                if gateway_error_follow_up.should_failover {
+                    if gateway_error_follow_up.should_mark_account_unavailable {
+                        let _ = context
+                            .mark_account_unavailable_for_gateway_error(&account.id, &message);
+                    }
+                    if gateway_error_follow_up.should_mark_default_cooldown {
                         super::super::super::mark_account_cooldown(
                             &account.id,
                             super::super::super::CooldownReason::Default,
