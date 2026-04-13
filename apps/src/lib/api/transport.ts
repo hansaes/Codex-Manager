@@ -1,15 +1,7 @@
-import { invoke as tauriInvoke, isTauri as tauriIsTauri } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { fetchWithRetry, runWithControl, RequestOptions } from "../utils/request";
-import {
-  buildDesktopRuntimeCapabilities,
-  buildUnsupportedWebCapabilities,
-  buildWebGatewayRuntimeCapabilities,
-  DEFAULT_UNSUPPORTED_WEB_REASON,
-  normalizeRpcBaseUrl,
-  normalizeRuntimeCapabilities,
-} from "../runtime/runtime-capabilities";
+import { DEFAULT_UNSUPPORTED_WEB_REASON } from "../runtime/runtime-capabilities";
 import { useAppStore } from "../store/useAppStore";
-import { RuntimeCapabilities } from "../../types";
 import {
   getAppErrorMessage,
   isCommandMissingError,
@@ -19,173 +11,19 @@ export { getAppErrorMessage, isCommandMissingError } from "./transport-errors";
 import { createWebCommandMap } from "./transport-web-commands";
 import type { InvokeParams, WebCommandDescriptor } from "./transport-web-commands";
 import { postJsonRpc } from "./rpc-http";
-
-const DEFAULT_WEB_RPC_BASE_URL = "/api/rpc";
-const DEFAULT_RUNTIME_PROBE_URL = "/api/runtime";
-const CONFIGURED_WEB_RPC_BASE_URL = normalizeRpcBaseUrl(
-  process.env.NEXT_PUBLIC_CODEXMANAGER_RPC_BASE_URL
-);
-
-let runtimeCapabilitiesCache: RuntimeCapabilities | null = null;
-let runtimeCapabilitiesPromise: Promise<RuntimeCapabilities> | null = null;
+import {
+  getCachedRuntimeCapabilities,
+  isTauriRuntime,
+  loadRuntimeCapabilities,
+} from "./transport-runtime";
+export {
+  getCachedRuntimeCapabilities,
+  isTauriRuntime,
+  loadRuntimeCapabilities,
+} from "./transport-runtime";
 
 const WEB_COMMAND_MAP: Record<string, WebCommandDescriptor> =
   createWebCommandMap(postWebRpc);
-
-/**
- * 函数 `asRecord`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - value: 参数 value
- *
- * # 返回
- * 返回函数执行结果
- */
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-/**
- * 函数 `cacheRuntimeCapabilities`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - runtimeCapabilities: 参数 runtimeCapabilities
- *
- * # 返回
- * 返回函数执行结果
- */
-function cacheRuntimeCapabilities(
-  runtimeCapabilities: RuntimeCapabilities
-): RuntimeCapabilities {
-  runtimeCapabilitiesCache = runtimeCapabilities;
-  return runtimeCapabilities;
-}
-
-/**
- * 函数 `probeRuntimeCapabilities`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * 无
- *
- * # 返回
- * 返回函数执行结果
- */
-async function probeRuntimeCapabilities(): Promise<RuntimeCapabilities | null> {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const response = await fetchWithRetry(
-      DEFAULT_RUNTIME_PROBE_URL,
-      {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-        },
-      },
-      {
-        timeoutMs: 1500,
-        retries: 0,
-        shouldRetryStatus: () => false,
-      }
-    );
-    if (!response.ok) {
-      return null;
-    }
-    return normalizeRuntimeCapabilities(
-      await response.json(),
-      CONFIGURED_WEB_RPC_BASE_URL || DEFAULT_WEB_RPC_BASE_URL
-    );
-  } catch {
-    return null;
-  }
-}
-
-/**
- * 函数 `getCachedRuntimeCapabilities`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * 无
- *
- * # 返回
- * 返回函数执行结果
- */
-export function getCachedRuntimeCapabilities(): RuntimeCapabilities | null {
-  if (isTauriRuntime()) {
-    return runtimeCapabilitiesCache ?? buildDesktopRuntimeCapabilities();
-  }
-  return runtimeCapabilitiesCache;
-}
-
-/**
- * 函数 `loadRuntimeCapabilities`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - force: 参数 force
- *
- * # 返回
- * 返回函数执行结果
- */
-export async function loadRuntimeCapabilities(
-  force = false
-): Promise<RuntimeCapabilities> {
-  if (isTauriRuntime()) {
-    return cacheRuntimeCapabilities(buildDesktopRuntimeCapabilities());
-  }
-  if (!force && runtimeCapabilitiesCache) {
-    return runtimeCapabilitiesCache;
-  }
-  if (!force && runtimeCapabilitiesPromise) {
-    return runtimeCapabilitiesPromise;
-  }
-
-  runtimeCapabilitiesPromise = (async () => {
-    const probedRuntime = await probeRuntimeCapabilities();
-    if (probedRuntime) {
-      return cacheRuntimeCapabilities(probedRuntime);
-    }
-    if (CONFIGURED_WEB_RPC_BASE_URL) {
-      return cacheRuntimeCapabilities(
-        buildWebGatewayRuntimeCapabilities(CONFIGURED_WEB_RPC_BASE_URL)
-      );
-    }
-    return cacheRuntimeCapabilities(
-      buildUnsupportedWebCapabilities(
-        DEFAULT_UNSUPPORTED_WEB_REASON,
-        DEFAULT_WEB_RPC_BASE_URL
-      )
-    );
-  })();
-
-  try {
-    return await runtimeCapabilitiesPromise;
-  } finally {
-    runtimeCapabilitiesPromise = null;
-  }
-}
 
 /**
  * 函数 `invokeWebRpc`
@@ -257,36 +95,6 @@ async function postWebRpc<T>(
     rpcMethod,
     params ?? {},
     options
-  );
-}
-
-/**
- * 函数 `isTauriRuntime`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * 无
- *
- * # 返回
- * 返回函数执行结果
- */
-export function isTauriRuntime(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  const runtime = globalThis as typeof globalThis & {
-    __TAURI__?: unknown;
-    __TAURI_INTERNALS__?: { invoke?: unknown };
-  };
-
-  return (
-    tauriIsTauri() ||
-    Boolean(runtime.__TAURI_INTERNALS__?.invoke) ||
-    Boolean(runtime.__TAURI__)
   );
 }
 
