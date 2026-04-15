@@ -16,6 +16,7 @@ mod rpc_dispatch;
 mod runtime;
 mod startup_snapshot;
 mod storage;
+mod team_management;
 mod usage;
 
 pub(crate) use account::availability as account_availability;

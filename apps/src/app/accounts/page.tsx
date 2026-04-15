@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   ArrowDown,
   ArrowUp,
@@ -20,6 +19,7 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  Users,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -80,6 +80,8 @@ import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
+import { useAppStore } from "@/lib/store/useAppStore";
+import { teamClient } from "@/lib/api/team-client";
 import { cn } from "@/lib/utils";
 import { buildStaticRouteUrl } from "@/lib/utils/static-routes";
 import {
@@ -484,6 +486,12 @@ function getAccountPlanBadgeClassName(planLabel: string | null): string {
   }
 }
 
+function canManageAsTeamParent(account: Account): boolean {
+  return ["team", "business", "enterprise"].includes(
+    normalizeAccountPlanKey(account),
+  );
+}
+
 /**
  * 函数 `formatAccountTags`
  *
@@ -721,8 +729,8 @@ function AccountInfoCell({
 }
 
 export default function AccountsPage() {
-  const router = useRouter();
   const { t } = useI18n();
+  const navigateShellPath = useAppStore((state) => state.navigateShellPath);
   const { isDesktopRuntime, canUseBrowserDownloadExport } =
     useRuntimeCapabilities();
   const {
@@ -785,6 +793,8 @@ export default function AccountsPage() {
     | { kind: "selected"; ids: string[]; count: number }
     | null
   >(null);
+  const [isAddingTeamParentAccountId, setIsAddingTeamParentAccountId] =
+    useState("");
   const importFileActionLabel = isDesktopRuntime
     ? t("按文件导入")
     : t("选择文件导入");
@@ -800,6 +810,23 @@ export default function AccountsPage() {
     : !isDesktopRuntime && canUseBrowserDownloadExport
       ? "DL"
       : "ZIP";
+
+  const handleAddAccountToTeamManagement = async (account: Account) => {
+    setIsAddingTeamParentAccountId(account.id);
+    try {
+      await teamClient.addFromAccount(account.id);
+      toast.success(t("已加入团队管理"));
+      navigateShellPath("/teams");
+    } catch (error: unknown) {
+      toast.error(
+        `${t("加入团队管理失败")}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setIsAddingTeamParentAccountId((current) =>
+        current === account.id ? "" : current,
+      );
+    }
+  };
 
   const filteredAccounts = useMemo(() => {
     return accounts.filter((account) => {
@@ -1958,6 +1985,20 @@ export default function AccountsPage() {
                               >
                                 <StatusActionIcon className="h-4 w-4" />
                                 {statusAction.label}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="gap-2"
+                                disabled={
+                                  !isServiceReady ||
+                                  !canManageAsTeamParent(account) ||
+                                  isAddingTeamParentAccountId === account.id
+                                }
+                                onClick={() =>
+                                  void handleAddAccountToTeamManagement(account)
+                                }
+                              >
+                                <Users className="h-4 w-4" />
+                                {t("加入团队管理")}
                               </DropdownMenuItem>
 
                               <DropdownMenuSeparator />

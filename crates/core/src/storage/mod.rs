@@ -11,6 +11,7 @@ mod conversation_bindings;
 mod events;
 mod gateway_error_logs;
 mod model_options;
+mod managed_teams;
 mod plugins;
 mod request_log_query;
 mod request_logs;
@@ -49,6 +50,24 @@ pub struct Token {
     pub refresh_token: String,
     pub api_key_access_token: Option<String>,
     pub last_refresh: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ManagedTeam {
+    pub id: String,
+    pub source_account_id: String,
+    pub team_account_id: Option<String>,
+    pub team_name: Option<String>,
+    pub plan_type: Option<String>,
+    pub subscription_plan: Option<String>,
+    pub status: String,
+    pub current_members: i64,
+    pub pending_invites: i64,
+    pub max_members: i64,
+    pub expires_at: Option<i64>,
+    pub last_sync_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -641,6 +660,10 @@ impl Storage {
         self.apply_sql_migration(
             "049_model_catalog_string_items",
             include_str!("../../migrations/049_model_catalog_string_items.sql"),
+        )?;
+        self.apply_sql_migration(
+            "050_managed_teams",
+            include_str!("../../migrations/050_managed_teams.sql"),
         )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;

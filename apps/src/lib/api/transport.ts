@@ -43,6 +43,12 @@ const WEB_COMMAND_MAP: Record<string, WebCommandDescriptor> = {
     rpcMethod: "account/deleteUnavailableFree",
   },
   service_account_update: { rpcMethod: "account/update" },
+  service_team_list: { rpcMethod: "team/list" },
+  service_team_add_from_account: { rpcMethod: "team/addFromAccount" },
+  service_team_sync: { rpcMethod: "team/sync" },
+  service_team_members: { rpcMethod: "team/members" },
+  service_team_invite: { rpcMethod: "team/invite" },
+  service_team_delete: { rpcMethod: "team/delete" },
   service_account_import: { rpcMethod: "account/import" },
   service_account_import_by_file: {
     direct: () => pickImportFilesFromBrowser(false),

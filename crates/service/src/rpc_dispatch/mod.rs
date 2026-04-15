@@ -16,6 +16,7 @@ mod gateway;
 mod requestlog;
 mod service_config;
 mod startup;
+mod team;
 mod usage;
 
 /// 函数 `response`
@@ -222,6 +223,9 @@ pub(crate) fn handle_request(req: JsonRpcRequest) -> JsonRpcMessage {
         return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = startup::try_handle(&req) {
+        return JsonRpcMessage::Response(resp);
+    }
+    if let Some(resp) = team::try_handle(&req) {
         return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = gateway::try_handle(&req) {

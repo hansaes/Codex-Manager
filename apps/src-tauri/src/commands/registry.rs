@@ -19,6 +19,13 @@ macro_rules! invoke_handler {
             crate::commands::account::transfer::service_account_import_by_directory,
             crate::commands::account::transfer::service_account_export_by_account_files,
             crate::commands::account::local::local_account_delete,
+            // team
+            crate::commands::team::service_team_list,
+            crate::commands::team::service_team_add_from_account,
+            crate::commands::team::service_team_sync,
+            crate::commands::team::service_team_members,
+            crate::commands::team::service_team_invite,
+            crate::commands::team::service_team_delete,
             // usage
             crate::commands::usage::service_usage_read,
             crate::commands::usage::service_usage_list,

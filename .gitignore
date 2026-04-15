@@ -36,6 +36,8 @@
 *.log
 *.db
 *.sqlite
+/.logs/
+/.omx/
 codexmanager.rpc-token
 codex resume*.txt
 .tmp_stage_ps/

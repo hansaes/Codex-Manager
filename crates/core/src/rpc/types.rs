@@ -260,6 +260,60 @@ pub struct AccountListResult {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ManagedTeamSummary {
+    pub id: String,
+    pub source_account_id: String,
+    pub source_account_label: Option<String>,
+    pub source_account_status: Option<String>,
+    pub team_account_id: Option<String>,
+    pub team_name: Option<String>,
+    pub plan_type: Option<String>,
+    pub subscription_plan: Option<String>,
+    pub status: String,
+    pub current_members: i64,
+    pub pending_invites: i64,
+    pub max_members: i64,
+    pub occupied_slots: i64,
+    pub expires_at: Option<i64>,
+    pub last_sync_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedTeamListResult {
+    pub items: Vec<ManagedTeamSummary>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedTeamMembersResult {
+    pub team_id: String,
+    pub items: Vec<ManagedTeamMemberSummary>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedTeamMemberSummary {
+    pub email: String,
+    pub name: Option<String>,
+    pub role: Option<String>,
+    pub status: String,
+    pub user_id: Option<String>,
+    pub added_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedTeamInviteResult {
+    pub invited_count: i64,
+    pub team_id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeviceAuthInfo {
     pub user_code_url: String,
     pub token_url: String,

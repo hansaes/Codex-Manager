@@ -10,6 +10,7 @@ pub mod settings;
 pub mod shared;
 pub mod startup;
 pub mod system;
+pub mod team;
 pub mod updater;
 pub mod usage;
 

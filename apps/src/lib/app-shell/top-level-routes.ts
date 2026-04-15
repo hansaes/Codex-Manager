@@ -5,6 +5,7 @@ import { normalizeRoutePath } from "@/lib/utils/static-routes";
 export const TOP_LEVEL_ROUTE_CONFIG = [
   { path: "/", label: "仪表盘" },
   { path: "/accounts", label: "账号管理" },
+  { path: "/teams", label: "团队管理" },
   { path: "/aggregate-api", label: "聚合API" },
   { path: "/apikeys", label: "平台密钥" },
   { path: "/models", label: "模型管理" },

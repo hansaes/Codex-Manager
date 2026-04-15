@@ -19,6 +19,10 @@ import {
   GatewayErrorLogListResult,
   InstalledPluginSummary,
   LoginStartResult,
+  ManagedTeam,
+  ManagedTeamInviteResult,
+  ManagedTeamMember,
+  ManagedTeamMembersResult,
   ManagedModelCatalog,
   ManagedModelInfo,
   ModelCatalog,
@@ -439,6 +443,82 @@ export function normalizeAccountList(
     total: asInteger(source.total, normalizedItems.length, 0),
     page: asInteger(source.page, 1, 1),
     pageSize: asInteger(source.pageSize, normalizedItems.length || 20, 1),
+  };
+}
+
+export function normalizeManagedTeam(payload: unknown): ManagedTeam | null {
+  const source = asObject(payload);
+  const id = asString(source.id);
+  if (!id) return null;
+
+  return {
+    id,
+    sourceAccountId: asString(source.sourceAccountId ?? source.source_account_id),
+    sourceAccountLabel:
+      asString(source.sourceAccountLabel ?? source.source_account_label) || null,
+    sourceAccountStatus:
+      asString(source.sourceAccountStatus ?? source.source_account_status) || null,
+    teamAccountId: asString(source.teamAccountId ?? source.team_account_id) || null,
+    teamName: asString(source.teamName ?? source.team_name) || null,
+    planType: asString(source.planType ?? source.plan_type) || null,
+    subscriptionPlan:
+      asString(source.subscriptionPlan ?? source.subscription_plan) || null,
+    status: asString(source.status),
+    currentMembers: asInteger(source.currentMembers ?? source.current_members, 0, 0),
+    pendingInvites: asInteger(source.pendingInvites ?? source.pending_invites, 0, 0),
+    maxMembers: asInteger(source.maxMembers ?? source.max_members, 0, 0),
+    occupiedSlots: asInteger(source.occupiedSlots ?? source.occupied_slots, 0, 0),
+    expiresAt: toNullableNumber(source.expiresAt ?? source.expires_at),
+    lastSyncAt: toNullableNumber(source.lastSyncAt ?? source.last_sync_at),
+    createdAt: toNullableNumber(source.createdAt ?? source.created_at),
+    updatedAt: toNullableNumber(source.updatedAt ?? source.updated_at),
+  };
+}
+
+export function normalizeManagedTeamList(payload: unknown): ManagedTeam[] {
+  const source = asObject(payload);
+  const items = asArray(source.items ?? payload);
+  return items
+    .map((item) => normalizeManagedTeam(item))
+    .filter((item): item is ManagedTeam => Boolean(item));
+}
+
+export function normalizeManagedTeamMember(payload: unknown): ManagedTeamMember | null {
+  const source = asObject(payload);
+  const email = asString(source.email);
+  if (!email) return null;
+
+  return {
+    email,
+    name: asString(source.name) || null,
+    role: asString(source.role) || null,
+    status: asString(source.status),
+    userId: asString(source.userId ?? source.user_id) || null,
+    addedAt: toNullableNumber(source.addedAt ?? source.added_at),
+  };
+}
+
+export function normalizeManagedTeamMembersResult(
+  payload: unknown
+): ManagedTeamMembersResult {
+  const source = asObject(payload);
+  const items = asArray(source.items ?? payload);
+  return {
+    teamId: asString(source.teamId ?? source.team_id),
+    items: items
+      .map((item) => normalizeManagedTeamMember(item))
+      .filter((item): item is ManagedTeamMember => Boolean(item)),
+  };
+}
+
+export function normalizeManagedTeamInviteResult(
+  payload: unknown
+): ManagedTeamInviteResult {
+  const source = asObject(payload);
+  return {
+    invitedCount: asInteger(source.invitedCount ?? source.invited_count, 0, 0),
+    teamId: asString(source.teamId ?? source.team_id),
+    message: asString(source.message),
   };
 }
 
