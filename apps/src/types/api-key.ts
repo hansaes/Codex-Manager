@@ -14,6 +14,9 @@ export interface ApiKey {
   authScheme: string;
   upstreamBaseUrl: string;
   staticHeadersJson: string;
+  totalTokenLimit: number | null;
+  totalCostUsdLimit: number | null;
+  totalRequestLimit: number | null;
   status: string;
   createdAt: number | null;
   lastUsedAt: number | null;
@@ -65,6 +68,7 @@ export interface AggregateApiTestResult {
 
 export interface ApiKeyUsageStat {
   keyId: string;
+  requestCount: number;
   totalTokens: number;
   estimatedCostUsd: number;
 }

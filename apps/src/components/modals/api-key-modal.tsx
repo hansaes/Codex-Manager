@@ -73,6 +73,32 @@ const ACCOUNT_PLAN_FILTER_LABELS: Record<string, string> = {
   unknown: "未知计划",
 };
 
+function formatLimitInput(value?: number | null): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+}
+
+function parseOptionalIntegerLimit(raw: string, fieldLabel: string): number | null {
+  const normalized = String(raw || "").trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+    throw new Error(`${fieldLabel}${"必须是整数"}`);
+  }
+  if (parsed <= 0) return null;
+  return parsed;
+}
+
+function parseOptionalDecimalLimit(raw: string, fieldLabel: string): number | null {
+  const normalized = String(raw || "").trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${fieldLabel}${"必须是数字"}`);
+  }
+  if (parsed <= 0) return null;
+  return parsed;
+}
+
 interface ApiKeyModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -104,6 +130,9 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
   const [rotationStrategy, setRotationStrategy] = useState("account_rotation");
   const [accountPlanFilter, setAccountPlanFilter] = useState("all");
   const [upstreamBaseUrl, setUpstreamBaseUrl] = useState("");
+  const [totalTokenLimit, setTotalTokenLimit] = useState("");
+  const [totalCostUsdLimit, setTotalCostUsdLimit] = useState("");
+  const [totalRequestLimit, setTotalRequestLimit] = useState("");
   const [generatedKey, setGeneratedKey] = useState("");
 
   const [isLoading, setIsLoading] = useState(false);
@@ -172,6 +201,9 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
       setRotationStrategy("account_rotation");
       setAccountPlanFilter("all");
       setUpstreamBaseUrl("");
+      setTotalTokenLimit("");
+      setTotalCostUsdLimit("");
+      setTotalRequestLimit("");
       setGeneratedKey("");
       return;
     }
@@ -185,6 +217,9 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     setAccountPlanFilter(apiKey.accountPlanFilter || "all");
     setGeneratedKey("");
     setUpstreamBaseUrl(apiKey.upstreamBaseUrl || "");
+    setTotalTokenLimit(formatLimitInput(apiKey.totalTokenLimit));
+    setTotalCostUsdLimit(formatLimitInput(apiKey.totalCostUsdLimit));
+    setTotalRequestLimit(formatLimitInput(apiKey.totalRequestLimit));
   }, [apiKey, open]);
 
   /**
@@ -211,6 +246,18 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     }
     setIsLoading(true);
     try {
+      const nextTotalTokenLimit = parseOptionalIntegerLimit(
+        totalTokenLimit,
+        t("Token 总量上限"),
+      );
+      const nextTotalCostUsdLimit = parseOptionalDecimalLimit(
+        totalCostUsdLimit,
+        t("金额上限"),
+      );
+      const nextTotalRequestLimit = parseOptionalIntegerLimit(
+        totalRequestLimit,
+        t("请求次数上限"),
+      );
       const params = {
         name: name || null,
         modelSlug: !modelSlug || modelSlug === "auto" ? null : modelSlug,
@@ -228,6 +275,9 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
           rotationStrategy === "account_rotation" && accountPlanFilter !== "all"
             ? accountPlanFilter
             : null,
+        totalTokenLimit: nextTotalTokenLimit,
+        totalCostUsdLimit: nextTotalCostUsdLimit,
+        totalRequestLimit: nextTotalRequestLimit,
       };
 
       if (apiKey?.id) {
@@ -492,6 +542,50 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
               <p className="text-[11px] text-muted-foreground">
                 {t("Fast 会映射为上游 priority；未设置时跟随请求。")}
               </p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 p-4">
+            <div className="space-y-1">
+              <Label>{t("额度限制 (可选)")}</Label>
+              <p className="text-[11px] text-muted-foreground">
+                {t("留空或填 0 表示不限制；达到任一上限后，该平台密钥的新请求会被拒绝。")}
+              </p>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="grid gap-2 content-start">
+                <Label htmlFor="total-token-limit">{t("Token 总量上限")}</Label>
+                <Input
+                  id="total-token-limit"
+                  inputMode="numeric"
+                  placeholder={t("不限制")}
+                  value={totalTokenLimit}
+                  disabled={!isServiceReady}
+                  onChange={(e) => setTotalTokenLimit(e.target.value)}
+                />
+              </div>
+              <div className="grid gap-2 content-start">
+                <Label htmlFor="total-cost-limit">{t("金额上限 (USD)")}</Label>
+                <Input
+                  id="total-cost-limit"
+                  inputMode="decimal"
+                  placeholder={t("不限制")}
+                  value={totalCostUsdLimit}
+                  disabled={!isServiceReady}
+                  onChange={(e) => setTotalCostUsdLimit(e.target.value)}
+                />
+              </div>
+              <div className="grid gap-2 content-start">
+                <Label htmlFor="total-request-limit">{t("请求次数上限")}</Label>
+                <Input
+                  id="total-request-limit"
+                  inputMode="numeric"
+                  placeholder={t("不限制")}
+                  value={totalRequestLimit}
+                  disabled={!isServiceReady}
+                  onChange={(e) => setTotalRequestLimit(e.target.value)}
+                />
+              </div>
             </div>
           </div>
 

@@ -103,6 +103,9 @@ interface ApiKeyPayload {
   rotationStrategy?: string | null;
   aggregateApiId?: string | null;
   accountPlanFilter?: string | null;
+  totalTokenLimit?: number | null;
+  totalCostUsdLimit?: number | null;
+  totalRequestLimit?: number | null;
 }
 
 export interface ManagedModelPayload {

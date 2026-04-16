@@ -100,38 +100,86 @@ impl Storage {
     pub fn summarize_request_token_stats_by_key(&self) -> Result<Vec<ApiKeyTokenUsageSummary>> {
         let mut stmt = self.conn.prepare(
             "SELECT
-                key_id,
+                rl.key_id,
+                COUNT(rl.id) AS request_count,
                 IFNULL(
                     SUM(
                         CASE
-                            WHEN total_tokens IS NOT NULL THEN
-                                CASE WHEN total_tokens > 0 THEN total_tokens ELSE 0 END
+                            WHEN rts.total_tokens IS NOT NULL THEN
+                                CASE WHEN rts.total_tokens > 0 THEN rts.total_tokens ELSE 0 END
                             ELSE
                                 CASE
-                                    WHEN IFNULL(input_tokens, 0) - IFNULL(cached_input_tokens, 0) + IFNULL(output_tokens, 0) > 0
-                                        THEN IFNULL(input_tokens, 0) - IFNULL(cached_input_tokens, 0) + IFNULL(output_tokens, 0)
+                                    WHEN IFNULL(rts.input_tokens, 0) - IFNULL(rts.cached_input_tokens, 0) + IFNULL(rts.output_tokens, 0) > 0
+                                        THEN IFNULL(rts.input_tokens, 0) - IFNULL(rts.cached_input_tokens, 0) + IFNULL(rts.output_tokens, 0)
                                     ELSE 0
                                 END
                         END
                     ),
                     0
                 ) AS total_tokens,
-                IFNULL(SUM(estimated_cost_usd), 0.0) AS estimated_cost_usd
-             FROM request_token_stats
-             WHERE key_id IS NOT NULL AND TRIM(key_id) <> ''
-             GROUP BY key_id
-             ORDER BY total_tokens DESC, key_id ASC",
+                IFNULL(SUM(rts.estimated_cost_usd), 0.0) AS estimated_cost_usd
+             FROM request_logs rl
+             LEFT JOIN request_token_stats rts ON rts.request_log_id = rl.id
+             WHERE rl.key_id IS NOT NULL AND TRIM(rl.key_id) <> ''
+             GROUP BY rl.key_id
+             ORDER BY total_tokens DESC, rl.key_id ASC",
         )?;
         let mut rows = stmt.query([])?;
         let mut items = Vec::new();
         while let Some(row) = rows.next()? {
             items.push(ApiKeyTokenUsageSummary {
                 key_id: row.get(0)?,
-                total_tokens: row.get(1)?,
-                estimated_cost_usd: row.get(2)?,
+                request_count: row.get(1)?,
+                total_tokens: row.get(2)?,
+                estimated_cost_usd: row.get(3)?,
             });
         }
         Ok(items)
+    }
+
+    pub fn summarize_request_token_stats_for_key(
+        &self,
+        key_id: &str,
+    ) -> Result<ApiKeyTokenUsageSummary> {
+        let mut stmt = self.conn.prepare(
+            "SELECT
+                COUNT(rl.id) AS request_count,
+                IFNULL(
+                    SUM(
+                        CASE
+                            WHEN rts.total_tokens IS NOT NULL THEN
+                                CASE WHEN rts.total_tokens > 0 THEN rts.total_tokens ELSE 0 END
+                            ELSE
+                                CASE
+                                    WHEN IFNULL(rts.input_tokens, 0) - IFNULL(rts.cached_input_tokens, 0) + IFNULL(rts.output_tokens, 0) > 0
+                                        THEN IFNULL(rts.input_tokens, 0) - IFNULL(rts.cached_input_tokens, 0) + IFNULL(rts.output_tokens, 0)
+                                    ELSE 0
+                                END
+                        END
+                    ),
+                    0
+                ) AS total_tokens,
+                IFNULL(SUM(rts.estimated_cost_usd), 0.0) AS estimated_cost_usd
+             FROM request_logs rl
+             LEFT JOIN request_token_stats rts ON rts.request_log_id = rl.id
+             WHERE rl.key_id = ?1",
+        )?;
+        let mut rows = stmt.query([key_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(ApiKeyTokenUsageSummary {
+                key_id: key_id.to_string(),
+                request_count: row.get(0)?,
+                total_tokens: row.get(1)?,
+                estimated_cost_usd: row.get(2)?,
+            })
+        } else {
+            Ok(ApiKeyTokenUsageSummary {
+                key_id: key_id.to_string(),
+                request_count: 0,
+                total_tokens: 0,
+                estimated_cost_usd: 0.0,
+            })
+        }
     }
 
     /// 函数 `ensure_request_token_stats_table`

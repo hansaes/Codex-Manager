@@ -97,6 +97,23 @@ function formatCompactTokenAmount(value: number | null | undefined): string {
   return formatCompactNumber(normalized, "0.00", 2, true);
 }
 
+function formatCompactRequestCount(value: number | null | undefined): string {
+  const normalized =
+    typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
+  return normalized.toLocaleString("zh-CN");
+}
+
+function formatLimitValue(
+  value: number | null | undefined,
+  formatter: (value: number) => string,
+  noLimitLabel: string,
+): string {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return noLimitLabel;
+  }
+  return formatter(value);
+}
+
 /**
  * 函数 `ApiKeyStatCard`
  *
@@ -179,14 +196,30 @@ export default function ApiKeysPage() {
     queryKey: ["apikey-usage-overview", serviceAddr || null],
     queryFn: async () => {
       const stats = await accountClient.listApiKeyUsageStats();
-      const usageByKey = stats.reduce<Record<string, number>>((result, item) => {
+      const usageByKey = stats.reduce<
+        Record<
+          string,
+          {
+            requestCount: number;
+            totalTokens: number;
+            estimatedCostUsd: number;
+          }
+        >
+      >((result, item) => {
         const keyId = String(item.keyId || "").trim();
         if (!keyId) return result;
-        result[keyId] = Math.max(0, item.totalTokens || 0);
+        result[keyId] = {
+          requestCount: Math.max(0, item.requestCount || 0),
+          totalTokens: Math.max(0, item.totalTokens || 0),
+          estimatedCostUsd: Math.max(0, item.estimatedCostUsd || 0),
+        };
         return result;
       }, {});
 
-      const totalTokens = Object.values(usageByKey).reduce((sum, value) => sum + value, 0);
+      const totalTokens = Object.values(usageByKey).reduce(
+        (sum, value) => sum + value.totalTokens,
+        0,
+      );
       const totalCostUsd = stats.reduce(
         (sum, item) => sum + Math.max(0, item.estimatedCostUsd || 0),
         0,
@@ -438,6 +471,21 @@ export default function ApiKeysPage() {
                 apiKeys.map((key) => {
                   const revealed = revealedSecrets[key.id];
                   const isEnabled = String(key.status).toLowerCase() !== "disabled";
+                  const usage = usageByKey[key.id] || {
+                    requestCount: 0,
+                    totalTokens: 0,
+                    estimatedCostUsd: 0,
+                  };
+                  const isQuotaExceeded =
+                    (typeof key.totalTokenLimit === "number" &&
+                      key.totalTokenLimit > 0 &&
+                      usage.totalTokens >= key.totalTokenLimit) ||
+                    (typeof key.totalCostUsdLimit === "number" &&
+                      key.totalCostUsdLimit > 0 &&
+                      usage.estimatedCostUsd >= key.totalCostUsdLimit) ||
+                    (typeof key.totalRequestLimit === "number" &&
+                      key.totalRequestLimit > 0 &&
+                      usage.requestCount >= key.totalRequestLimit);
 
                   return (
                     <TableRow key={key.id} className="group">
@@ -501,7 +549,37 @@ export default function ApiKeysPage() {
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-xs">
-                        {formatCompactTokenAmount(usageByKey[key.id] ?? 0)}
+                        <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+                          <span>
+                            Token {formatCompactTokenAmount(usage.totalTokens)} /{" "}
+                            {formatLimitValue(
+                              key.totalTokenLimit,
+                              formatCompactTokenAmount,
+                              t("不限制"),
+                            )}
+                          </span>
+                          <span>
+                            Cost {formatUsd(usage.estimatedCostUsd)} /{" "}
+                            {formatLimitValue(
+                              key.totalCostUsdLimit,
+                              formatUsd,
+                              t("不限制"),
+                            )}
+                          </span>
+                          <span>
+                            Req {formatCompactRequestCount(usage.requestCount)} /{" "}
+                            {formatLimitValue(
+                              key.totalRequestLimit,
+                              formatCompactRequestCount,
+                              t("不限制"),
+                            )}
+                          </span>
+                          {isQuotaExceeded ? (
+                            <Badge className="border-red-500/20 bg-red-500/10 text-[10px] text-red-500">
+                              {t("已超限")}
+                            </Badge>
+                          ) : null}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">

@@ -75,5 +75,46 @@ pub(super) fn load_active_api_key(
         ));
     }
 
+    if let Some(limits) = storage.find_api_key_quota_limits(&api_key.id).map_err(|err| {
+        super::LocalValidationError::new(
+            500,
+            crate::gateway::bilingual_error(
+                "读取平台密钥额度限制失败",
+                format!("api key quota limit read failed: {err}"),
+            ),
+        )
+    })? {
+        let usage = storage
+            .summarize_request_token_stats_for_key(&api_key.id)
+            .map_err(|err| {
+                super::LocalValidationError::new(
+                    500,
+                    crate::gateway::bilingual_error(
+                        "读取平台密钥使用统计失败",
+                        format!("api key usage summary read failed: {err}"),
+                    ),
+                )
+            })?;
+        if let Some(message) = crate::apikey::quota_limits::build_quota_exceeded_message(
+            api_key.name.as_deref(),
+            api_key.id.as_str(),
+            &limits,
+            &usage,
+        ) {
+            if debug {
+                log::warn!(
+                    "event=gateway_auth_quota_exceeded path={} status=429 key_id={} message={}",
+                    request_url,
+                    api_key.id,
+                    message
+                );
+            }
+            return Err(super::LocalValidationError::new(
+                429,
+                crate::gateway::bilingual_error("平台密钥额度已达上限", message),
+            ));
+        }
+    }
+
     Ok(api_key)
 }

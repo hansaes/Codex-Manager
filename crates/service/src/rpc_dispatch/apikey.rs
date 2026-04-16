@@ -35,6 +35,9 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let rotation_strategy = super::string_param(req, "rotationStrategy");
             let aggregate_api_id = super::string_param(req, "aggregateApiId");
             let account_plan_filter = super::string_param(req, "accountPlanFilter");
+            let total_token_limit = super::i64_param(req, "totalTokenLimit");
+            let total_cost_usd_limit = super::f64_param(req, "totalCostUsdLimit");
+            let total_request_limit = super::i64_param(req, "totalRequestLimit");
             super::value_or_error(apikey_create::create_api_key(
                 name,
                 model_slug,
@@ -46,6 +49,9 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 rotation_strategy,
                 aggregate_api_id,
                 account_plan_filter,
+                total_token_limit,
+                total_cost_usd_limit,
+                total_request_limit,
             ))
         }
         "apikey/readSecret" => {
@@ -97,6 +103,27 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let rotation_strategy = super::string_param(req, "rotationStrategy");
             let aggregate_api_id = super::string_param(req, "aggregateApiId");
             let account_plan_filter = super::string_param(req, "accountPlanFilter");
+            let has_total_token_limit = req
+                .params
+                .as_ref()
+                .and_then(|value| value.as_object())
+                .map(|params| params.contains_key("totalTokenLimit"))
+                .unwrap_or(false);
+            let has_total_cost_usd_limit = req
+                .params
+                .as_ref()
+                .and_then(|value| value.as_object())
+                .map(|params| params.contains_key("totalCostUsdLimit"))
+                .unwrap_or(false);
+            let has_total_request_limit = req
+                .params
+                .as_ref()
+                .and_then(|value| value.as_object())
+                .map(|params| params.contains_key("totalRequestLimit"))
+                .unwrap_or(false);
+            let total_token_limit = super::i64_param(req, "totalTokenLimit");
+            let total_cost_usd_limit = super::f64_param(req, "totalCostUsdLimit");
+            let total_request_limit = super::i64_param(req, "totalRequestLimit");
             super::ok_or_error(apikey_update_model::update_api_key_model(
                 key_id,
                 name,
@@ -110,6 +137,12 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 rotation_strategy,
                 aggregate_api_id,
                 account_plan_filter,
+                total_token_limit,
+                has_total_token_limit,
+                total_cost_usd_limit,
+                has_total_cost_usd_limit,
+                total_request_limit,
+                has_total_request_limit,
             ))
         }
         "apikey/delete" => {

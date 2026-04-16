@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod account_metadata;
 mod accounts;
 mod aggregate_apis;
+mod api_key_quota_limits;
 mod api_keys;
 mod conversation_bindings;
 mod events;
@@ -213,8 +214,17 @@ pub struct GatewayErrorLog {
 #[derive(Debug, Clone)]
 pub struct ApiKeyTokenUsageSummary {
     pub key_id: String,
+    pub request_count: i64,
     pub total_tokens: i64,
     pub estimated_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ApiKeyQuotaLimits {
+    pub key_id: String,
+    pub total_token_limit: Option<i64>,
+    pub total_cost_usd_limit: Option<f64>,
+    pub total_request_limit: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -675,7 +685,12 @@ impl Storage {
             "052_managed_teams",
             include_str!("../../migrations/052_managed_teams.sql"),
         )?;
+        self.apply_sql_migration(
+            "053_api_key_quota_limits",
+            include_str!("../../migrations/053_api_key_quota_limits.sql"),
+        )?;
         self.ensure_api_key_rotation_columns()?;
+        self.ensure_api_key_quota_limits_table()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
         self.ensure_request_token_stats_table()?;

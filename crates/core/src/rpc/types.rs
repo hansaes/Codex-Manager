@@ -432,6 +432,9 @@ pub struct ApiKeySummary {
     pub auth_scheme: String,
     pub upstream_base_url: Option<String>,
     pub static_headers_json: Option<String>,
+    pub total_token_limit: Option<i64>,
+    pub total_cost_usd_limit: Option<f64>,
+    pub total_request_limit: Option<i64>,
     pub status: String,
     pub created_at: i64,
     pub last_used_at: Option<i64>,
@@ -446,6 +449,7 @@ pub struct ApiKeyListResult {
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeyUsageStatSummary {
     pub key_id: String,
+    pub request_count: i64,
     pub total_tokens: i64,
     pub estimated_cost_usd: f64,
 }
