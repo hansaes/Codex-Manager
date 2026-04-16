@@ -34,6 +34,16 @@ export interface ManagedTeamMembersResult {
 
 export interface ManagedTeamInviteResult {
   invitedCount: number;
+  skippedCount: number;
+  teamId: string;
+  invited: string[];
+  alreadyJoined: string[];
+  alreadyInvited: string[];
+  pendingSync: string[];
+  message: string;
+}
+
+export interface ManagedTeamMutationResult {
   teamId: string;
   message: string;
 }

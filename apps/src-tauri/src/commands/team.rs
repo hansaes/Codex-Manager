@@ -54,6 +54,34 @@ pub async fn service_team_invite(
 }
 
 #[tauri::command]
+pub async fn service_team_remove_member(
+    addr: Option<String>,
+    team_id: String,
+    user_id: String,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background(
+        "team/removeMember",
+        addr,
+        Some(serde_json::json!({ "teamId": team_id, "userId": user_id })),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn service_team_revoke_invite(
+    addr: Option<String>,
+    team_id: String,
+    email: String,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background(
+        "team/revokeInvite",
+        addr,
+        Some(serde_json::json!({ "teamId": team_id, "email": email })),
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn service_team_delete(
     addr: Option<String>,
     team_id: String,

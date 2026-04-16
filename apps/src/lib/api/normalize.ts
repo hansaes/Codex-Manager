@@ -23,6 +23,7 @@ import {
   ManagedTeamInviteResult,
   ManagedTeamMember,
   ManagedTeamMembersResult,
+  ManagedTeamMutationResult,
   ManagedModelCatalog,
   ManagedModelInfo,
   ModelCatalog,
@@ -517,6 +518,21 @@ export function normalizeManagedTeamInviteResult(
   const source = asObject(payload);
   return {
     invitedCount: asInteger(source.invitedCount ?? source.invited_count, 0, 0),
+    skippedCount: asInteger(source.skippedCount ?? source.skipped_count, 0, 0),
+    teamId: asString(source.teamId ?? source.team_id),
+    invited: asStringArray(source.invited),
+    alreadyJoined: asStringArray(source.alreadyJoined ?? source.already_joined),
+    alreadyInvited: asStringArray(source.alreadyInvited ?? source.already_invited),
+    pendingSync: asStringArray(source.pendingSync ?? source.pending_sync),
+    message: asString(source.message),
+  };
+}
+
+export function normalizeManagedTeamMutationResult(
+  payload: unknown
+): ManagedTeamMutationResult {
+  const source = asObject(payload);
+  return {
     teamId: asString(source.teamId ?? source.team_id),
     message: asString(source.message),
   };

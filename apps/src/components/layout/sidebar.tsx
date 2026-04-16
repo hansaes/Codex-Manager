@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Building2,
   Boxes,
   ChevronLeft,
   ChevronRight,
@@ -23,7 +24,7 @@ import { buildStaticRouteUrl } from "@/lib/utils/static-routes";
 const NAV_ITEMS = [
   { label: "仪表盘", href: "/", icon: LayoutDashboard },
   { label: "账号管理", href: "/accounts", icon: Users },
-  { label: "团队管理", href: "/teams", icon: Users },
+  { label: "团队管理", href: "/teams", icon: Building2 },
   { label: "聚合API", href: "/aggregate-api", icon: Database },
   { label: "平台密钥", href: "/apikeys", icon: Key },
   { label: "模型管理", href: "/models", icon: Boxes },

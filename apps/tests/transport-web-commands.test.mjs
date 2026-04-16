@@ -69,3 +69,12 @@ test("createWebCommandMap 为账号预热命令提供 Web RPC 映射", () => {
     rpcMethod: "account/warmup",
   });
 });
+
+test("createWebCommandMap 为团队成员与邀请操作提供 RPC 映射", () => {
+  assert.deepEqual(commandMap.service_team_remove_member, {
+    rpcMethod: "team/removeMember",
+  });
+  assert.deepEqual(commandMap.service_team_revoke_invite, {
+    rpcMethod: "team/revokeInvite",
+  });
+});

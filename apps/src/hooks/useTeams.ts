@@ -35,6 +35,10 @@ export function useTeams() {
     ]);
   };
 
+  const invalidateTeamsInBackground = () => {
+    void invalidateTeams();
+  };
+
   const addFromAccountMutation = useMutation({
     mutationFn: (accountId: string) => teamClient.addFromAccount(accountId),
     onSuccess: async () => {
@@ -60,8 +64,8 @@ export function useTeams() {
   const inviteMutation = useMutation({
     mutationFn: ({ teamId, emails }: { teamId: string; emails: string[] }) =>
       teamClient.invite(teamId, emails),
-    onSuccess: async (result) => {
-      await invalidateTeams();
+    onSuccess: (result) => {
+      invalidateTeamsInBackground();
       toast.success(
         result.message || t("已发送 {count} 个邀请", { count: result.invitedCount }),
       );
@@ -71,10 +75,34 @@ export function useTeams() {
     },
   });
 
+  const removeMemberMutation = useMutation({
+    mutationFn: ({ teamId, userId }: { teamId: string; userId: string }) =>
+      teamClient.removeMember(teamId, userId),
+    onSuccess: (result) => {
+      invalidateTeamsInBackground();
+      toast.success(result.message || t("成员已移出"));
+    },
+    onError: (error: unknown) => {
+      toast.error(`${t("移出成员失败")}: ${getAppErrorMessage(error)}`);
+    },
+  });
+
+  const revokeInviteMutation = useMutation({
+    mutationFn: ({ teamId, email }: { teamId: string; email: string }) =>
+      teamClient.revokeInvite(teamId, email),
+    onSuccess: (result) => {
+      invalidateTeamsInBackground();
+      toast.success(result.message || t("邀请已撤回"));
+    },
+    onError: (error: unknown) => {
+      toast.error(`${t("撤回邀请失败")}: ${getAppErrorMessage(error)}`);
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (teamId: string) => teamClient.delete(teamId),
-    onSuccess: async () => {
-      await invalidateTeams();
+    onSuccess: () => {
+      invalidateTeamsInBackground();
       toast.success(t("已移出团队管理"));
     },
     onError: (error: unknown) => {
@@ -85,6 +113,7 @@ export function useTeams() {
   return {
     teams: listQuery.data || [],
     isLoading: isServiceReady && (listQuery.isLoading || !areTeamQueriesEnabled),
+    isRefreshingTeams: isServiceReady && listQuery.isFetching,
     isServiceReady,
     addFromAccount: async (accountId: string) => {
       return await addFromAccountMutation.mutateAsync(accountId);
@@ -94,6 +123,12 @@ export function useTeams() {
     },
     inviteMembers: async (teamId: string, emails: string[]) => {
       return await inviteMutation.mutateAsync({ teamId, emails });
+    },
+    removeMember: async (teamId: string, userId: string) => {
+      return await removeMemberMutation.mutateAsync({ teamId, userId });
+    },
+    revokeInvite: async (teamId: string, email: string) => {
+      return await revokeInviteMutation.mutateAsync({ teamId, email });
     },
     deleteTeam: async (teamId: string) => {
       await deleteMutation.mutateAsync(teamId);
@@ -116,6 +151,18 @@ export function useTeams() {
       inviteMutation.variables &&
       typeof inviteMutation.variables === "object"
         ? String(inviteMutation.variables.teamId || "")
+        : "",
+    isRemovingMemberKey:
+      removeMemberMutation.isPending &&
+      removeMemberMutation.variables &&
+      typeof removeMemberMutation.variables === "object"
+        ? `${String(removeMemberMutation.variables.teamId || "")}:${String(removeMemberMutation.variables.userId || "")}`
+        : "",
+    isRevokingInviteKey:
+      revokeInviteMutation.isPending &&
+      revokeInviteMutation.variables &&
+      typeof revokeInviteMutation.variables === "object"
+        ? `${String(revokeInviteMutation.variables.teamId || "")}:${String(revokeInviteMutation.variables.email || "")}`
         : "",
     isDeletingTeamId:
       deleteMutation.isPending && typeof deleteMutation.variables === "string"
