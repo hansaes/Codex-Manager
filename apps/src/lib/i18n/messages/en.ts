@@ -220,6 +220,7 @@ export const EN_MESSAGES: MessageCatalog = {
   预热: "Warm up",
   "预热中...": "Warming up...",
   账号预热: "Account warm-up",
+  上下文压缩: "Context compaction",
   当前没有可预热的账号: "There are no accounts available for warm-up",
   "预热完成：共{requested}个账号，成功{count}个":
     "Warm-up complete: {count} of {requested} accounts succeeded",

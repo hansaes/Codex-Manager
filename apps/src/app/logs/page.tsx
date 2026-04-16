@@ -317,8 +317,10 @@ function formatCompactTokenAmount(value: number | null | undefined): string {
  * 返回函数执行结果
  */
 function formatTableTokenAmount(value: number | null | undefined): string {
-  const normalized =
-    typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+  const normalized = Math.max(0, value);
   return Math.round(normalized).toLocaleString("zh-CN");
 }
 
@@ -422,6 +424,8 @@ function resolveFriendlyRequestPathLabel(
 ): string {
   const normalized = String(path || "").trim();
   switch (normalized) {
+    case "/v1/responses/compact":
+      return t("上下文压缩");
     case "/internal/account/warmup":
       return t("账号预热");
     default:

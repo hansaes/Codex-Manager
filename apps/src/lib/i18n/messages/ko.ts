@@ -187,6 +187,7 @@ export const KO_MESSAGES: MessageCatalog = {
   预热: "예열",
   "预热中...": "예열 중...",
   账号预热: "계정 예열",
+  上下文压缩: "컨텍스트 압축",
   当前没有可预热的账号: "예열할 수 있는 계정이 없습니다",
   "预热完成：共{requested}个账号，成功{count}个":
     "예열 완료: 총 {requested}개 중 {count}개 성공",
