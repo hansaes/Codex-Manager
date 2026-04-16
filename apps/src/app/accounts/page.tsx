@@ -6,7 +6,7 @@ import { useAccounts } from "@/hooks/useAccounts";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
-import { teamClient } from "@/lib/api/team-client";
+import { useTeams } from "@/hooks/useTeams";
 import { useI18n } from "@/lib/i18n/provider";
 import { useAppStore } from "@/lib/store/useAppStore";
 import {
@@ -14,6 +14,7 @@ import {
   buildAccountOrderUpdates,
   canManageAsTeamParent,
   type AccountEditorState,
+  type AccountExportMode,
   type DeleteDialogState,
   normalizeAccountPlanKey,
   normalizeTagsDraft,
@@ -28,6 +29,7 @@ export default function AccountsPage() {
   const navigateShellPath = useAppStore((state) => state.navigateShellPath);
   const { isDesktopRuntime, canUseBrowserDownloadExport } =
     useRuntimeCapabilities();
+  const { addFromAccount, isAddingFromAccountId } = useTeams();
   const {
     accounts,
     planTypes,
@@ -70,9 +72,8 @@ export default function AccountsPage() {
   const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
   const [usageModalOpen, setUsageModalOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [exportModeDraft, setExportModeDraft] = useState<"single" | "multiple">(
-    "multiple",
-  );
+  const [exportModeDraft, setExportModeDraft] =
+    useState<AccountExportMode>("multiple");
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [labelDraft, setLabelDraft] = useState("");
   const [tagsDraft, setTagsDraft] = useState("");
@@ -82,8 +83,6 @@ export default function AccountsPage() {
     useState<AccountEditorState | null>(null);
   const [deleteDialogState, setDeleteDialogState] =
     useState<DeleteDialogState>(null);
-  const [isAddingTeamParentAccountId, setIsAddingTeamParentAccountId] =
-    useState("");
 
   const importFileActionLabel = isDesktopRuntime
     ? t("按文件导入")
@@ -100,23 +99,6 @@ export default function AccountsPage() {
     : !isDesktopRuntime && canUseBrowserDownloadExport
       ? "DL"
       : "ZIP";
-
-  const handleAddAccountToTeamManagement = async (account: Account) => {
-    setIsAddingTeamParentAccountId(account.id);
-    try {
-      await teamClient.addFromAccount(account.id);
-      toast.success(t("已加入团队管理"));
-      navigateShellPath("/teams");
-    } catch (error: unknown) {
-      toast.error(
-        `${t("加入团队管理失败")}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    } finally {
-      setIsAddingTeamParentAccountId((current) =>
-        current === account.id ? "" : current,
-      );
-    }
-  };
 
   const filteredAccounts = useMemo(() => {
     return accounts.filter((account) => {
@@ -332,6 +314,15 @@ export default function AccountsPage() {
     setDeleteDialogState({ kind: "single", account });
   };
 
+  const handleAddAccountToTeamManagement = async (account: Account) => {
+    try {
+      await addFromAccount(account.id);
+      navigateShellPath("/teams");
+    } catch {
+      // 中文注释：toast 已由 useTeams 统一处理，这里仅阻止异常冒泡。
+    }
+  };
+
   const openAccountEditor = (account: Account) => {
     setAccountEditorState({
       accountId: account.id,
@@ -519,7 +510,7 @@ export default function AccountsPage() {
       isReorderingAccounts={isReorderingAccounts}
       isUpdatingProfileAccountId={isUpdatingProfileAccountId}
       isUpdatingStatusAccountId={isUpdatingStatusAccountId}
-      isAddingTeamParentAccountId={isAddingTeamParentAccountId}
+      isAddingTeamParentAccountId={isAddingFromAccountId}
       statusFilterOptions={statusFilterOptions}
       importFileActionLabel={importFileActionLabel}
       importDirectoryActionLabel={importDirectoryActionLabel}
@@ -549,9 +540,9 @@ export default function AccountsPage() {
       openExportDialog={openExportDialog}
       handleConfirmExport={handleConfirmExport}
       handleDeleteSingle={handleDeleteSingle}
+      handleAddAccountToTeamManagement={handleAddAccountToTeamManagement}
       openAccountEditor={openAccountEditor}
       canManageAsTeamParent={canManageAsTeamParent}
-      handleAddAccountToTeamManagement={handleAddAccountToTeamManagement}
       handleMoveAccount={handleMoveAccount}
       handleApplyAccountSizeSort={handleApplyAccountSizeSort}
       handleConfirmAccountEditor={handleConfirmAccountEditor}

@@ -308,6 +308,18 @@ pub struct ManagedTeamMemberSummary {
 #[serde(rename_all = "camelCase")]
 pub struct ManagedTeamInviteResult {
     pub invited_count: i64,
+    pub skipped_count: i64,
+    pub team_id: String,
+    pub invited: Vec<String>,
+    pub already_joined: Vec<String>,
+    pub already_invited: Vec<String>,
+    pub pending_sync: Vec<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedTeamMutationResult {
     pub team_id: String,
     pub message: String,
 }

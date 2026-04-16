@@ -243,6 +243,8 @@ export function createWebCommandMap(
     service_team_sync: { rpcMethod: "team/sync" },
     service_team_members: { rpcMethod: "team/members" },
     service_team_invite: { rpcMethod: "team/invite" },
+    service_team_remove_member: { rpcMethod: "team/removeMember" },
+    service_team_revoke_invite: { rpcMethod: "team/revokeInvite" },
     service_team_delete: { rpcMethod: "team/delete" },
     service_account_import: { rpcMethod: "account/import" },
     service_account_import_by_file: {

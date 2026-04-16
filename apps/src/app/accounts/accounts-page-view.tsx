@@ -76,6 +76,7 @@ import {
   type AccountEditorState,
   type AccountExportMode,
   type AccountSizeSortMode,
+  canManageAsTeamParent,
   type DeleteDialogState,
   type StatusFilter,
   AccountInfoCell,
@@ -168,9 +169,9 @@ export interface AccountsPageViewProps {
   openExportDialog: () => void;
   handleConfirmExport: () => Promise<void>;
   handleDeleteSingle: (account: Account) => void;
+  handleAddAccountToTeamManagement: (account: Account) => Promise<void>;
   openAccountEditor: (account: Account) => void;
   canManageAsTeamParent: (account: Account) => boolean;
-  handleAddAccountToTeamManagement: (account: Account) => Promise<void>;
   handleMoveAccount: (
     account: Account,
     direction: "up" | "down",
@@ -264,9 +265,9 @@ export function AccountsPageView(props: AccountsPageViewProps) {
     openExportDialog,
     handleConfirmExport,
     handleDeleteSingle,
+    handleAddAccountToTeamManagement,
     openAccountEditor,
     canManageAsTeamParent,
-    handleAddAccountToTeamManagement,
     handleMoveAccount,
     handleApplyAccountSizeSort,
     handleConfirmAccountEditor,

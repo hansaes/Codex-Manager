@@ -7,3 +7,4 @@ export * from "@/types/request-log";
 export * from "@/types/runtime";
 export * from "@/types/settings";
 export * from "@/types/startup";
+export * from "@/types/team";

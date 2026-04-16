@@ -4,10 +4,12 @@ import {
   normalizeManagedTeamInviteResult,
   normalizeManagedTeamList,
   normalizeManagedTeamMembersResult,
+  normalizeManagedTeamMutationResult,
 } from "./normalize";
 import {
   ManagedTeam,
   ManagedTeamInviteResult,
+  ManagedTeamMutationResult,
   ManagedTeamMembersResult,
 } from "../../types";
 
@@ -51,6 +53,26 @@ export const teamClient = {
       withAddr({ teamId, emails }),
     );
     return normalizeManagedTeamInviteResult(result);
+  },
+  async removeMember(
+    teamId: string,
+    userId: string,
+  ): Promise<ManagedTeamMutationResult> {
+    const result = await invoke<unknown>(
+      "service_team_remove_member",
+      withAddr({ teamId, userId }),
+    );
+    return normalizeManagedTeamMutationResult(result);
+  },
+  async revokeInvite(
+    teamId: string,
+    email: string,
+  ): Promise<ManagedTeamMutationResult> {
+    const result = await invoke<unknown>(
+      "service_team_revoke_invite",
+      withAddr({ teamId, email }),
+    );
+    return normalizeManagedTeamMutationResult(result);
   },
   delete(teamId: string) {
     return invoke("service_team_delete", withAddr({ teamId }));

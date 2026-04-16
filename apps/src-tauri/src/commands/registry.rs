@@ -26,6 +26,8 @@ macro_rules! invoke_handler {
             crate::commands::team::service_team_sync,
             crate::commands::team::service_team_members,
             crate::commands::team::service_team_invite,
+            crate::commands::team::service_team_remove_member,
+            crate::commands::team::service_team_revoke_invite,
             crate::commands::team::service_team_delete,
             // usage
             crate::commands::usage::service_usage_read,

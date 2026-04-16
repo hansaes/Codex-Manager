@@ -67,11 +67,6 @@ export function normalizeAccountPlanKey(account: Account) {
   );
 }
 
-export function canManageAsTeamParent(account: Account): boolean {
-  return ["team", "business", "enterprise"].includes(
-    normalizeAccountPlanKey(account),
-  );
-}
 
 export function formatPlanFilterLabel(value: string, t: TranslateFn) {
   const nextValue = String(value || "").trim();
@@ -329,6 +324,12 @@ export function getAccountPlanBadgeClassName(planLabel: string | null): string {
     default:
       return "bg-accent/50";
   }
+}
+
+export function canManageAsTeamParent(account: Account): boolean {
+  return ["team", "business", "enterprise"].includes(
+    normalizeAccountPlanKey(account),
+  );
 }
 
 export function formatAccountTags(tags: string[]): string {
