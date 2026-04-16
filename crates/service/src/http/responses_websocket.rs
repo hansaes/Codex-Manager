@@ -619,6 +619,47 @@ fn authorize_websocket_request(headers: &HeaderMap) -> Result<WsRequestContext, 
             ),
         ));
     }
+    if let Some(limits) = storage.find_api_key_quota_limits(&api_key.id).map_err(|err| {
+        text_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            crate::gateway::error_message_for_client(
+                prefer_raw_errors,
+                crate::gateway::bilingual_error(
+                    "读取平台密钥额度限制失败",
+                    format!("api key quota limit read failed: {err}"),
+                ),
+            ),
+        )
+    })? {
+        let usage = storage
+            .summarize_request_token_stats_for_key(&api_key.id)
+            .map_err(|err| {
+                text_error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    crate::gateway::error_message_for_client(
+                        prefer_raw_errors,
+                        crate::gateway::bilingual_error(
+                            "读取平台密钥使用统计失败",
+                            format!("api key usage summary read failed: {err}"),
+                        ),
+                    ),
+                )
+            })?;
+        if let Some(message) = crate::apikey::quota_limits::build_quota_exceeded_message(
+            api_key.name.as_deref(),
+            api_key.id.as_str(),
+            &limits,
+            &usage,
+        ) {
+            return Err(text_error_response(
+                StatusCode::TOO_MANY_REQUESTS,
+                crate::gateway::error_message_for_client(
+                    prefer_raw_errors,
+                    crate::gateway::bilingual_error("平台密钥额度已达上限", message),
+                ),
+            ));
+        }
+    }
     if !crate::gateway::gateway_supports_official_responses_websocket(&api_key) {
         return Err(upgrade_required_response(
             crate::gateway::error_message_for_client(

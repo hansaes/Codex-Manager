@@ -113,6 +113,13 @@ pub(super) fn i64_param(req: &JsonRpcRequest, key: &str) -> Option<i64> {
 ///
 /// # 返回
 /// 返回函数执行结果
+pub(super) fn f64_param(req: &JsonRpcRequest, key: &str) -> Option<f64> {
+    req.params
+        .as_ref()
+        .and_then(|v| v.get(key))
+        .and_then(|v| v.as_f64())
+}
+
 pub(super) fn bool_param(req: &JsonRpcRequest, key: &str) -> Option<bool> {
     req.params
         .as_ref()

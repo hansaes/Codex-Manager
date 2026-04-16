@@ -2,6 +2,9 @@ use codexmanager_core::rpc::types::ApiKeyCreateResult;
 use codexmanager_core::storage::{now_ts, ApiKey};
 
 use crate::apikey::service_tier::normalize_service_tier_owned;
+use crate::apikey::quota_limits::{
+    normalize_total_cost_usd_limit, normalize_total_request_limit, normalize_total_token_limit,
+};
 use crate::apikey_profile::{
     normalize_protocol_type, normalize_rotation_strategy, normalize_static_headers_json,
     normalize_upstream_base_url, profile_from_protocol,
@@ -33,6 +36,9 @@ pub(crate) fn create_api_key(
     rotation_strategy: Option<String>,
     aggregate_api_id: Option<String>,
     account_plan_filter: Option<String>,
+    total_token_limit: Option<i64>,
+    total_cost_usd_limit: Option<f64>,
+    total_request_limit: Option<i64>,
 ) -> Result<ApiKeyCreateResult, String> {
     // 创建平台 Key 并写入存储
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
@@ -58,6 +64,9 @@ pub(crate) fn create_api_key(
     } else {
         None
     };
+    let total_token_limit = normalize_total_token_limit(total_token_limit)?;
+    let total_cost_usd_limit = normalize_total_cost_usd_limit(total_cost_usd_limit)?;
+    let total_request_limit = normalize_total_request_limit(total_request_limit)?;
     let record = ApiKey {
         id: key_id.clone(),
         name,
@@ -79,6 +88,15 @@ pub(crate) fn create_api_key(
         last_used_at: None,
     };
     storage.insert_api_key(&record).map_err(|e| e.to_string())?;
+    if let Err(err) = storage.set_api_key_quota_limits(
+        &key_id,
+        total_token_limit,
+        total_cost_usd_limit,
+        total_request_limit,
+    ) {
+        let _ = storage.delete_api_key(&key_id);
+        return Err(format!("persist api key quota limits failed: {err}"));
+    }
     if let Err(err) = storage.upsert_api_key_secret(&key_id, &key) {
         let _ = storage.delete_api_key(&key_id);
         return Err(format!("persist api key secret failed: {err}"));

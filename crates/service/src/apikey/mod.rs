@@ -12,6 +12,8 @@ pub(crate) mod list;
 pub(crate) mod models;
 #[path = "apikey_profile.rs"]
 pub(crate) mod profile;
+#[path = "apikey_quota_limits.rs"]
+pub(crate) mod quota_limits;
 #[path = "apikey_read_secret.rs"]
 pub(crate) mod read_secret;
 #[path = "apikey_service_tier.rs"]

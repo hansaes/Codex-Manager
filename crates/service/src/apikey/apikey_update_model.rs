@@ -1,4 +1,7 @@
 use crate::apikey::service_tier::normalize_service_tier_owned;
+use crate::apikey::quota_limits::{
+    normalize_total_cost_usd_limit, normalize_total_request_limit, normalize_total_token_limit,
+};
 use crate::apikey_profile::{
     normalize_protocol_type, normalize_rotation_strategy, normalize_static_headers_json,
     normalize_upstream_base_url, profile_from_protocol, ROTATION_AGGREGATE_API,
@@ -30,6 +33,12 @@ pub(crate) fn update_api_key_model(
     rotation_strategy: Option<String>,
     aggregate_api_id: Option<String>,
     account_plan_filter: Option<String>,
+    total_token_limit: Option<i64>,
+    has_total_token_limit: bool,
+    total_cost_usd_limit: Option<f64>,
+    has_total_cost_usd_limit: bool,
+    total_request_limit: Option<i64>,
+    has_total_request_limit: bool,
 ) -> Result<(), String> {
     if key_id.is_empty() {
         return Err("key id required".to_string());
@@ -68,6 +77,9 @@ pub(crate) fn update_api_key_model(
         } else {
             None
         };
+    let normalized_total_token_limit = normalize_total_token_limit(total_token_limit)?;
+    let normalized_total_cost_usd_limit = normalize_total_cost_usd_limit(total_cost_usd_limit)?;
+    let normalized_total_request_limit = normalize_total_request_limit(total_request_limit)?;
     storage
         .update_api_key_model_config(
             key_id,
@@ -84,6 +96,36 @@ pub(crate) fn update_api_key_model(
             normalized_account_plan_filter.as_deref(),
         )
         .map_err(|e| e.to_string())?;
+    if has_total_token_limit || has_total_cost_usd_limit || has_total_request_limit {
+        let existing_limits = storage
+            .find_api_key_quota_limits(key_id)
+            .map_err(|e| e.to_string())?;
+        let next_total_token_limit = if has_total_token_limit {
+            normalized_total_token_limit
+        } else {
+            existing_limits.as_ref().and_then(|item| item.total_token_limit)
+        };
+        let next_total_cost_usd_limit = if has_total_cost_usd_limit {
+            normalized_total_cost_usd_limit
+        } else {
+            existing_limits
+                .as_ref()
+                .and_then(|item| item.total_cost_usd_limit)
+        };
+        let next_total_request_limit = if has_total_request_limit {
+            normalized_total_request_limit
+        } else {
+            existing_limits.as_ref().and_then(|item| item.total_request_limit)
+        };
+        storage
+            .set_api_key_quota_limits(
+                key_id,
+                next_total_token_limit,
+                next_total_cost_usd_limit,
+                next_total_request_limit,
+            )
+            .map_err(|e| e.to_string())?;
+    }
 
     let has_upstream_base_url = upstream_base_url.is_some();
     let has_static_headers_json = static_headers_json.is_some();

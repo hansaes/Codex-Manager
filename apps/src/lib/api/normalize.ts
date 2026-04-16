@@ -682,6 +682,13 @@ export function normalizeApiKey(item: unknown): ApiKey | null {
     authScheme: asString(source.authScheme ?? source.auth_scheme),
     upstreamBaseUrl: asString(source.upstreamBaseUrl ?? source.upstream_base_url),
     staticHeadersJson: asString(source.staticHeadersJson ?? source.static_headers_json),
+    totalTokenLimit: toNullableNumber(source.totalTokenLimit ?? source.total_token_limit),
+    totalCostUsdLimit: toNullableNumber(
+      source.totalCostUsdLimit ?? source.total_cost_usd_limit,
+    ),
+    totalRequestLimit: toNullableNumber(
+      source.totalRequestLimit ?? source.total_request_limit,
+    ),
     status: asString(source.status) || "enabled",
     createdAt: toNullableNumber(source.createdAt ?? source.created_at),
     lastUsedAt: toNullableNumber(source.lastUsedAt ?? source.last_used_at),
@@ -875,6 +882,7 @@ export function normalizeApiKeyUsageStats(payload: unknown): ApiKeyUsageStat[] {
       if (!keyId) return null;
       return {
         keyId,
+        requestCount: asInteger(current.requestCount ?? current.request_count, 0, 0),
         totalTokens: asInteger(current.totalTokens ?? current.total_tokens, 0, 0),
         estimatedCostUsd: Math.max(
           0,
