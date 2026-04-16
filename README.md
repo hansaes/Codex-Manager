@@ -32,8 +32,8 @@
 
 ## 源码说明：
 > 本产品完全由本人指挥+AI打造 Codex（98%） Gemini (2%) 如果在使用过程中产生问题请友好交流，因为开源只是觉得有人能用的上，基本功能也没什么问题，不喜勿喷。
-> 其次是本人没有足够的环境来验证每个包都有没有问题，本人也要上班(我只是个穷逼买不起mac之类的)，本人只保证win的桌面端的可用性，如果其他端有问题，请在交流群反馈或者在充分测试后提交Issues，有时间我自会处理
-> 最后感谢各位使用者在交流群反馈的各个平台的问题和参与的部分测试。
+> 其次是本人没有足够的环境来验证每个包都有没有问题，本人也要上班(我只是个穷逼买不起mac之类的)，本人只保证win的桌面端的可用性，如果其他端有问题，请在充分测试后提交 Issues，有时间我自会处理
+> 最后感谢各位使用者反馈的各个平台问题和参与的部分测试。
 
 
 ## 免责声明
@@ -74,7 +74,7 @@
 </table>
 
 
-其他支持者：[Wonderdch](https://github.com/Wonderdch)、[suxinwl](https://github.com/suxinwl)、[Hermit](https://github.com/HermitChen)、[Suifeng023](https://github.com/Suifeng023)、[HK-hub](https://github.com/HK-hub)
+其他支持者：呆头呆脑、 [Wonderdch](https://github.com/Wonderdch)、[suxinwl](https://github.com/suxinwl)、[Hermit](https://github.com/HermitChen)、[Suifeng023](https://github.com/Suifeng023)、[HK-hub](https://github.com/HK-hub)
 
 
 ## ☕ 支持项目 (Support)
@@ -113,18 +113,12 @@
 | 系统全部可对接内部接口 | [系统内部接口总表](docs/zh-CN/report/系统内部接口总表.md) |
 | 本地构建、打包、发版、脚本调用 | [构建发布与脚本说明](docs/zh-CN/release/构建发布与脚本说明.md) |
 
-## 最近变更
-  - 当前最新版本：`v0.2.1`（2026-04-12，release）
-  - 模型管理页现在维护统一的结构化模型目录：桌面端会在保存、删除、远端并入和首次成功加载时自动覆盖写入本地 `~/.codex/models_cache.json`，而 Web 端提供 `models_cache.json` 导出按钮供手动放入本地 Codex 目录。
-  - 模型目录现在支持平台侧覆写 `display_name`、`description`、`supported_reasoning_levels`、`visibility`、`supported_in_api` 等关键字段，并已收敛为结构化表存储，便于后续继续扩展模型管理。
-  - Web 版运行方式已收敛为 `codexmanager-web` 壳 + `/api/runtime` / `/api/rpc` 代理；单独跑前端静态页面或普通 dev server 已不再视为完整 Web 部署方式。
-  - free 账号在没有 `refresh_token` 时，用量刷新链路会跳过 refresh-token 请求，不再出现空 rt 触发的 400 错误。
-
-### 近期提交摘要
-- `cb97ac8`：修复 free 账号空 `refresh_token` 时的用量刷新报错。
-- `64a5f6f`：完善模型目录导出与 Web 端引导文案。
-- `a6672aa`：冻结主要列表页的操作列。
-- `5d38260`：补齐模型管理页的桌面友好布局与可见性展示。
+## 最近提交
+- `524834e`：清理文件。
+- `57d85d8`：优化 gateway HTTP bridge 与 session affinity，补强 keepalive、压缩重试与桥接诊断。
+- `43778e4`：完善 `prompt_cache_key` 透传，并收紧账号失效判定。
+- `1a8613a`：默认启用 gateway 强兼容模式。
+- `49b274a`：补充 gateway 模式通用设置。
 
 ## 功能概览
 - 账号池管理：分组、标签、排序、备注、封禁识别与封禁筛选
@@ -234,10 +228,5 @@
 
 ## 联系方式
 - 公众号：七线牛马
-- 微信： ProsperGao
-
-- 交流群：答案是项目名：CodexManager
-
-  <img src="assets/images/qq_group.jpg" alt="交流群二维码" width="280" />
-
+- 微信：加微信群请加我微信 `ProsperGao`，并说明来意
 - Telegram 群聊：[CodexManager TG 群](https://t.me/+OdpFa9GvjxhjMDhl)

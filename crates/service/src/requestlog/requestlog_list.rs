@@ -65,9 +65,15 @@ pub(crate) fn read_request_log_page(
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
     let query = normalize_optional_text(params.query);
     let status_filter = normalize_status_filter(params.status_filter);
+    let (start_ts, end_ts) = normalize_time_range(params.start_ts, params.end_ts);
     let page_size = normalize_page_size(params.page_size);
     let total = storage
-        .count_request_logs(query.as_deref(), status_filter.as_deref())
+        .count_request_logs(
+            query.as_deref(),
+            status_filter.as_deref(),
+            start_ts,
+            end_ts,
+        )
         .map_err(|err| format!("count request logs failed: {err}"))?;
     let page = clamp_page(params.page, total, page_size);
     let offset = (page - 1) * page_size;
@@ -75,6 +81,8 @@ pub(crate) fn read_request_log_page(
         .list_request_logs_paginated(
             query.as_deref(),
             status_filter.as_deref(),
+            start_ts,
+            end_ts,
             offset,
             page_size,
         )
@@ -124,6 +132,22 @@ pub(crate) fn normalize_status_filter(value: Option<String>) -> Option<String> {
         "" | "all" => None,
         "2xx" | "4xx" | "5xx" => Some(normalized),
         _ => None,
+    }
+}
+
+pub(crate) fn normalize_optional_timestamp(value: Option<i64>) -> Option<i64> {
+    value.filter(|timestamp| *timestamp > 0)
+}
+
+pub(crate) fn normalize_time_range(
+    start_ts: Option<i64>,
+    end_ts: Option<i64>,
+) -> (Option<i64>, Option<i64>) {
+    let start_ts = normalize_optional_timestamp(start_ts);
+    let end_ts = normalize_optional_timestamp(end_ts);
+    match (start_ts, end_ts) {
+        (Some(start_ts), Some(end_ts)) if start_ts > end_ts => (Some(end_ts), Some(start_ts)),
+        _ => (start_ts, end_ts),
     }
 }
 

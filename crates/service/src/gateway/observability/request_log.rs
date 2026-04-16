@@ -370,16 +370,16 @@ pub(crate) fn write_request_log_with_attempts(
         .effective_service_tier
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    super::trace_log::log_failed_request(
-        created_at,
-        trace_context.trace_id,
+    super::trace_log::log_failed_request(super::trace_log::FailedRequestLog {
+        ts: created_at,
+        trace_id: trace_context.trace_id,
         key_id,
         account_id,
         method,
         request_path,
-        Some(original_path),
-        Some(adapted_path),
-        Some(request_type),
+        original_path: Some(original_path),
+        adapted_path: Some(adapted_path),
+        request_type: Some(request_type),
         model,
         reasoning_effort,
         service_tier,
@@ -387,7 +387,7 @@ pub(crate) fn write_request_log_with_attempts(
         status_code,
         error,
         duration_ms,
-    );
+    });
     let success = status_code
         .map(|status| (200..300).contains(&status))
         .unwrap_or(false);

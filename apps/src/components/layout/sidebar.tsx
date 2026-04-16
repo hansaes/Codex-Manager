@@ -1,23 +1,24 @@
 "use client";
 
 import {
-  LayoutDashboard,
-  Users,
-  Key,
   Boxes,
-  Database,
-  Puzzle,
-  FileText,
-  Settings,
   ChevronLeft,
   ChevronRight,
+  Database,
+  FileText,
+  Key,
+  LayoutDashboard,
+  Puzzle,
+  Settings,
+  UserRound,
+  Users,
 } from "lucide-react";
+import { memo, useCallback, useMemo, type MouseEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { useI18n } from "@/lib/i18n/provider";
+import { useAppStore } from "@/lib/store/useAppStore";
 import { cn } from "@/lib/utils";
 import { buildStaticRouteUrl } from "@/lib/utils/static-routes";
-import { Button } from "@/components/ui/button";
-import { useAppStore } from "@/lib/store/useAppStore";
-import { useI18n } from "@/lib/i18n/provider";
-import { memo, useCallback, useMemo, type MouseEvent } from "react";
 
 const NAV_ITEMS = [
   { label: "仪表盘", href: "/", icon: LayoutDashboard },
@@ -29,34 +30,37 @@ const NAV_ITEMS = [
   { label: "插件中心", href: "/plugins", icon: Puzzle },
   { label: "请求日志", href: "/logs", icon: FileText },
   { label: "设置", href: "/settings", icon: Settings },
+  { label: "关于作者", href: "/author", icon: UserRound },
 ];
 
-const NavItem = memo(({
-  item,
-  isActive,
-  isSidebarOpen,
-  onNavigate,
-  itemName,
-}: {
-  item: typeof NAV_ITEMS[0];
-  isActive: boolean;
-  isSidebarOpen: boolean;
-  onNavigate: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
-  itemName: string;
-}) => (
-  <a
-    href={buildStaticRouteUrl(item.href)}
-    onClick={(event) => onNavigate(item.href, event)}
-    aria-current={isActive ? "page" : undefined}
-    className={cn(
-      "flex items-center gap-3 rounded-lg px-3 py-2 transition-all duration-200 hover:bg-accent hover:text-accent-foreground",
-      isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground",
-    )}
-  >
-    <item.icon className="h-4 w-4 shrink-0" />
-    {isSidebarOpen ? <span className="truncate text-sm">{itemName}</span> : null}
-  </a>
-));
+const NavItem = memo(
+  ({
+    item,
+    isActive,
+    isSidebarOpen,
+    onNavigate,
+    itemName,
+  }: {
+    item: typeof NAV_ITEMS[0];
+    isActive: boolean;
+    isSidebarOpen: boolean;
+    onNavigate: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
+    itemName: string;
+  }) => (
+    <a
+      href={buildStaticRouteUrl(item.href)}
+      onClick={(event) => onNavigate(item.href, event)}
+      aria-current={isActive ? "page" : undefined}
+      className={cn(
+        "flex items-center gap-3 rounded-lg px-3 py-2 transition-all duration-200 hover:bg-accent hover:text-accent-foreground",
+        isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+      )}
+    >
+      <item.icon className="h-4 w-4 shrink-0" />
+      {isSidebarOpen ? <span className="truncate text-sm">{itemName}</span> : null}
+    </a>
+  ),
+);
 
 NavItem.displayName = "NavItem";
 

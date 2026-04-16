@@ -202,7 +202,7 @@ impl Storage {
     /// # 返回
     /// 返回函数执行结果
     pub fn list_request_logs(&self, query: Option<&str>, limit: i64) -> Result<Vec<RequestLog>> {
-        self.list_request_logs_paginated(query, None, 0, limit)
+        self.list_request_logs_paginated(query, None, None, None, 0, limit)
     }
 
     /// 函数 `list_request_logs_paginated`
@@ -224,13 +224,21 @@ impl Storage {
         &self,
         query: Option<&str>,
         status_filter: Option<&str>,
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
         offset: i64,
         limit: i64,
     ) -> Result<Vec<RequestLog>> {
         let normalized_limit = normalize_request_log_limit(limit);
         let normalized_offset = offset.max(0);
         let include_account_lookup = self.has_table("accounts")?;
-        let filters = build_request_log_filters(query, status_filter, include_account_lookup);
+        let filters = build_request_log_filters(
+            query,
+            status_filter,
+            start_ts,
+            end_ts,
+            include_account_lookup,
+        );
         let sql = format!(
             "SELECT
                 r.trace_id, r.key_id, r.account_id, r.initial_account_id, r.attempted_account_ids_json, r.initial_aggregate_api_id, r.attempted_aggregate_api_ids_json,
@@ -277,9 +285,17 @@ impl Storage {
         &self,
         query: Option<&str>,
         status_filter: Option<&str>,
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
     ) -> Result<i64> {
         let include_account_lookup = self.has_table("accounts")?;
-        let filters = build_request_log_filters(query, status_filter, include_account_lookup);
+        let filters = build_request_log_filters(
+            query,
+            status_filter,
+            start_ts,
+            end_ts,
+            include_account_lookup,
+        );
         let sql = format!(
             "SELECT COUNT(1)
              FROM request_logs r
@@ -312,9 +328,17 @@ impl Storage {
         &self,
         query: Option<&str>,
         status_filter: Option<&str>,
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
     ) -> Result<RequestLogQuerySummary> {
         let include_account_lookup = self.has_table("accounts")?;
-        let filters = build_request_log_filters(query, status_filter, include_account_lookup);
+        let filters = build_request_log_filters(
+            query,
+            status_filter,
+            start_ts,
+            end_ts,
+            include_account_lookup,
+        );
         let sql = format!(
             "SELECT
                 COUNT(1),
@@ -772,6 +796,8 @@ fn normalize_request_log_limit(value: i64) -> i64 {
 fn build_request_log_filters(
     query: Option<&str>,
     status_filter: Option<&str>,
+    start_ts: Option<i64>,
+    end_ts: Option<i64>,
     include_account_lookup: bool,
 ) -> RequestLogSqlFilters {
     let mut clauses = Vec::new();
@@ -784,6 +810,7 @@ fn build_request_log_filters(
         &mut params,
     );
     append_status_filter_clause(status_filter, &mut clauses, &mut params);
+    append_time_range_clause(start_ts, end_ts, &mut clauses, &mut params);
 
     RequestLogSqlFilters {
         where_clause: if clauses.is_empty() {
@@ -792,6 +819,22 @@ fn build_request_log_filters(
             format!("WHERE {}", clauses.join(" AND "))
         },
         params,
+    }
+}
+
+fn append_time_range_clause(
+    start_ts: Option<i64>,
+    end_ts: Option<i64>,
+    clauses: &mut Vec<String>,
+    params: &mut Vec<Value>,
+) {
+    if let Some(start_ts) = start_ts {
+        clauses.push("r.created_at >= ?".to_string());
+        params.push(Value::Integer(start_ts));
+    }
+    if let Some(end_ts) = end_ts {
+        clauses.push("r.created_at < ?".to_string());
+        params.push(Value::Integer(end_ts));
     }
 }
 

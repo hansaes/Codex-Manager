@@ -797,6 +797,8 @@ pub struct RequestLogListParams {
     pub page_size: i64,
     pub query: Option<String>,
     pub status_filter: Option<String>,
+    pub start_ts: Option<i64>,
+    pub end_ts: Option<i64>,
 }
 
 impl Default for RequestLogListParams {
@@ -817,6 +819,8 @@ impl Default for RequestLogListParams {
             page_size: 20,
             query: None,
             status_filter: None,
+            start_ts: None,
+            end_ts: None,
         }
     }
 }
@@ -843,6 +847,8 @@ impl RequestLogListParams {
             },
             query: self.query,
             status_filter: self.status_filter,
+            start_ts: self.start_ts.filter(|value| *value > 0),
+            end_ts: self.end_ts.filter(|value| *value > 0),
         }
     }
 }

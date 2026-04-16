@@ -210,6 +210,25 @@ impl<'a> GatewayUpstreamExecutionContext<'a> {
         )
     }
 
+    pub(in super::super) fn apply_gateway_error_follow_up(
+        &self,
+        account_id: &str,
+        err: &str,
+        has_more_candidates: bool,
+    ) -> crate::account_status::GatewayErrorFollowUp {
+        let follow_up = crate::account_status::analyze_gateway_error(err, has_more_candidates);
+        if follow_up.should_mark_default_cooldown {
+            super::super::super::mark_account_cooldown(
+                account_id,
+                super::super::super::CooldownReason::Default,
+            );
+        }
+        if follow_up.should_mark_account_unavailable {
+            let _ = self.mark_account_unavailable_for_gateway_error(account_id, err);
+        }
+        follow_up
+    }
+
     /// 函数 `log_final_result`
     ///
     /// 作者: gaohongshun

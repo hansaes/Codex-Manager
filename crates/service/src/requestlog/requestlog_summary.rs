@@ -1,8 +1,8 @@
-use codexmanager_core::rpc::types::RequestLogFilterSummaryResult;
+use codexmanager_core::rpc::types::{RequestLogFilterSummaryResult, RequestLogListParams};
 
 use crate::storage_helpers::open_storage;
 
-use super::list::{normalize_optional_text, normalize_status_filter};
+use super::list::{normalize_optional_text, normalize_status_filter, normalize_time_range};
 
 /// 函数 `read_request_log_filter_summary`
 ///
@@ -16,17 +16,22 @@ use super::list::{normalize_optional_text, normalize_status_filter};
 /// # 返回
 /// 返回函数执行结果
 pub(crate) fn read_request_log_filter_summary(
-    query: Option<String>,
-    status_filter: Option<String>,
+    params: RequestLogListParams,
 ) -> Result<RequestLogFilterSummaryResult, String> {
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
-    let query = normalize_optional_text(query);
-    let status_filter = normalize_status_filter(status_filter);
+    let query = normalize_optional_text(params.query);
+    let status_filter = normalize_status_filter(params.status_filter);
+    let (start_ts, end_ts) = normalize_time_range(params.start_ts, params.end_ts);
     let total_count = storage
-        .count_request_logs(query.as_deref(), None)
+        .count_request_logs(query.as_deref(), None, start_ts, end_ts)
         .map_err(|err| format!("count request logs failed: {err}"))?;
     let filtered = storage
-        .summarize_request_logs_filtered(query.as_deref(), status_filter.as_deref())
+        .summarize_request_logs_filtered(
+            query.as_deref(),
+            status_filter.as_deref(),
+            start_ts,
+            end_ts,
+        )
         .map_err(|err| format!("summarize request logs failed: {err}"))?;
 
     Ok(RequestLogFilterSummaryResult {

@@ -9,6 +9,21 @@ pub(crate) enum AccountAvailabilitySignal {
     UsageHttp(u16),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GatewayErrorKind {
+    Deactivation,
+    UsageLimit,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct GatewayErrorFollowUp {
+    pub kind: GatewayErrorKind,
+    pub should_failover: bool,
+    pub should_mark_account_unavailable: bool,
+    pub should_mark_default_cooldown: bool,
+}
+
 /// 函数 `latest_status_reason`
 ///
 /// 作者: gaohongshun
@@ -124,7 +139,14 @@ pub(crate) fn classify_account_availability_signal(err: &str) -> Option<AccountA
 /// # 返回
 /// 返回函数执行结果
 fn extract_usage_http_status_code(message: &str) -> Option<u16> {
-    let rest = message.trim().strip_prefix("usage endpoint status ")?;
+    let trimmed = message.trim();
+    let rest = if let Some(rest) = trimmed.strip_prefix("usage endpoint status ") {
+        Some(rest)
+    } else if let Some(rest) = trimmed.strip_prefix("usage endpoint failed: status=") {
+        Some(rest)
+    } else {
+        None
+    }?;
     let digits: String = rest.chars().take_while(|ch| ch.is_ascii_digit()).collect();
     if digits.is_empty() {
         return None;
@@ -176,6 +198,25 @@ pub(crate) fn usage_limit_reason_from_message(message: &str) -> Option<&'static 
     None
 }
 
+pub(crate) fn analyze_gateway_error(err: &str, has_more_candidates: bool) -> GatewayErrorFollowUp {
+    let kind = if deactivation_reason_from_message(err).is_some() {
+        GatewayErrorKind::Deactivation
+    } else if usage_limit_reason_from_message(err).is_some() {
+        GatewayErrorKind::UsageLimit
+    } else {
+        GatewayErrorKind::Other
+    };
+    let is_actionable = !matches!(kind, GatewayErrorKind::Other);
+    let should_failover = has_more_candidates && is_actionable;
+    GatewayErrorFollowUp {
+        kind,
+        should_failover,
+        should_mark_account_unavailable: is_actionable,
+        should_mark_default_cooldown: matches!(kind, GatewayErrorKind::UsageLimit)
+            && should_failover,
+    }
+}
+
 /// 函数 `is_banned_status_reason`
 ///
 /// 作者: gaohongshun
@@ -205,16 +246,6 @@ pub(crate) fn is_banned_status_reason(reason: &str) -> bool {
 ///
 /// # 返回
 /// 返回函数执行结果
-pub(crate) fn should_failover_for_gateway_error(err: &str, has_more_candidates: bool) -> bool {
-    has_more_candidates
-        && (deactivation_reason_from_message(err).is_some()
-            || usage_limit_reason_from_message(err).is_some())
-}
-
-pub(crate) fn is_usage_limit_gateway_error(err: &str) -> bool {
-    usage_limit_reason_from_message(err).is_some()
-}
-
 pub(crate) fn mark_account_unavailable_for_gateway_error(
     storage: &Storage,
     account_id: &str,
@@ -313,7 +344,7 @@ pub(crate) fn mark_account_unavailable_for_usage_http_error(
         return false;
     };
     match status_code {
-        401 | 403 | 429 => {
+        401 | 403 => {
             let status_reason = format!("usage_http_{status_code}");
             set_account_unavailable_with_reason(storage, account_id, &status_reason)
         }
@@ -404,9 +435,8 @@ pub(crate) fn mark_account_unavailable_for_refresh_token_error(
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_account_availability_signal, is_usage_limit_gateway_error,
-        mark_account_unavailable_for_gateway_error, should_failover_for_gateway_error,
-        AccountAvailabilitySignal,
+        analyze_gateway_error, classify_account_availability_signal,
+        mark_account_unavailable_for_gateway_error, AccountAvailabilitySignal, GatewayErrorKind,
     };
     use codexmanager_core::storage::{now_ts, Account, Storage, UsageSnapshotRecord};
 
@@ -452,25 +482,29 @@ mod tests {
             ))
         ));
 
-        assert!(should_failover_for_gateway_error(
-            "Your OpenAI account has been deactivated",
-            true
-        ));
-        assert!(!should_failover_for_gateway_error(
-            "Your OpenAI account has been deactivated",
-            false
-        ));
-        assert!(should_failover_for_gateway_error(
+        let deactivation = analyze_gateway_error("Your OpenAI account has been deactivated", true);
+        assert_eq!(deactivation.kind, GatewayErrorKind::Deactivation);
+        assert!(deactivation.should_failover);
+        assert!(deactivation.should_mark_account_unavailable);
+        assert!(!deactivation.should_mark_default_cooldown);
+
+        let usage_limit = analyze_gateway_error(
             "You've hit your usage limit. To get more access now, try again at 8:02 PM.",
-            true
-        ));
-        assert!(!should_failover_for_gateway_error(
+            true,
+        );
+        assert_eq!(usage_limit.kind, GatewayErrorKind::UsageLimit);
+        assert!(usage_limit.should_failover);
+        assert!(usage_limit.should_mark_account_unavailable);
+        assert!(usage_limit.should_mark_default_cooldown);
+
+        let usage_limit_last = analyze_gateway_error(
             "You've hit your usage limit. To get more access now, try again at 8:02 PM.",
-            false
-        ));
-        assert!(is_usage_limit_gateway_error(
-            "You've hit your usage limit. To get more access now, try again at 8:02 PM."
-        ));
+            false,
+        );
+        assert_eq!(usage_limit_last.kind, GatewayErrorKind::UsageLimit);
+        assert!(!usage_limit_last.should_failover);
+        assert!(usage_limit_last.should_mark_account_unavailable);
+        assert!(!usage_limit_last.should_mark_default_cooldown);
     }
 
     /// 函数 `gateway_usage_limit_error_does_not_persist_unavailable_status`

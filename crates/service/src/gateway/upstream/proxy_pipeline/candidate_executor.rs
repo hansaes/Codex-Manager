@@ -80,6 +80,64 @@ pub(in super::super) struct CandidateExecutorParams<'a> {
     pub(in super::super) disable_challenge_stateless_retry: bool,
 }
 
+fn record_failover_attempt(
+    attempt_trace: &mut CandidateAttemptTrace,
+    last_attempt_url: &mut Option<String>,
+    last_attempt_error: &mut Option<String>,
+) {
+    super::super::super::record_gateway_failover_attempt();
+    *last_attempt_url = attempt_trace.last_attempt_url.take();
+    *last_attempt_error = attempt_trace.last_attempt_error.take();
+}
+
+fn should_failover_terminal_gateway_error(
+    context: &GatewayUpstreamExecutionContext<'_>,
+    account_id: &str,
+    has_more_candidates: bool,
+    message: &str,
+    attempt_trace: &mut CandidateAttemptTrace,
+    last_attempt_url: &mut Option<String>,
+    last_attempt_error: &mut Option<String>,
+) -> bool {
+    let gateway_error_follow_up =
+        context.apply_gateway_error_follow_up(account_id, message, has_more_candidates);
+    if !gateway_error_follow_up.should_failover {
+        return false;
+    }
+    super::super::super::record_gateway_failover_attempt();
+    *last_attempt_url = attempt_trace.last_attempt_url.take();
+    *last_attempt_error = Some(message.to_string());
+    true
+}
+
+#[allow(clippy::too_many_arguments)]
+fn respond_terminal_attempt(
+    request: Request,
+    context: &GatewayUpstreamExecutionContext<'_>,
+    account_id: &str,
+    last_attempt_url: Option<&str>,
+    status_code: u16,
+    message: String,
+    trace_id: &str,
+    started_at: Instant,
+    model_for_log: Option<&str>,
+    attempted_account_ids: Option<&[String]>,
+) -> Result<CandidateExecutionResult, String> {
+    finalize_terminal_candidate(
+        request,
+        context,
+        account_id,
+        last_attempt_url,
+        status_code,
+        message,
+        trace_id,
+        started_at,
+        model_for_log,
+        attempted_account_ids,
+    )?;
+    Ok(CandidateExecutionResult::Handled)
+}
+
 /// 函数 `execute_candidate_sequence`
 ///
 /// 作者: gaohongshun
@@ -142,7 +200,7 @@ pub(in super::super) fn execute_candidate_sequence(
         }
 
         let strip_session_affinity =
-            state.strip_session_affinity(&account, idx, setup.anthropic_has_prompt_cache_key);
+            state.strip_session_affinity(&account, idx, setup.anthropic_has_thread_anchor);
         let attempt_thread = super::super::super::conversation_binding::resolve_attempt_thread(
             setup.conversation_routing.as_ref(),
             &account,
@@ -195,18 +253,22 @@ pub(in super::super) fn execute_candidate_sequence(
         let prompt_cache_key_for_trace =
             extract_prompt_cache_key_for_trace(body_for_attempt.as_ref());
         super::super::super::trace_log::log_attempt_profile(
-            trace_id,
-            &account.id,
-            idx,
-            setup.candidate_count,
-            strip_session_affinity,
-            incoming_session_id.is_some() || setup.has_sticky_fallback_session,
-            incoming_turn_state.is_some(),
-            incoming_conversation_id.is_some() || setup.has_sticky_fallback_conversation,
-            prompt_cache_key_for_trace.as_deref(),
-            request_shape,
-            body_for_attempt.len(),
-            attempt_model_for_log,
+            super::super::super::trace_log::AttemptProfileLog {
+                trace_id,
+                account_id: &account.id,
+                candidate_index: idx,
+                total: setup.candidate_count,
+                strip_session_affinity,
+                has_incoming_session: incoming_session_id.is_some()
+                    || setup.has_sticky_fallback_session,
+                has_incoming_turn_state: incoming_turn_state.is_some(),
+                has_incoming_conversation: incoming_conversation_id.is_some()
+                    || setup.has_sticky_fallback_conversation,
+                prompt_cache_key: prompt_cache_key_for_trace.as_deref(),
+                request_shape,
+                body_len: body_for_attempt.len(),
+                body_model: attempt_model_for_log,
+            },
         );
 
         let mut inflight_guard = Some(super::super::super::acquire_account_inflight(&account.id));
@@ -234,36 +296,32 @@ pub(in super::super) fn execute_candidate_sequence(
 
         match decision {
             CandidateUpstreamDecision::Failover => {
-                super::super::super::record_gateway_failover_attempt();
-                last_attempt_url = attempt_trace.last_attempt_url.take();
-                last_attempt_error = attempt_trace.last_attempt_error.take();
+                record_failover_attempt(
+                    &mut attempt_trace,
+                    &mut last_attempt_url,
+                    &mut last_attempt_error,
+                );
                 continue;
             }
             CandidateUpstreamDecision::Terminal {
                 status_code,
                 message,
             } => {
-                if crate::account_status::should_failover_for_gateway_error(
-                    &message,
+                if should_failover_terminal_gateway_error(
+                    context,
+                    &account.id,
                     context.has_more_candidates(idx),
+                    &message,
+                    &mut attempt_trace,
+                    &mut last_attempt_url,
+                    &mut last_attempt_error,
                 ) {
-                    let _ =
-                        context.mark_account_unavailable_for_gateway_error(&account.id, &message);
-                    if crate::account_status::is_usage_limit_gateway_error(&message) {
-                        super::super::super::mark_account_cooldown(
-                            &account.id,
-                            super::super::super::CooldownReason::Default,
-                        );
-                    }
-                    super::super::super::record_gateway_failover_attempt();
-                    last_attempt_url = attempt_trace.last_attempt_url.take();
-                    last_attempt_error = Some(message);
                     continue;
                 }
                 let request = request
                     .take()
                     .expect("request should be available before terminal response");
-                finalize_terminal_candidate(
+                return respond_terminal_attempt(
                     request,
                     context,
                     &account.id,
@@ -274,8 +332,7 @@ pub(in super::super) fn execute_candidate_sequence(
                     started_at,
                     attempt_model_for_log,
                     Some(attempted_account_ids.as_slice()),
-                )?;
-                return Ok(CandidateExecutionResult::Handled);
+                );
             }
             CandidateUpstreamDecision::RespondUpstream(mut resp) => {
                 if resp.status().as_u16() == 400
@@ -317,9 +374,11 @@ pub(in super::super) fn execute_candidate_sequence(
                             resp = retry_resp;
                         }
                         CandidateUpstreamDecision::Failover => {
-                            super::super::super::record_gateway_failover_attempt();
-                            last_attempt_url = attempt_trace.last_attempt_url.take();
-                            last_attempt_error = attempt_trace.last_attempt_error.take();
+                            record_failover_attempt(
+                                &mut attempt_trace,
+                                &mut last_attempt_url,
+                                &mut last_attempt_error,
+                            );
                             continue;
                         }
                         CandidateUpstreamDecision::Terminal {
@@ -329,7 +388,7 @@ pub(in super::super) fn execute_candidate_sequence(
                             let request = request
                                 .take()
                                 .expect("request should be available before terminal response");
-                            finalize_terminal_candidate(
+                            return respond_terminal_attempt(
                                 request,
                                 context,
                                 &account.id,
@@ -340,8 +399,7 @@ pub(in super::super) fn execute_candidate_sequence(
                                 started_at,
                                 attempt_model_for_log,
                                 Some(attempted_account_ids.as_slice()),
-                            )?;
-                            return Ok(CandidateExecutionResult::Handled);
+                            );
                         }
                     }
                 }
@@ -389,9 +447,11 @@ pub(in super::super) fn execute_candidate_sequence(
                         return Ok(CandidateExecutionResult::Handled);
                     }
                     FinalizeUpstreamResponseOutcome::Failover => {
-                        super::super::super::record_gateway_failover_attempt();
-                        last_attempt_url = attempt_trace.last_attempt_url.take();
-                        last_attempt_error = attempt_trace.last_attempt_error.take();
+                        record_failover_attempt(
+                            &mut attempt_trace,
+                            &mut last_attempt_url,
+                            &mut last_attempt_error,
+                        );
                         continue;
                     }
                 }

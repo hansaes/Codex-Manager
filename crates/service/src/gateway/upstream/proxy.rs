@@ -45,7 +45,10 @@ fn exhausted_gateway_error_for_log(
     } else {
         "no_available_account"
     };
-    let mut parts = vec!["no available account".to_string(), format!("kind={kind}")];
+    let mut parts = vec![
+        crate::gateway::bilingual_error("无可用账号", "no available account"),
+        format!("kind={kind}"),
+    ];
     if !attempted_account_ids.is_empty() {
         parts.push(format!("attempted={}", attempted_account_ids.join(",")));
     }
@@ -194,7 +197,10 @@ pub(in super::super) fn proxy_validated_request(
                     );
                     let response = super::super::error_response::terminal_text_response(
                         404,
-                        message,
+                        super::super::error_message_for_client(
+                            super::super::prefers_raw_errors_for_tiny_http_request(&request),
+                            message,
+                        ),
                         Some(trace_id.as_str()),
                     );
                     let _ = request.respond(response);
@@ -210,23 +216,25 @@ pub(in super::super) fn proxy_validated_request(
         );
 
         return super::protocol::aggregate_api::proxy_aggregate_request(
-            request,
-            &storage,
-            trace_id.as_str(),
-            key_id.as_str(),
-            original_path.as_str(),
-            path.as_str(),
-            request_method.as_str(),
-            &method,
-            &body,
-            client_is_stream,
-            super::super::ResponseAdapter::Passthrough,
-            model_for_log.as_deref(),
-            reasoning_for_log.as_deref(),
-            effective_service_tier_for_log.as_deref(),
-            aggregate_api_candidates,
-            request_deadline,
-            started_at,
+            super::protocol::aggregate_api::AggregateProxyRequest {
+                request,
+                storage: &storage,
+                trace_id: trace_id.as_str(),
+                key_id: key_id.as_str(),
+                original_path: original_path.as_str(),
+                path: path.as_str(),
+                request_method: request_method.as_str(),
+                method: &method,
+                body: &body,
+                is_stream: client_is_stream,
+                response_adapter: super::super::ResponseAdapter::Passthrough,
+                model_for_log: model_for_log.as_deref(),
+                reasoning_for_log: reasoning_for_log.as_deref(),
+                effective_service_tier_for_log: effective_service_tier_for_log.as_deref(),
+                aggregate_api_candidates,
+                request_deadline,
+                started_at,
+            },
         );
     }
 
@@ -386,7 +394,7 @@ pub(in super::super) fn proxy_validated_request(
     respond_terminal(
         request,
         503,
-        "no available account".to_string(),
+        crate::gateway::bilingual_error("无可用账号", "no available account"),
         Some(trace_id.as_str()),
     )
 }

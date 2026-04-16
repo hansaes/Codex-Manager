@@ -311,9 +311,13 @@ fn should_skip_forward_header_with_overrides(name: &str, injected: &HashSet<Stri
 /// # 返回
 /// 无
 fn respond_error(request: Request, status: u16, message: &str, trace_id: Option<&str>) {
+    let response_message = super::super::super::error_message_for_client(
+        super::super::super::prefers_raw_errors_for_tiny_http_request(&request),
+        message,
+    );
     let response = super::super::super::error_response::terminal_text_response(
         status,
-        message.to_string(),
+        response_message,
         trace_id,
     );
     let _ = request.respond(response);
@@ -658,26 +662,48 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
 ///
 /// # 返回
 /// 返回函数执行结果
-#[allow(clippy::too_many_arguments)]
+pub(in super::super) struct AggregateProxyRequest<'a> {
+    pub request: Request,
+    pub storage: &'a Storage,
+    pub trace_id: &'a str,
+    pub key_id: &'a str,
+    pub original_path: &'a str,
+    pub path: &'a str,
+    pub request_method: &'a str,
+    pub method: &'a reqwest::Method,
+    pub body: &'a Bytes,
+    pub is_stream: bool,
+    pub response_adapter: super::super::super::ResponseAdapter,
+    pub model_for_log: Option<&'a str>,
+    pub reasoning_for_log: Option<&'a str>,
+    pub effective_service_tier_for_log: Option<&'a str>,
+    pub aggregate_api_candidates: Vec<AggregateApi>,
+    pub request_deadline: Option<Instant>,
+    pub started_at: Instant,
+}
+
 pub(in super::super) fn proxy_aggregate_request(
-    request: Request,
-    storage: &Storage,
-    trace_id: &str,
-    key_id: &str,
-    original_path: &str,
-    path: &str,
-    request_method: &str,
-    method: &reqwest::Method,
-    body: &Bytes,
-    is_stream: bool,
-    response_adapter: super::super::super::ResponseAdapter,
-    model_for_log: Option<&str>,
-    reasoning_for_log: Option<&str>,
-    effective_service_tier_for_log: Option<&str>,
-    aggregate_api_candidates: Vec<AggregateApi>,
-    request_deadline: Option<Instant>,
-    started_at: Instant,
+    params: AggregateProxyRequest<'_>,
 ) -> Result<(), String> {
+    let AggregateProxyRequest {
+        request,
+        storage,
+        trace_id,
+        key_id,
+        original_path,
+        path,
+        request_method,
+        method,
+        body,
+        is_stream,
+        response_adapter,
+        model_for_log,
+        reasoning_for_log,
+        effective_service_tier_for_log,
+        aggregate_api_candidates,
+        request_deadline,
+        started_at,
+    } = params;
     if aggregate_api_candidates.is_empty() {
         let message = "aggregate api not found".to_string();
         super::super::super::record_gateway_request_outcome(path, 404, Some("aggregate_api"));
@@ -911,23 +937,27 @@ pub(in super::super) fn proxy_aggregate_request(
                 .map(str::len)
                 .unwrap_or(0);
             super::super::super::trace_log::log_bridge_result(
-                trace_id,
-                format!("{response_adapter:?}").as_str(),
-                path,
-                is_stream,
-                bridge.stream_terminal_seen,
-                bridge.stream_terminal_error.as_deref(),
-                bridge.delivery_error.as_deref(),
-                bridge_output_text_len,
-                bridge.usage.output_tokens,
-                bridge.delivered_status_code,
-                bridge.upstream_error_hint.as_deref(),
-                bridge.upstream_request_id.as_deref(),
-                bridge.upstream_cf_ray.as_deref(),
-                bridge.upstream_auth_error.as_deref(),
-                bridge.upstream_identity_error_code.as_deref(),
-                bridge.upstream_content_type.as_deref(),
-                bridge.last_sse_event_type.as_deref(),
+                super::super::super::trace_log::BridgeResultLog {
+                    trace_id,
+                    adapter: format!("{response_adapter:?}").as_str(),
+                    path,
+                    is_stream,
+                    stream_terminal_seen: bridge.stream_terminal_seen,
+                    stream_terminal_error: bridge.stream_terminal_error.as_deref(),
+                    delivery_error: bridge.delivery_error.as_deref(),
+                    output_text_len: bridge_output_text_len,
+                    output_tokens: bridge.usage.output_tokens,
+                    delivered_status_code: bridge.delivered_status_code,
+                    upstream_error_hint: bridge.upstream_error_hint.as_deref(),
+                    upstream_request_id: bridge.upstream_request_id.as_deref(),
+                    upstream_cf_ray: bridge.upstream_cf_ray.as_deref(),
+                    upstream_auth_error: bridge.upstream_auth_error.as_deref(),
+                    upstream_identity_error_code: bridge
+                        .upstream_identity_error_code
+                        .as_deref(),
+                    upstream_content_type: bridge.upstream_content_type.as_deref(),
+                    last_sse_event_type: bridge.last_sse_event_type.as_deref(),
+                },
             );
             let bridge_ok = bridge.is_ok(is_stream);
             let mut final_error = bridge.upstream_error_hint.clone();

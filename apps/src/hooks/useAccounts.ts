@@ -12,6 +12,7 @@ import {
 import { getAppErrorMessage } from "@/lib/api/transport";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
+import { useLocalDayRange } from "@/hooks/useLocalDayRange";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
 import { useAppStore } from "@/lib/store/useAppStore";
@@ -21,6 +22,8 @@ type ImportByDirectoryResult = Awaited<ReturnType<typeof accountClient.importByD
 type ImportByFileResult = Awaited<ReturnType<typeof accountClient.importByFile>>;
 type AccountExportPayload = Parameters<typeof accountClient.export>[0];
 type ExportResult = Awaited<ReturnType<typeof accountClient.export>>;
+type WarmupPayload = Parameters<typeof accountClient.warmup>[0];
+type WarmupResult = Awaited<ReturnType<typeof accountClient.warmup>>;
 type DeleteUnavailableFreeResult = { deleted?: number };
 type AccountSortUpdate = { accountId: string; sort: number };
 
@@ -107,6 +110,7 @@ function formatUsageRefreshErrorMessage(
 export function useAccounts() {
   const queryClient = useQueryClient();
   const { t } = useI18n();
+  const localDayRange = useLocalDayRange();
   const serviceStatus = useAppStore((state) => state.serviceStatus);
   const { canAccessManagementRpc } = useRuntimeCapabilities();
   const isServiceReady = canAccessManagementRpc && serviceStatus.connected;
@@ -117,7 +121,8 @@ export function useAccounts() {
   const startupSnapshot = queryClient.getQueryData<StartupSnapshot>(
     buildStartupSnapshotQueryKey(
       serviceStatus.addr,
-      STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT
+      STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
+      localDayRange.dayStartTs,
     )
   );
   const startupAccounts = startupSnapshot?.accounts || [];
@@ -474,6 +479,40 @@ export function useAccounts() {
     },
   });
 
+  const warmupMutation = useMutation({
+    mutationFn: (params?: WarmupPayload) => accountClient.warmup(params),
+    onSuccess: async (result: WarmupResult) => {
+      await invalidateAll();
+      const requested = Number(result?.requested || 0);
+      const succeeded = Number(result?.succeeded || 0);
+      const failed = Number(result?.failed || 0);
+      const firstFailedItem = (result?.results || []).find((item) => !item.ok);
+      if (requested <= 0) {
+        toast.info(t("当前没有可预热的账号"));
+        return;
+      }
+      if (failed <= 0) {
+        toast.success(t("预热完成：共{requested}个账号，成功{count}个", {
+          requested,
+          count: succeeded,
+        }));
+        return;
+      }
+      const summary = t("预热完成：成功{success}个，失败{failed}个", {
+        success: succeeded,
+        failed,
+      });
+      toast.warning(
+        firstFailedItem?.message
+          ? `${summary}；${t("首个失败")}: ${firstFailedItem.accountName || firstFailedItem.accountId} - ${firstFailedItem.message}`
+          : summary,
+      );
+    },
+    onError: (error: unknown) => {
+      toast.error(`${t("账号预热失败")}: ${getAppErrorMessage(error)}`);
+    },
+  });
+
   const setPreferredMutation = useMutation({
     mutationFn: (accountId: string) => accountClient.setPreferred(accountId),
     onSuccess: async () => {
@@ -546,6 +585,10 @@ export function useAccounts() {
       if (!ensureServiceReady("导出账号")) return;
       await exportMutation.mutateAsync(params);
     },
+    warmupAccounts: async (params?: WarmupPayload) => {
+      if (!ensureServiceReady("账号预热")) return;
+      return await warmupMutation.mutateAsync(params);
+    },
     setPreferredAccount: (accountId: string) => {
       if (!ensureServiceReady("设置优先账号")) return;
       setPreferredMutation.mutate(accountId);
@@ -589,6 +632,7 @@ export function useAccounts() {
         : "",
     isRefreshingAllAccounts: refreshAllMutation.isPending,
     isExporting: exportMutation.isPending,
+    isWarmingUpAccounts: warmupMutation.isPending,
     isDeletingMany: deleteManyMutation.isPending,
     isUpdatingPreferred:
       setPreferredMutation.isPending || clearPreferredMutation.isPending,

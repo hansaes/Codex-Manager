@@ -329,13 +329,13 @@ fn request_logs_support_backend_pagination_and_status_filters() {
     }
 
     let page = storage
-        .list_request_logs_paginated(None, Some("5xx"), 0, 1)
+        .list_request_logs_paginated(None, Some("5xx"), None, None, 0, 1)
         .expect("list paginated logs");
     assert_eq!(page.len(), 1);
     assert_eq!(page[0].trace_id.as_deref(), Some("trc-4"));
 
     let total_5xx = storage
-        .count_request_logs(None, Some("5xx"))
+        .count_request_logs(None, Some("5xx"), None, None)
         .expect("count 5xx logs");
     assert_eq!(total_5xx, 2);
 }
@@ -410,11 +410,61 @@ fn request_logs_filtered_summary_aggregates_counts_and_tokens() {
     }
 
     let summary = storage
-        .summarize_request_logs_filtered(None, Some("all"))
+        .summarize_request_logs_filtered(None, Some("all"), None, None)
         .expect("summarize filtered logs");
     assert_eq!(summary.count, 3);
     assert_eq!(summary.success_count, 2);
     assert_eq!(summary.error_count, 1);
     assert_eq!(summary.total_tokens, 150);
     assert_eq!(summary.estimated_cost_usd, 0.03);
+}
+
+#[test]
+fn request_logs_support_time_range_filters() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+
+    for (index, created_at) in [1_000_i64, 1_900_i64, 3_100_i64].into_iter().enumerate() {
+        let request_log_id = storage
+            .insert_request_log(&RequestLog {
+                trace_id: Some(format!("trc-time-{index}")),
+                key_id: Some("gk-time".to_string()),
+                account_id: Some("acc-time".to_string()),
+                request_path: "/v1/responses".to_string(),
+                method: "POST".to_string(),
+                status_code: Some(200),
+                created_at,
+                ..Default::default()
+            })
+            .expect("insert request log");
+        storage
+            .insert_request_token_stat(&RequestTokenStat {
+                request_log_id,
+                key_id: Some("gk-time".to_string()),
+                account_id: Some("acc-time".to_string()),
+                model: Some("gpt-5".to_string()),
+                total_tokens: Some(10),
+                estimated_cost_usd: Some(0.01),
+                created_at,
+                ..Default::default()
+            })
+            .expect("insert token stat");
+    }
+
+    let page = storage
+        .list_request_logs_paginated(None, None, Some(1_500), Some(3_000), 0, 10)
+        .expect("list paginated logs");
+    assert_eq!(page.len(), 1);
+    assert_eq!(page[0].trace_id.as_deref(), Some("trc-time-1"));
+
+    let total = storage
+        .count_request_logs(None, None, Some(1_500), Some(3_000))
+        .expect("count logs");
+    assert_eq!(total, 1);
+
+    let summary = storage
+        .summarize_request_logs_filtered(None, None, Some(900), Some(2_000))
+        .expect("summarize time range");
+    assert_eq!(summary.count, 2);
+    assert_eq!(summary.total_tokens, 20);
 }

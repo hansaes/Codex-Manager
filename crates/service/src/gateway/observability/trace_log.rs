@@ -954,26 +954,46 @@ pub(crate) fn log_attempt_result(
 ///
 /// # 返回
 /// 无
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn log_bridge_result(
-    trace_id: &str,
-    adapter: &str,
-    path: &str,
-    is_stream: bool,
-    stream_terminal_seen: bool,
-    stream_terminal_error: Option<&str>,
-    delivery_error: Option<&str>,
-    output_text_len: usize,
-    output_tokens: Option<i64>,
-    delivered_status_code: Option<u16>,
-    upstream_error_hint: Option<&str>,
-    upstream_request_id: Option<&str>,
-    upstream_cf_ray: Option<&str>,
-    upstream_auth_error: Option<&str>,
-    upstream_identity_error_code: Option<&str>,
-    upstream_content_type: Option<&str>,
-    last_sse_event_type: Option<&str>,
-) {
+pub(crate) struct BridgeResultLog<'a> {
+    pub trace_id: &'a str,
+    pub adapter: &'a str,
+    pub path: &'a str,
+    pub is_stream: bool,
+    pub stream_terminal_seen: bool,
+    pub stream_terminal_error: Option<&'a str>,
+    pub delivery_error: Option<&'a str>,
+    pub output_text_len: usize,
+    pub output_tokens: Option<i64>,
+    pub delivered_status_code: Option<u16>,
+    pub upstream_error_hint: Option<&'a str>,
+    pub upstream_request_id: Option<&'a str>,
+    pub upstream_cf_ray: Option<&'a str>,
+    pub upstream_auth_error: Option<&'a str>,
+    pub upstream_identity_error_code: Option<&'a str>,
+    pub upstream_content_type: Option<&'a str>,
+    pub last_sse_event_type: Option<&'a str>,
+}
+
+pub(crate) fn log_bridge_result(params: BridgeResultLog<'_>) {
+    let BridgeResultLog {
+        trace_id,
+        adapter,
+        path,
+        is_stream,
+        stream_terminal_seen,
+        stream_terminal_error,
+        delivery_error,
+        output_text_len,
+        output_tokens,
+        delivered_status_code,
+        upstream_error_hint,
+        upstream_request_id,
+        upstream_cf_ray,
+        upstream_auth_error,
+        upstream_identity_error_code,
+        upstream_content_type,
+        last_sse_event_type,
+    } = params;
     let bridge_has_error = delivery_error.is_some()
         || stream_terminal_error.is_some()
         || (is_stream && !stream_terminal_seen)
@@ -1048,21 +1068,36 @@ pub(crate) fn log_gemini_bridge_diagnostics(
 ///
 /// # 返回
 /// 无
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn log_attempt_profile(
-    trace_id: &str,
-    account_id: &str,
-    candidate_index: usize,
-    total: usize,
-    strip_session_affinity: bool,
-    has_incoming_session: bool,
-    has_incoming_turn_state: bool,
-    has_incoming_conversation: bool,
-    prompt_cache_key: Option<&str>,
-    request_shape: Option<&str>,
-    body_len: usize,
-    body_model: Option<&str>,
-) {
+pub(crate) struct AttemptProfileLog<'a> {
+    pub trace_id: &'a str,
+    pub account_id: &'a str,
+    pub candidate_index: usize,
+    pub total: usize,
+    pub strip_session_affinity: bool,
+    pub has_incoming_session: bool,
+    pub has_incoming_turn_state: bool,
+    pub has_incoming_conversation: bool,
+    pub prompt_cache_key: Option<&'a str>,
+    pub request_shape: Option<&'a str>,
+    pub body_len: usize,
+    pub body_model: Option<&'a str>,
+}
+
+pub(crate) fn log_attempt_profile(params: AttemptProfileLog<'_>) {
+    let AttemptProfileLog {
+        trace_id,
+        account_id,
+        candidate_index,
+        total,
+        strip_session_affinity,
+        has_incoming_session,
+        has_incoming_turn_state,
+        has_incoming_conversation,
+        prompt_cache_key,
+        request_shape,
+        body_len,
+        body_model,
+    } = params;
     let prompt_cache_key_fp = prompt_cache_key
         .map(short_fingerprint)
         .unwrap_or_else(|| "-".to_string());
@@ -1124,25 +1159,44 @@ pub(crate) fn log_request_final(
 ///
 /// # 返回
 /// 无
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn log_failed_request(
-    ts: i64,
-    trace_id: Option<&str>,
-    key_id: Option<&str>,
-    account_id: Option<&str>,
-    method: &str,
-    request_path: &str,
-    original_path: Option<&str>,
-    adapted_path: Option<&str>,
-    request_type: Option<&str>,
-    model: Option<&str>,
-    reasoning_effort: Option<&str>,
-    service_tier: Option<&str>,
-    upstream_url: Option<&str>,
-    status_code: Option<u16>,
-    error: Option<&str>,
-    duration_ms: Option<i64>,
-) {
+pub(crate) struct FailedRequestLog<'a> {
+    pub ts: i64,
+    pub trace_id: Option<&'a str>,
+    pub key_id: Option<&'a str>,
+    pub account_id: Option<&'a str>,
+    pub method: &'a str,
+    pub request_path: &'a str,
+    pub original_path: Option<&'a str>,
+    pub adapted_path: Option<&'a str>,
+    pub request_type: Option<&'a str>,
+    pub model: Option<&'a str>,
+    pub reasoning_effort: Option<&'a str>,
+    pub service_tier: Option<&'a str>,
+    pub upstream_url: Option<&'a str>,
+    pub status_code: Option<u16>,
+    pub error: Option<&'a str>,
+    pub duration_ms: Option<i64>,
+}
+
+pub(crate) fn log_failed_request(params: FailedRequestLog<'_>) {
+    let FailedRequestLog {
+        ts,
+        trace_id,
+        key_id,
+        account_id,
+        method,
+        request_path,
+        original_path,
+        adapted_path,
+        request_type,
+        model,
+        reasoning_effort,
+        service_tier,
+        upstream_url,
+        status_code,
+        error,
+        duration_ms,
+    } = params;
     if !status_code.is_some_and(|status| status >= 400) && !has_error_text(error) {
         return;
     }
@@ -1244,24 +1298,24 @@ mod tests {
     /// 无
     #[test]
     fn request_record_ignores_success_without_error() {
-        log_failed_request(
-            1_772_000_000,
-            Some("trc_success"),
-            Some("gk_success"),
-            Some("acc_success"),
-            "POST",
-            "/v1/responses",
-            Some("/v1/responses"),
-            Some("/v1/responses"),
-            Some("http"),
-            Some("gpt-5.4"),
-            Some("high"),
-            Some("fast"),
-            Some("https://chatgpt.com/backend-api/codex/responses"),
-            Some(200),
-            None,
-            Some(18),
-        );
+        log_failed_request(super::FailedRequestLog {
+            ts: 1_772_000_000,
+            trace_id: Some("trc_success"),
+            key_id: Some("gk_success"),
+            account_id: Some("acc_success"),
+            method: "POST",
+            request_path: "/v1/responses",
+            original_path: Some("/v1/responses"),
+            adapted_path: Some("/v1/responses"),
+            request_type: Some("http"),
+            model: Some("gpt-5.4"),
+            reasoning_effort: Some("high"),
+            service_tier: Some("fast"),
+            upstream_url: Some("https://chatgpt.com/backend-api/codex/responses"),
+            status_code: Some(200),
+            error: None,
+            duration_ms: Some(18),
+        });
     }
 
     #[test]
