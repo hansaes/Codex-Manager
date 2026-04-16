@@ -1392,6 +1392,33 @@ fn responses_platform_key_bound_model_overrides_global_model_forward_rules() {
     let _ = crate::gateway::set_model_forward_rules(original_rules.as_str());
 }
 
+#[test]
+fn responses_platform_key_bound_spark_model_falls_back_to_base_codex_model() {
+    let _guard = crate::test_env_guard();
+    let original_rules = crate::gateway::current_model_forward_rules();
+    let _ = crate::gateway::set_model_forward_rules("");
+
+    let body = json!({
+        "model": "gpt-5.3-codex-spark",
+        "input": "hello"
+    });
+    let out = apply_request_overrides(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        Some("gpt-5.3-codex-spark"),
+        None,
+        Some("https://api.openai.com/v1"),
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
+
+    assert_eq!(
+        value.get("model").and_then(serde_json::Value::as_str),
+        Some("gpt-5.3-codex")
+    );
+
+    let _ = crate::gateway::set_model_forward_rules(original_rules.as_str());
+}
+
 /// 函数 `non_matching_endpoint_keeps_non_json_body`
 ///
 /// 作者: gaohongshun

@@ -42,6 +42,7 @@ import { ModelCatalogModal } from "@/components/modals/model-catalog-modal";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useManagedModels } from "@/hooks/useManagedModels";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
+import { findBestMatchingModel } from "@/lib/api/model-catalog";
 import { useI18n } from "@/lib/i18n/provider";
 import { formatTsFromSeconds } from "@/lib/utils/usage";
 
@@ -118,7 +119,7 @@ export default function ModelsPage() {
   }, [models]);
 
   const editingModel = useMemo(
-    () => models.find((item) => item.slug === editingSlug) || null,
+    () => findBestMatchingModel(models, editingSlug || ""),
     [editingSlug, models]
   );
 

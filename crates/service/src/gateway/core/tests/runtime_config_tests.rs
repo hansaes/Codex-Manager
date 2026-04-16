@@ -393,6 +393,32 @@ fn set_model_forward_rules_preserves_case_while_matching_case_insensitively() {
 }
 
 #[test]
+fn builtin_model_forward_rule_maps_spark_to_base_codex_model() {
+    let _guard = crate::test_env_guard();
+    let _rules_guard = EnvGuard::clear(ENV_MODEL_FORWARD_RULES);
+
+    assert_eq!(
+        resolve_forwarded_model("gpt-5.3-codex-spark"),
+        Some("gpt-5.3-codex".to_string())
+    );
+}
+
+#[test]
+fn explicit_model_forward_rule_overrides_builtin_spark_mapping() {
+    let _guard = crate::test_env_guard();
+    let _rules_guard = EnvGuard::clear(ENV_MODEL_FORWARD_RULES);
+
+    let applied = set_model_forward_rules("gpt-5.3-codex-spark*=gpt-5.4-mini")
+        .expect("set explicit spark rule");
+
+    assert_eq!(
+        resolve_forwarded_model("gpt-5.3-codex-spark"),
+        Some("gpt-5.4-mini".to_string())
+    );
+    assert_eq!(current_model_forward_rules(), applied);
+}
+
+#[test]
 fn set_model_forward_rules_rejects_invalid_target_auto() {
     let _guard = crate::test_env_guard();
 

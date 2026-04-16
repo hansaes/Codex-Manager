@@ -667,7 +667,9 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
             let mut dropped_keys = Vec::new();
 
             if let Some(model) = normalized_model {
-                obj.insert("model".to_string(), Value::String(model.to_string()));
+                let forwarded_model = super::resolve_builtin_forwarded_model(model)
+                    .unwrap_or_else(|| model.to_string());
+                obj.insert("model".to_string(), Value::String(forwarded_model));
                 changed = true;
             } else if use_codex_compat_rewrite && apply_model_forward_rule_if_needed(obj) {
                 changed = true;

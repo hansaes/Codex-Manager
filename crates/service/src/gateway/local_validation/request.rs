@@ -29,7 +29,15 @@ fn resolve_effective_request_overrides(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string);
+        .and_then(super::super::resolve_builtin_forwarded_model)
+        .or_else(|| {
+            api_key
+                .model_slug
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        });
     let normalized_reasoning = api_key
         .reasoning_effort
         .as_deref()

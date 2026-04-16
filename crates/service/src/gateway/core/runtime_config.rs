@@ -500,12 +500,36 @@ pub(crate) fn resolve_forwarded_model(model: &str) -> Option<String> {
     ensure_runtime_config_loaded();
     let normalized_model = normalize_model_forward_lookup_model(model)?;
     let rules = crate::lock_utils::read_recover(model_forward_rules_cell(), "model_forward_rules");
-    rules
+    if let Some(forwarded) = rules
         .iter()
         .find(|rule| {
             wildcard_pattern_matches(rule.from_pattern.as_str(), normalized_model.as_str())
         })
         .map(|rule| rule.to_model.clone())
+    {
+        return Some(forwarded);
+    }
+
+    resolve_builtin_forwarded_model(normalized_model.as_str())
+}
+
+/// 函数 `resolve_builtin_forwarded_model`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-16
+///
+/// # 参数
+/// - model: 参数 model
+///
+/// # 返回
+/// 返回函数执行结果
+pub(crate) fn resolve_builtin_forwarded_model(model: &str) -> Option<String> {
+    match model {
+        // 中文注释：Spark 目录项是长尾展示名，出站时回落到官方稳定的基础 Codex 模型。
+        "gpt-5.3-codex-spark" => Some("gpt-5.3-codex".to_string()),
+        _ => None,
+    }
 }
 
 /// 函数 `current_originator`

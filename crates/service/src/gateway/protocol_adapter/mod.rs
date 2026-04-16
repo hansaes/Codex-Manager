@@ -1,5 +1,8 @@
 use serde_json::Value;
 
+mod claude_adapter;
+mod codex_adapter;
+mod gemini_adapter;
 pub(super) mod prompt_cache;
 mod request_mapping;
 mod request_router;

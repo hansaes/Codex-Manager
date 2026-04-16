@@ -697,6 +697,21 @@ pub(crate) fn resolve_forwarded_model(model: &str) -> Option<String> {
     runtime_config::resolve_forwarded_model(model)
 }
 
+/// 函数 `resolve_builtin_forwarded_model`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-16
+///
+/// # 参数
+/// - model: 参数 model
+///
+/// # 返回
+/// 返回函数执行结果
+pub(crate) fn resolve_builtin_forwarded_model(model: &str) -> Option<String> {
+    runtime_config::resolve_builtin_forwarded_model(model)
+}
+
 /// 函数 `set_request_compression_enabled`
 ///
 /// 作者: gaohongshun

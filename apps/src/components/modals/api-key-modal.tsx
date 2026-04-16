@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogClose,
@@ -25,6 +25,7 @@ import { accountClient } from "@/lib/api/account-client";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { useI18n } from "@/lib/i18n/provider";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
+import { findBestMatchingModel } from "@/lib/api/model-catalog";
 import { toast } from "sonner";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Key, Clipboard, ShieldCheck } from "lucide-react";
@@ -128,12 +129,32 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     enabled: open && isServiceReady,
   });
 
-  const visibleModels = (models?.models || []).filter((model) => {
-    if (model.supportedInApi) {
-      return true;
+  const selectedModelInfo = useMemo(
+    () => findBestMatchingModel(models?.models || [], modelSlug),
+    [modelSlug, models?.models],
+  );
+
+  const visibleModels = useMemo(() => {
+    const catalog = models?.models || [];
+    const selectedSlug = String(modelSlug || "").trim();
+    const baseModels = catalog.filter((model) => {
+      if (model.supportedInApi) {
+        return true;
+      }
+      return Boolean(selectedSlug) && model.slug === selectedModelInfo?.slug;
+    });
+    if (selectedModelInfo && selectedModelInfo.slug !== selectedSlug) {
+      return [
+        {
+          ...selectedModelInfo,
+          slug: selectedSlug,
+          displayName: selectedModelInfo.displayName || selectedSlug,
+        },
+        ...baseModels,
+      ];
     }
-    return Boolean(modelSlug) && model.slug === modelSlug;
-  });
+    return baseModels;
+  }, [models?.models, selectedModelInfo]);
 
   const modelLabelMap = Object.fromEntries(
     visibleModels.map((model) => [model.slug, model.displayName || model.slug]),
@@ -391,11 +412,15 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
                 disabled={!isServiceReady}
               >
                 <SelectTrigger className="w-full">
-                    <SelectValue placeholder={t("跟随请求")}>
+                  <SelectValue placeholder={t("跟随请求")}>
                     {(value) => {
                       const nextValue = String(value || "").trim();
                       if (!nextValue || nextValue === "auto") return t("跟随请求");
-                      return modelLabelMap[nextValue] || nextValue;
+                      const resolvedModel = findBestMatchingModel(
+                        models?.models || [],
+                        nextValue,
+                      );
+                      return resolvedModel?.displayName || modelLabelMap[nextValue] || nextValue;
                     }}
                   </SelectValue>
                 </SelectTrigger>
