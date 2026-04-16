@@ -687,6 +687,7 @@ fn is_supported_codex_responses_key(key: &str) -> bool {
             | "stream"
             | "include"
             | "prompt_cache_key"
+            | "client_metadata"
             | "text"
     )
 }

@@ -11,7 +11,6 @@ mod conversation_bindings;
 mod events;
 mod gateway_error_logs;
 mod model_options;
-mod managed_teams;
 mod plugins;
 mod request_log_query;
 mod request_logs;
@@ -50,24 +49,6 @@ pub struct Token {
     pub refresh_token: String,
     pub api_key_access_token: Option<String>,
     pub last_refresh: i64,
-}
-
-#[derive(Debug, Clone)]
-pub struct ManagedTeam {
-    pub id: String,
-    pub source_account_id: String,
-    pub team_account_id: Option<String>,
-    pub team_name: Option<String>,
-    pub plan_type: Option<String>,
-    pub subscription_plan: Option<String>,
-    pub status: String,
-    pub current_members: i64,
-    pub pending_invites: i64,
-    pub max_members: i64,
-    pub expires_at: Option<i64>,
-    pub last_sync_at: Option<i64>,
-    pub created_at: i64,
-    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -148,6 +129,7 @@ pub struct RequestLog {
     pub aggregate_api_url: Option<String>,
     pub status_code: Option<i64>,
     pub duration_ms: Option<i64>,
+    pub first_response_ms: Option<i64>,
     pub input_tokens: Option<i64>,
     pub cached_input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
@@ -662,8 +644,17 @@ impl Storage {
             include_str!("../../migrations/049_model_catalog_string_items.sql"),
         )?;
         self.apply_sql_migration(
-            "050_managed_teams",
-            include_str!("../../migrations/050_managed_teams.sql"),
+            "050_api_key_profiles_drop_azure_protocol",
+            include_str!("../../migrations/050_api_key_profiles_drop_azure_protocol.sql"),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "051_request_logs_first_response_ms",
+            include_str!("../../migrations/051_request_logs_first_response_ms.sql"),
+            |s| s.ensure_request_log_first_response_column(),
+        )?;
+        self.apply_sql_migration(
+            "052_managed_teams",
+            include_str!("../../migrations/052_managed_teams.sql"),
         )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
@@ -672,6 +663,7 @@ impl Storage {
         self.ensure_gateway_error_logs_table()?;
         self.ensure_request_log_request_type_and_service_tier_columns()?;
         self.ensure_request_log_effective_service_tier_column()?;
+        self.ensure_request_log_first_response_column()?;
         self.ensure_model_catalog_models_table()?;
         Ok(())
     }

@@ -139,6 +139,8 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
         reasoning_effort: Some("high".to_string()),
         effective_service_tier: Some("fast".to_string()),
         response_adapter: Some("OpenAIChatCompletionsJson".to_string()),
+        canonical_source: Some("openai_compat".to_string()),
+        size_reject_stage: Some("-".to_string()),
         upstream_url: Some("https://api.openai.com/v1".to_string()),
         aggregate_api_supplier_name: Some("方木木提供".to_string()),
         aggregate_api_url: Some("https://api.example.com/v1".to_string()),
@@ -164,10 +166,13 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
         "originalPath",
         "adaptedPath",
         "responseAdapter",
+        "canonicalSource",
+        "sizeRejectStage",
         "effectiveServiceTier",
         "requestPath",
         "upstreamUrl",
         "durationMs",
+        "firstResponseMs",
     ] {
         assert!(obj.contains_key(key), "missing key: {key}");
     }
@@ -222,6 +227,8 @@ fn request_log_list_result_serialization_includes_pagination_fields() {
             reasoning_effort: Some("high".to_string()),
             effective_service_tier: Some("fast".to_string()),
             response_adapter: Some("OpenAIChatCompletionsJson".to_string()),
+            canonical_source: Some("openai_compat".to_string()),
+            size_reject_stage: Some("-".to_string()),
             upstream_url: Some("https://api.openai.com/v1".to_string()),
             aggregate_api_supplier_name: Some("方木木提供".to_string()),
             aggregate_api_url: Some("https://api.example.com/v1".to_string()),

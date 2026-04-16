@@ -26,7 +26,6 @@ static ENABLE_REQUEST_COMPRESSION: AtomicBool = AtomicBool::new(DEFAULT_ENABLE_R
 static UPSTREAM_PROXY_URL: OnceLock<RwLock<Option<String>>> = OnceLock::new();
 static FREE_ACCOUNT_MAX_MODEL: OnceLock<RwLock<String>> = OnceLock::new();
 static MODEL_FORWARD_RULES: OnceLock<RwLock<Vec<ModelForwardRule>>> = OnceLock::new();
-static GATEWAY_MODE: OnceLock<RwLock<GatewayMode>> = OnceLock::new();
 static ORIGINATOR: OnceLock<RwLock<String>> = OnceLock::new();
 static CODEX_USER_AGENT_VERSION: OnceLock<RwLock<String>> = OnceLock::new();
 static RESIDENCY_REQUIREMENT: OnceLock<RwLock<Option<String>>> = OnceLock::new();
@@ -61,7 +60,6 @@ const ENV_TOKEN_EXCHANGE_CLIENT_ID: &str = "CODEXMANAGER_CLIENT_ID";
 const ENV_TOKEN_EXCHANGE_ISSUER: &str = "CODEXMANAGER_ISSUER";
 const ENV_PROXY_LIST: &str = "CODEXMANAGER_PROXY_LIST";
 const ENV_UPSTREAM_PROXY_URL: &str = "CODEXMANAGER_UPSTREAM_PROXY_URL";
-const ENV_GATEWAY_MODE: &str = "CODEXMANAGER_GATEWAY_MODE";
 const ENV_FREE_ACCOUNT_MAX_MODEL: &str = "CODEXMANAGER_FREE_ACCOUNT_MAX_MODEL";
 const ENV_MODEL_FORWARD_RULES: &str = "CODEXMANAGER_MODEL_FORWARD_RULES";
 const ENV_ORIGINATOR: &str = "CODEXMANAGER_ORIGINATOR";
@@ -78,21 +76,6 @@ struct UpstreamClientPool {
 pub(crate) struct ModelForwardRule {
     pub from_pattern: String,
     pub to_model: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum GatewayMode {
-    Transparent,
-    Enhanced,
-}
-
-impl GatewayMode {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Transparent => "transparent",
-            Self::Enhanced => "enhanced",
-        }
-    }
 }
 
 impl UpstreamClientPool {
@@ -502,19 +485,6 @@ pub(crate) fn current_model_forward_rules() -> String {
     ))
 }
 
-pub(crate) fn current_gateway_mode() -> String {
-    ensure_runtime_config_loaded();
-    crate::lock_utils::read_recover(gateway_mode_cell(), "gateway_mode")
-        .as_str()
-        .to_string()
-}
-
-pub(crate) fn transparent_gateway_mode_enabled() -> bool {
-    ensure_runtime_config_loaded();
-    *crate::lock_utils::read_recover(gateway_mode_cell(), "gateway_mode")
-        == GatewayMode::Transparent
-}
-
 /// 函数 `resolve_forwarded_model`
 ///
 /// 作者: gaohongshun
@@ -528,7 +498,7 @@ pub(crate) fn transparent_gateway_mode_enabled() -> bool {
 /// 返回函数执行结果
 pub(crate) fn resolve_forwarded_model(model: &str) -> Option<String> {
     ensure_runtime_config_loaded();
-    let normalized_model = normalize_forward_target_model(model).ok()?;
+    let normalized_model = normalize_model_forward_lookup_model(model)?;
     let rules = crate::lock_utils::read_recover(model_forward_rules_cell(), "model_forward_rules");
     rules
         .iter()
@@ -1003,14 +973,6 @@ pub(super) fn reload_from_env() {
     *cached_model_forward_rules = model_forward_rules;
     drop(cached_model_forward_rules);
 
-    let gateway_mode = env_non_empty(ENV_GATEWAY_MODE)
-        .and_then(|value| parse_gateway_mode(value.as_str()))
-        .unwrap_or(GatewayMode::Transparent);
-    let mut cached_gateway_mode =
-        crate::lock_utils::write_recover(gateway_mode_cell(), "gateway_mode");
-    *cached_gateway_mode = gateway_mode;
-    drop(cached_gateway_mode);
-
     let originator = env_non_empty(ENV_ORIGINATOR)
         .and_then(|value| normalize_originator(value.as_str()).ok())
         .unwrap_or_else(|| DEFAULT_ORIGINATOR.to_string());
@@ -1198,10 +1160,6 @@ fn model_forward_rules_cell() -> &'static RwLock<Vec<ModelForwardRule>> {
     })
 }
 
-fn gateway_mode_cell() -> &'static RwLock<GatewayMode> {
-    GATEWAY_MODE.get_or_init(|| RwLock::new(GatewayMode::Transparent))
-}
-
 /// 函数 `originator_cell`
 ///
 /// 作者: gaohongshun
@@ -1382,7 +1340,7 @@ fn env_bool_or(name: &str, default: bool) -> bool {
 /// # 返回
 /// 返回函数执行结果
 fn normalize_model_forward_pattern(raw: &str) -> Result<String, String> {
-    let normalized = raw.trim().to_ascii_lowercase();
+    let normalized = raw.trim();
     if normalized.is_empty() {
         return Err("modelForwardRules pattern is required".to_string());
     }
@@ -1395,7 +1353,7 @@ fn normalize_model_forward_pattern(raw: &str) -> Result<String, String> {
     {
         return Err("modelForwardRules pattern contains unsupported characters".to_string());
     }
-    Ok(normalized)
+    Ok(normalized.to_string())
 }
 
 /// 函数 `normalize_forward_target_model`
@@ -1410,11 +1368,20 @@ fn normalize_model_forward_pattern(raw: &str) -> Result<String, String> {
 /// # 返回
 /// 返回函数执行结果
 fn normalize_forward_target_model(raw: &str) -> Result<String, String> {
-    let normalized = normalize_model_slug(raw)?;
-    if normalized == "auto" {
+    let normalized = raw.trim();
+    if normalized.is_empty() {
+        return Err("modelForwardRules target model is required".to_string());
+    }
+    if normalized.eq_ignore_ascii_case("auto") {
         return Err("modelForwardRules target model cannot be auto".to_string());
     }
-    Ok(normalized)
+    if normalized
+        .chars()
+        .any(|ch| !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':')))
+    {
+        return Err("modelForwardRules target model contains unsupported characters".to_string());
+    }
+    Ok(normalized.to_string())
 }
 
 /// 函数 `parse_model_forward_rule_line`
@@ -1554,6 +1521,20 @@ fn wildcard_pattern_matches(pattern: &str, value: &str) -> bool {
     true
 }
 
+fn normalize_model_forward_lookup_model(raw: &str) -> Option<String> {
+    let normalized = raw.trim();
+    if normalized.is_empty() {
+        return None;
+    }
+    if normalized
+        .chars()
+        .any(|ch| !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':')))
+    {
+        return None;
+    }
+    Some(normalized.to_string())
+}
+
 /// 函数 `normalize_model_slug`
 ///
 /// 作者: gaohongshun
@@ -1584,15 +1565,6 @@ fn normalize_model_slug(raw: &str) -> Result<String, String> {
     }
     Ok(normalized)
 }
-
-fn parse_gateway_mode(raw: &str) -> Option<GatewayMode> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "transparent" => Some(GatewayMode::Transparent),
-        "enhanced" => Some(GatewayMode::Enhanced),
-        _ => None,
-    }
-}
-
 
 /// 函数 `normalize_originator`
 ///

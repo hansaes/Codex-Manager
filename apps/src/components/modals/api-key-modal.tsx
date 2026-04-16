@@ -32,7 +32,6 @@ import { ApiKey } from "@/types";
 
 const PROTOCOL_LABELS: Record<string, string> = {
   openai_compat: "通配兼容 (Codex / Claude Code / Gemini CLI)",
-  azure_openai: "Azure OpenAI",
   anthropic_native: "通配兼容 (Codex / Claude Code / Gemini CLI)",
   gemini_native: "通配兼容 (Codex / Claude Code / Gemini CLI)",
 };
@@ -104,8 +103,6 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
   const [rotationStrategy, setRotationStrategy] = useState("account_rotation");
   const [accountPlanFilter, setAccountPlanFilter] = useState("all");
   const [upstreamBaseUrl, setUpstreamBaseUrl] = useState("");
-  const [azureEndpoint, setAzureEndpoint] = useState("");
-  const [azureApiKey, setAzureApiKey] = useState("");
   const [generatedKey, setGeneratedKey] = useState("");
 
   const [isLoading, setIsLoading] = useState(false);
@@ -154,41 +151,19 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
       setRotationStrategy("account_rotation");
       setAccountPlanFilter("all");
       setUpstreamBaseUrl("");
-      setAzureEndpoint("");
-      setAzureApiKey("");
       setGeneratedKey("");
       return;
     }
 
     setName(apiKey.name || "");
-    setProtocolType(
-      apiKey.protocol === "azure_openai" ? "azure_openai" : "openai_compat",
-    );
+    setProtocolType("openai_compat");
     setModelSlug(apiKey.modelSlug || "");
     setReasoningEffort(apiKey.reasoningEffort || "");
     setServiceTier(normalizeEditableServiceTier(apiKey.serviceTier));
     setRotationStrategy(apiKey.rotationStrategy || "account_rotation");
     setAccountPlanFilter(apiKey.accountPlanFilter || "all");
     setGeneratedKey("");
-
-    if (apiKey.protocol === "azure_openai") {
-      setAzureEndpoint(apiKey.upstreamBaseUrl || "");
-      try {
-        const headers = apiKey.staticHeadersJson
-          ? JSON.parse(apiKey.staticHeadersJson)
-          : {};
-        setAzureApiKey(
-          typeof headers["api-key"] === "string" ? headers["api-key"] : "",
-        );
-      } catch {
-        setAzureApiKey("");
-      }
-      setUpstreamBaseUrl("");
-    } else {
-      setUpstreamBaseUrl(apiKey.upstreamBaseUrl || "");
-      setAzureEndpoint("");
-      setAzureApiKey("");
-    }
+    setUpstreamBaseUrl(apiKey.upstreamBaseUrl || "");
   }, [apiKey, open]);
 
   /**
@@ -215,11 +190,6 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     }
     setIsLoading(true);
     try {
-      const staticHeaders: Record<string, string> = {};
-      if (protocolType === "azure_openai" && azureApiKey) {
-        staticHeaders["api-key"] = azureApiKey;
-      }
-
       const params = {
         name: name || null,
         modelSlug: !modelSlug || modelSlug === "auto" ? null : modelSlug,
@@ -230,14 +200,8 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
         serviceTier:
           !serviceTier || serviceTier === "auto" ? null : serviceTier,
         protocolType,
-        upstreamBaseUrl:
-          protocolType === "azure_openai"
-            ? azureEndpoint
-            : upstreamBaseUrl || null,
-        staticHeadersJson:
-          Object.keys(staticHeaders).length > 0
-            ? JSON.stringify(staticHeaders)
-            : null,
+        upstreamBaseUrl: upstreamBaseUrl || null,
+        staticHeadersJson: null,
         rotationStrategy,
         accountPlanFilter:
           rotationStrategy === "account_rotation" && accountPlanFilter !== "all"
@@ -247,7 +211,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
 
       if (apiKey?.id) {
         await accountClient.updateApiKey(apiKey.id, params);
-      toast.success(t("密钥配置已更新"));
+        toast.success(t("密钥配置已更新"));
       } else {
         const result = await accountClient.createApiKey(params);
         setGeneratedKey(result.key);
@@ -413,7 +377,6 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
                   <SelectItem value="openai_compat">
                     {t("通配兼容 (Codex / Claude Code / Gemini CLI)")}
                   </SelectItem>
-                  <SelectItem value="azure_openai">Azure OpenAI</SelectItem>
                 </SelectContent>
               </Select>
               <p className="min-h-[32px] text-[11px] text-muted-foreground">
@@ -506,32 +469,6 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
               </p>
             </div>
           </div>
-
-          {protocolType === "azure_openai" ? (
-            <div className="grid gap-4 p-4 rounded-xl bg-accent/20 border border-primary/10">
-              <div className="grid gap-2">
-                <Label className="text-xs">{t("Azure 接入地址")}</Label>
-                <Input
-                  placeholder="https://your-resource.openai.azure.com"
-                  value={azureEndpoint}
-                  disabled={!isServiceReady}
-                  onChange={(e) => setAzureEndpoint(e.target.value)}
-                  className="h-9 font-mono text-xs"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label className="text-xs">{t("Azure 接口密钥")}</Label>
-                <Input
-                  type="password"
-                  placeholder="your-azure-key"
-                  value={azureApiKey}
-                  disabled={!isServiceReady}
-                  onChange={(e) => setAzureApiKey(e.target.value)}
-                  className="h-9 font-mono text-xs"
-                />
-              </div>
-            </div>
-          ) : null}
 
           {generatedKey && (
             <div className="space-y-2 pt-4 border-t">

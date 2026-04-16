@@ -1,5 +1,67 @@
 use crate::storage_helpers::open_storage;
 
+pub(crate) const MISSING_AUTH_JSON_OPENAI_API_KEY_ERROR: &str =
+    "配置错误：未配置auth.json的OPENAI_API_KEY(invalid api key)";
+
+pub(crate) fn bilingual_error(
+    chinese_description: impl AsRef<str>,
+    english_raw_message: impl AsRef<str>,
+) -> String {
+    format!(
+        "{}({})",
+        chinese_description.as_ref(),
+        english_raw_message.as_ref()
+    )
+}
+
+pub(crate) fn extract_raw_error_message(message: &str) -> Option<&str> {
+    let (_, tail) = message.rsplit_once('(')?;
+    let tail = tail.strip_suffix(')')?.trim();
+    if tail.is_empty() || !tail.is_ascii() || !tail.chars().any(|ch| ch.is_ascii_alphabetic()) {
+        return None;
+    }
+    Some(tail)
+}
+
+fn is_codex_user_agent(value: &str) -> bool {
+    value.to_ascii_lowercase().contains("codex_cli_rs")
+}
+
+fn is_codex_header_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case("x-openai-subagent")
+        || name.eq_ignore_ascii_case("x-client-request-id")
+        || name.eq_ignore_ascii_case("session_id")
+        || name.eq_ignore_ascii_case("conversation_id")
+        || name.to_ascii_lowercase().starts_with("x-codex-")
+}
+
+pub(crate) fn prefers_raw_errors_for_http_headers(headers: &axum::http::HeaderMap) -> bool {
+    headers.iter().any(|(name, value)| {
+        is_codex_header_name(name.as_str())
+            || (name.as_str().eq_ignore_ascii_case("User-Agent")
+                && value.to_str().ok().is_some_and(is_codex_user_agent))
+    })
+}
+
+pub(crate) fn prefers_raw_errors_for_tiny_http_request(request: &tiny_http::Request) -> bool {
+    request.headers().iter().any(|header| {
+        let name = header.field.as_str().as_str();
+        is_codex_header_name(name)
+            || (header.field.equiv("User-Agent") && is_codex_user_agent(header.value.as_str()))
+    })
+}
+
+pub(crate) fn error_message_for_client(
+    _prefers_raw_errors: bool,
+    message: impl Into<String>,
+) -> String {
+    let message = message.into();
+    if let Some(raw) = extract_raw_error_message(message.as_str()) {
+        return raw.to_string();
+    }
+    message
+}
+
 mod anchor_fingerprint;
 mod concurrency;
 #[path = "routing/conversation_binding.rs"]
@@ -19,6 +81,8 @@ mod incoming_headers;
 mod local_count_tokens;
 #[path = "request/local_models.rs"]
 mod local_models;
+#[path = "request/local_response.rs"]
+mod local_response;
 mod local_validation;
 #[path = "observability/metrics.rs"]
 mod metrics;
@@ -46,6 +110,8 @@ mod runtime_config;
 mod selection;
 #[path = "request/session_affinity.rs"]
 mod session_affinity;
+#[path = "request/thread_anchor.rs"]
+mod thread_anchor;
 #[path = "auth/token_exchange.rs"]
 mod token_exchange;
 #[path = "observability/trace_log.rs"]
@@ -56,11 +122,12 @@ pub(crate) use concurrency::current_gateway_concurrency_recommendation;
 pub(crate) use error_log::write_gateway_error_log;
 use metrics::{
     account_inflight_count, acquire_account_inflight, begin_gateway_request,
-    record_gateway_cooldown_mark, record_gateway_failover_attempt, record_gateway_request_outcome,
-    AccountInFlightGuard,
+    record_gateway_candidate_skip, record_gateway_cooldown_mark, record_gateway_failover_attempt,
+    record_gateway_request_outcome, AccountInFlightGuard,
 };
 pub(crate) use metrics::{
-    begin_rpc_request, duration_to_millis, gateway_metrics_prometheus, record_usage_refresh_outcome,
+    begin_rpc_request, duration_to_millis, gateway_metrics_prometheus,
+    record_usage_refresh_outcome, GatewayCandidateSkipReason,
 };
 use protocol_adapter::{
     adapt_request_for_protocol, adapt_upstream_response_with_tool_name_restore_map,
@@ -72,14 +139,20 @@ use protocol_adapter::{
 pub(super) use request_helpers::{
     inspect_service_tier_for_log, inspect_service_tier_value, is_html_content_type,
     is_upstream_challenge_response, normalize_models_path, parse_request_metadata,
+    validate_text_input_limit_for_path,
 };
 #[cfg(test)]
 use request_helpers::{should_drop_incoming_header, should_drop_incoming_header_for_failover};
 pub(crate) use request_log::{RequestLogTraceContext, RequestLogUsage};
+#[cfg(test)]
+use request_rewrite::apply_request_overrides_with_service_tier_and_prompt_cache_key;
 use request_rewrite::{
-    apply_request_overrides_with_forced_prompt_cache_key,
-    apply_request_overrides_with_service_tier_and_forced_prompt_cache_key,
-    apply_request_overrides_with_service_tier_and_prompt_cache_key, compute_upstream_url,
+    apply_request_overrides_with_service_tier_and_forced_prompt_cache_key_scope,
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope, compute_upstream_url,
+};
+pub(super) use thread_anchor::{
+    clear_prompt_cache_key_when_native_anchor, resolve_fallback_thread_anchor,
+    resolve_local_conversation_id_with_sticky_fallback,
 };
 pub(crate) use trace_log::{
     log_client_service_tier, log_request_final, log_request_start, next_trace_id,
@@ -318,7 +391,7 @@ pub(crate) use runtime_config::front_proxy_max_body_bytes;
 pub(crate) use runtime_config::{account_max_inflight_limit, set_account_max_inflight_limit};
 use runtime_config::{
     fresh_upstream_client_for_account, request_gate_wait_timeout, trace_body_preview_max_bytes,
-    upstream_client, upstream_client_for_account, upstream_stream_timeout, upstream_total_timeout,
+    upstream_client_for_account, upstream_stream_timeout, upstream_total_timeout,
     DEFAULT_GATEWAY_DEBUG,
 };
 use selection::collect_gateway_candidates;
@@ -412,14 +485,6 @@ pub(crate) fn current_free_account_max_model() -> String {
 /// 返回函数执行结果
 pub(crate) fn current_model_forward_rules() -> String {
     runtime_config::current_model_forward_rules()
-}
-
-pub(crate) fn current_gateway_mode() -> String {
-    runtime_config::current_gateway_mode()
-}
-
-pub(crate) fn transparent_gateway_mode_enabled() -> bool {
-    runtime_config::transparent_gateway_mode_enabled()
 }
 
 /// 函数 `request_compression_enabled`
@@ -889,6 +954,37 @@ pub(crate) fn gateway_collect_routed_candidates(
     Ok(candidates)
 }
 
+/// 函数 `gateway_record_failover_attempt`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-13
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+pub(crate) fn gateway_record_failover_attempt() {
+    record_gateway_failover_attempt();
+}
+
+/// 函数 `gateway_mark_account_cooldown_for_status`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-13
+///
+/// # 参数
+/// - account_id: 参数 account_id
+/// - status: 参数 status
+///
+/// # 返回
+/// 无
+pub(crate) fn gateway_mark_account_cooldown_for_status(account_id: &str, status: u16) {
+    mark_account_cooldown_for_status(account_id, status);
+}
+
 /// 函数 `gateway_resolve_openai_bearer_token`
 ///
 /// 作者: gaohongshun
@@ -910,6 +1006,28 @@ pub(crate) fn gateway_resolve_openai_bearer_token(
     resolve_openai_bearer_token(storage, account, token)
 }
 
+pub(crate) fn gateway_resolve_ws_prompt_cache_key(
+    storage: &codexmanager_core::storage::Storage,
+    api_key: &codexmanager_core::storage::ApiKey,
+    incoming_headers: &IncomingHeaderSnapshot,
+) -> Result<(IncomingHeaderSnapshot, Option<String>), String> {
+    let local_conversation_id =
+        resolve_local_conversation_id_with_sticky_fallback(incoming_headers, true);
+    let conversation_binding = conversation_binding::load_conversation_binding(
+        storage,
+        api_key.key_hash.as_str(),
+        local_conversation_id.as_deref(),
+    )?;
+    let incoming_headers =
+        incoming_headers.with_conversation_id_override(local_conversation_id.as_deref());
+    let prompt_cache_key = resolve_fallback_thread_anchor(
+        &incoming_headers,
+        local_conversation_id.as_deref(),
+        conversation_binding.as_ref(),
+    );
+    Ok((incoming_headers, prompt_cache_key))
+}
+
 /// 函数 `gateway_rewrite_ws_responses_body`
 ///
 /// 作者: gaohongshun
@@ -927,6 +1045,7 @@ pub(crate) fn gateway_rewrite_ws_responses_body(
     path: &str,
     body: Vec<u8>,
     api_key: &codexmanager_core::storage::ApiKey,
+    prompt_cache_key: Option<&str>,
 ) -> Vec<u8> {
     let normalized_model = api_key
         .model_slug
@@ -941,14 +1060,15 @@ pub(crate) fn gateway_rewrite_ws_responses_body(
         .service_tier
         .as_deref()
         .and_then(crate::apikey::service_tier::normalize_service_tier);
-    apply_request_overrides_with_service_tier_and_prompt_cache_key(
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
         path,
         body,
         normalized_model,
         normalized_reasoning,
         normalized_service_tier,
         api_key.upstream_base_url.as_deref(),
-        None,
+        prompt_cache_key,
+        false,
     )
 }
 

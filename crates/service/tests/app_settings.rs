@@ -279,6 +279,29 @@ fn sync_runtime_settings_from_storage_preserves_explicit_process_env_over_persis
     });
 }
 
+#[test]
+fn app_settings_gateway_mode_is_no_longer_a_persisted_runtime_setting() {
+    with_temp_db(|db_path| {
+        let storage = Storage::open(db_path).expect("open storage");
+        storage
+            .set_app_setting("gateway.mode", "enhanced", now_ts())
+            .expect("save legacy gateway mode");
+        drop(storage);
+
+        codexmanager_service::sync_runtime_settings_from_storage();
+
+        let snapshot = codexmanager_service::app_settings_set(Some(&json!({
+            "gatewayMode": "enhanced"
+        })))
+        .expect("legacy gatewayMode patch should be ignored");
+
+        assert!(
+            snapshot.get("gatewayMode").is_none(),
+            "app settings snapshot must not expose gatewayMode as a product setting"
+        );
+    });
+}
+
 /// 函数 `app_settings_set_persists_snapshot_and_password_hash`
 ///
 /// 作者: gaohongshun
@@ -554,6 +577,31 @@ fn app_settings_set_preserves_dark_one_theme() {
                 .get("appearancePreset")
                 .and_then(|value| value.as_str()),
             Some("classic")
+        );
+    });
+}
+
+#[test]
+fn app_settings_set_preserves_model_forward_rules_case() {
+    with_temp_db(|db_path| {
+        let snapshot = codexmanager_service::app_settings_set(Some(&json!({
+            "modelForwardRules": "Spark*=GPT-5.4-mini\nClaude-Sonnet-4*=Gemini-2.5-Pro"
+        })))
+        .expect("save mixed-case model forward rules");
+
+        assert_eq!(
+            snapshot
+                .get("modelForwardRules")
+                .and_then(|value| value.as_str()),
+            Some("Spark*=GPT-5.4-mini\nClaude-Sonnet-4*=Gemini-2.5-Pro")
+        );
+
+        let storage = Storage::open(db_path).expect("open storage");
+        assert_eq!(
+            storage
+                .get_app_setting(codexmanager_service::APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY)
+                .expect("read model forward rules"),
+            Some("Spark*=GPT-5.4-mini\nClaude-Sonnet-4*=Gemini-2.5-Pro".to_string())
         );
     });
 }

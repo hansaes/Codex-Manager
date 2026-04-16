@@ -5,6 +5,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { appClient } from "@/lib/api/app-client";
+import type {
+  UpdateCheckResult,
+  UpdatePrepareResult,
+} from "@/lib/api/app-updates";
 import { getAppErrorMessage } from "@/lib/api/transport";
 import { useAppStore } from "@/lib/store/useAppStore";
 import {
@@ -68,563 +72,39 @@ import {
   Variable,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { LanguageSwitcher } from "@/components/layout/language-switcher";
 import { ConfirmDialog } from "@/components/modals/confirm-dialog";
 import { useI18n } from "@/lib/i18n/provider";
-
-const ENV_DESCRIPTION_MAP: Record<string, string> = {
-  CODEXMANAGER_UPSTREAM_TOTAL_TIMEOUT_MS:
-    "控制单次上游请求允许持续的最长时间，单位毫秒；超过后会主动结束请求并返回超时错误。",
-  CODEXMANAGER_UPSTREAM_STREAM_TIMEOUT_MS:
-    "控制流式上游请求允许持续的最长时间，单位毫秒；填 0 可关闭流式超时上限。",
-  CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS:
-    "控制向下游补发 SSE keep-alive 帧的间隔，单位毫秒；上游长时间安静时可避免客户端误判连接中断。",
-  CODEXMANAGER_UPSTREAM_CONNECT_TIMEOUT_SECS:
-    "控制连接上游服务器时的超时时间，单位秒；主要影响握手和网络建立阶段。",
-  CODEXMANAGER_UPSTREAM_BASE_URL:
-    "控制默认上游地址；修改后，网关会把请求转发到新的目标地址。",
-};
-
-const THEMES = [
-  { id: "tech", name: "企业蓝", color: "#2563eb" },
-  { id: "dark", name: "极夜黑", color: "#09090b" },
-  { id: "dark-one", name: "深邃黑", color: "#282c34" },
-  { id: "business", name: "事务金", color: "#c28100" },
-  { id: "mint", name: "薄荷绿", color: "#059669" },
-  { id: "sunset", name: "晚霞橙", color: "#ea580c" },
-  { id: "grape", name: "葡萄灰紫", color: "#7c3aed" },
-  { id: "ocean", name: "海湾青", color: "#0284c7" },
-  { id: "forest", name: "松林绿", color: "#166534" },
-  { id: "rose", name: "玫瑰粉", color: "#db2777" },
-  { id: "slate", name: "石板灰", color: "#475569" },
-  { id: "aurora", name: "极光青", color: "#0d9488" },
-];
-
-const ROUTE_STRATEGY_LABELS: Record<string, string> = {
-  ordered: "顺序优先 (Ordered)",
-  balanced: "均衡轮询 (Balanced)",
-};
-
-const SERVICE_LISTEN_MODE_LABELS: Record<string, string> = {
-  loopback: "仅本机 (localhost)",
-  all_interfaces: "全部网卡 (0.0.0.0)",
-};
-
-const RESIDENCY_REQUIREMENT_LABELS: Record<string, string> = {
-  "": "不限制",
-  us: "仅美国 (us)",
-};
-const EMPTY_RESIDENCY_OPTION = "__none__";
-
-const WORKER_PRESET_KEYS = [
-  "usageRefreshWorkers",
-  "httpWorkerFactor",
-  "httpWorkerMin",
-  "httpStreamWorkerFactor",
-  "httpStreamWorkerMin",
-] as const;
-
-type WorkerPresetKey = (typeof WORKER_PRESET_KEYS)[number];
-
-type WorkerPreset = {
-  key: string;
-  label: string;
-  simpleLabel: string;
-  rangeLabel: string;
-  summary: string;
-  hints: string[];
-  backgroundTasks: Pick<BackgroundTaskSettings, WorkerPresetKey>;
-};
-
-type WorkerRecommendedSettings = {
-  backgroundTasks: Pick<BackgroundTaskSettings, WorkerPresetKey>;
-  accountMaxInflight: number;
-};
-
-const WORKER_PRESETS: WorkerPreset[] = [
-  {
-    key: "recommended",
-    label: "常规推荐",
-    simpleLabel: "推荐",
-    rangeLabel: "8-16 核",
-    summary: "默认平衡档，适合大多数服务器和办公室电脑。",
-    hints: ["几百并发通常先从这里开始", "速度和资源占用比较均衡"],
-    backgroundTasks: {
-      usageRefreshWorkers: 4,
-      httpWorkerFactor: 4,
-      httpWorkerMin: 8,
-      httpStreamWorkerFactor: 1,
-      httpStreamWorkerMin: 2,
-    },
-  },
-  {
-    key: "light",
-    label: "轻量稳定",
-    simpleLabel: "省资源",
-    rangeLabel: "4-8 核",
-    summary: "更少后台占用，适合低配机器、笔记本或只求稳。",
-    hints: ["更省 CPU 和内存", "适合小规模或低峰值场景"],
-    backgroundTasks: {
-      usageRefreshWorkers: 2,
-      httpWorkerFactor: 2,
-      httpWorkerMin: 4,
-      httpStreamWorkerFactor: 1,
-      httpStreamWorkerMin: 1,
-    },
-  },
-  {
-    key: "performance",
-    label: "高并发",
-    simpleLabel: "高吞吐",
-    rangeLabel: "16 核以上",
-    summary: "更积极地并发处理，适合高核数机器和繁忙时段。",
-    hints: ["更适合上千并发峰值", "机器资源充足时再选"],
-    backgroundTasks: {
-      usageRefreshWorkers: 6,
-      httpWorkerFactor: 6,
-      httpWorkerMin: 12,
-      httpStreamWorkerFactor: 2,
-      httpStreamWorkerMin: 4,
-    },
-  },
-];
-const CUSTOM_WORKER_MODE_VALUE = "__custom__";
-
-const DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS = [
-  "auto",
-  "gpt-5",
-  "gpt-5-codex",
-  "gpt-5-codex-mini",
-  "gpt-5.1",
-  "gpt-5.1-codex",
-  "gpt-5.1-codex-max",
-  "gpt-5.1-codex-mini",
-  "gpt-5.2",
-  "gpt-5.2-codex",
-  "gpt-5.3-codex",
-  "gpt-5.4-mini",
-  "gpt-5.4",
-] as const;
-
-/**
- * 函数 `formatFreeAccountModelLabel`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - value: 参数 value
- *
- * # 返回
- * 返回函数执行结果
- */
-function formatFreeAccountModelLabel(value: string | null | undefined): string {
-  const normalized = String(value || "").trim();
-  if (!normalized || normalized === "auto") {
-    return "跟随请求";
-  }
-  return normalized;
-}
-
-const SETTINGS_TABS = [
-  "general",
-  "appearance",
-  "gateway",
-  "tasks",
-  "env",
-] as const;
-type SettingsTab = (typeof SETTINGS_TABS)[number];
-const SETTINGS_ACTIVE_TAB_KEY = "codexmanager.settings.active-tab";
-
-/**
- * 函数 `readInitialSettingsTab`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * 无
- *
- * # 返回
- * 返回函数执行结果
- */
-function readInitialSettingsTab(): SettingsTab {
-  if (typeof window === "undefined") return "general";
-  const savedTab = window.sessionStorage.getItem(SETTINGS_ACTIVE_TAB_KEY);
-  if (savedTab && SETTINGS_TABS.includes(savedTab as SettingsTab)) {
-    return savedTab as SettingsTab;
-  }
-  return "general";
-}
-
-/**
- * 函数 `stringifyNumber`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - value: 参数 value
- *
- * # 返回
- * 返回函数执行结果
- */
-function stringifyNumber(value: number | null | undefined): string {
-  return value == null ? "" : String(value);
-}
-
-/**
- * 函数 `readNumberField`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - source: 参数 source
- * - key: 参数 key
- * - fallback: 参数 fallback
- *
- * # 返回
- * 返回函数执行结果
- */
-function readNumberField(
-  source: Record<string, unknown>,
-  key: string,
-  fallback = 0,
-): number {
-  const value = source[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-/**
- * 函数 `normalizeWorkerRecommendation`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-10
- *
- * # 参数
- * - value: 参数 value
- *
- * # 返回
- * 返回函数执行结果
- */
-function normalizeWorkerRecommendation(
-  value: unknown,
-): WorkerRecommendedSettings | null {
-  const source = asRecord(value);
-  if (!source) return null;
-  return {
-    backgroundTasks: {
-      usageRefreshWorkers: readNumberField(source, "usageRefreshWorkers", 4),
-      httpWorkerFactor: readNumberField(source, "httpWorkerFactor", 4),
-      httpWorkerMin: readNumberField(source, "httpWorkerMin", 8),
-      httpStreamWorkerFactor: readNumberField(source, "httpStreamWorkerFactor", 1),
-      httpStreamWorkerMin: readNumberField(source, "httpStreamWorkerMin", 2),
-    },
-    accountMaxInflight: readNumberField(source, "accountMaxInflight", 1),
-  };
-}
-
-/**
- * 函数 `matchesRecommendedWorkerSettings`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-10
- *
- * # 参数
- * - snapshot: 参数 snapshot
- * - recommendation: 参数 recommendation
- *
- * # 返回
- * 返回函数执行结果
- */
-function matchesRecommendedWorkerSettings(
-  snapshot: AppSettings,
-  recommendation: WorkerRecommendedSettings,
-): boolean {
-  return (
-    WORKER_PRESET_KEYS.every(
-      (key) => snapshot.backgroundTasks[key] === recommendation.backgroundTasks[key],
-    ) && snapshot.accountMaxInflight === recommendation.accountMaxInflight
-  );
-}
-
-/**
- * 函数 `parseIntegerInput`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - value: 参数 value
- * - minimum: 参数 minimum
- *
- * # 返回
- * 返回函数执行结果
- */
-function parseIntegerInput(value: string, minimum = 0): number | null {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return null;
-  const rounded = Math.trunc(numeric);
-  if (rounded < minimum) return null;
-  return rounded;
-}
-
-/**
- * 函数 `inferServiceBindPreview`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - addr: 参数 addr
- * - mode: 参数 mode
- *
- * # 返回
- * 返回函数执行结果
- */
-function inferServiceBindPreview(addr: string, mode: string): string {
-  const normalizedAddr = String(addr || "").trim() || "localhost:48760";
-  const [, port = "48760"] = normalizedAddr.split(":");
-  return mode === "all_interfaces" ? `0.0.0.0:${port}` : `localhost:${port}`;
-}
-
-type UpdateCheckSummary = {
-  repo: string;
-  mode: string;
-  isPortable: boolean;
-  hasUpdate: boolean;
-  canPrepare: boolean;
-  currentVersion: string;
-  latestVersion: string;
-  releaseTag: string;
-  releaseName: string;
-  reason: string;
-};
-
-type UpdatePrepareSummary = {
-  prepared: boolean;
-  mode: string;
-  isPortable: boolean;
-  releaseTag: string;
-  latestVersion: string;
-  assetName: string;
-  assetPath: string;
-  downloaded: boolean;
-};
-
-type UpdateStatusSummary = {
-  pending: UpdatePrepareSummary | null;
-  lastCheck: UpdateCheckSummary | null;
-};
-
-type CheckUpdateRequest = {
-  silent?: boolean;
-};
-
-/**
- * 函数 `asRecord`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - value: 参数 value
- *
- * # 返回
- * 返回函数执行结果
- */
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-/**
- * 函数 `readStringField`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - source: 参数 source
- * - key: 参数 key
- *
- * # 返回
- * 返回函数执行结果
- */
-function readStringField(source: Record<string, unknown>, key: string): string {
-  const value = source[key];
-  return typeof value === "string" ? value : "";
-}
-
-/**
- * 函数 `readBooleanField`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - source: 参数 source
- * - key: 参数 key
- *
- * # 返回
- * 返回函数执行结果
- */
-function readBooleanField(
-  source: Record<string, unknown>,
-  key: string,
-): boolean {
-  return source[key] === true;
-}
-
-/**
- * 函数 `normalizeUpdateCheckSummary`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - payload: 参数 payload
- *
- * # 返回
- * 返回函数执行结果
- */
-function normalizeUpdateCheckSummary(payload: unknown): UpdateCheckSummary {
-  const source = asRecord(payload) ?? {};
-  return {
-    repo: readStringField(source, "repo"),
-    mode: readStringField(source, "mode"),
-    isPortable: readBooleanField(source, "isPortable"),
-    hasUpdate: readBooleanField(source, "hasUpdate"),
-    canPrepare: readBooleanField(source, "canPrepare"),
-    currentVersion: readStringField(source, "currentVersion"),
-    latestVersion: readStringField(source, "latestVersion"),
-    releaseTag: readStringField(source, "releaseTag"),
-    releaseName: readStringField(source, "releaseName"),
-    reason: readStringField(source, "reason"),
-  };
-}
-
-/**
- * 函数 `normalizeUpdatePrepareSummary`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - payload: 参数 payload
- *
- * # 返回
- * 返回函数执行结果
- */
-function normalizeUpdatePrepareSummary(payload: unknown): UpdatePrepareSummary {
-  const source = asRecord(payload) ?? {};
-  return {
-    prepared: readBooleanField(source, "prepared"),
-    mode: readStringField(source, "mode"),
-    isPortable: readBooleanField(source, "isPortable"),
-    releaseTag: readStringField(source, "releaseTag"),
-    latestVersion: readStringField(source, "latestVersion"),
-    assetName: readStringField(source, "assetName"),
-    assetPath: readStringField(source, "assetPath"),
-    downloaded: readBooleanField(source, "downloaded"),
-  };
-}
-
-/**
- * 函数 `normalizePendingUpdateSummary`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - payload: 参数 payload
- *
- * # 返回
- * 返回函数执行结果
- */
-function normalizePendingUpdateSummary(
-  payload: unknown,
-): UpdatePrepareSummary | null {
-  const source = asRecord(payload);
-  if (!source) {
-    return null;
-  }
-  return {
-    prepared: true,
-    mode: readStringField(source, "mode"),
-    isPortable: readBooleanField(source, "isPortable"),
-    releaseTag: readStringField(source, "releaseTag"),
-    latestVersion: readStringField(source, "latestVersion"),
-    assetName: readStringField(source, "assetName"),
-    assetPath: readStringField(source, "assetPath"),
-    downloaded: true,
-  };
-}
-
-/**
- * 函数 `normalizeUpdateStatusSummary`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - payload: 参数 payload
- *
- * # 返回
- * 返回函数执行结果
- */
-function normalizeUpdateStatusSummary(payload: unknown): UpdateStatusSummary {
-  const source = asRecord(payload) ?? {};
-  return {
-    pending: normalizePendingUpdateSummary(source.pending),
-    lastCheck: source.lastCheck
-      ? normalizeUpdateCheckSummary(source.lastCheck)
-      : null,
-  };
-}
-
-/**
- * 函数 `buildReleaseUrl`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - summary: 参数 summary
- *
- * # 返回
- * 返回函数执行结果
- */
-function buildReleaseUrl(summary: UpdateCheckSummary | null): string {
-  if (!summary?.repo) {
-    return "https://github.com/qxcnm/Codex-Manager/releases";
-  }
-  const normalizedTag =
-    summary.releaseTag ||
-    (summary.latestVersion ? `v${summary.latestVersion}` : "");
-  if (!normalizedTag) {
-    return `https://github.com/${summary.repo}/releases`;
-  }
-  return `https://github.com/${summary.repo}/releases/tag/${normalizedTag}`;
-}
+import {
+  CUSTOM_WORKER_MODE_VALUE,
+  DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS,
+  EMPTY_RESIDENCY_OPTION,
+  ENV_DESCRIPTION_MAP,
+  ENV_EFFECT_SCOPE_LABELS,
+  ENV_RISK_BADGE_CLASSES,
+  ENV_RISK_LABELS,
+  RESIDENCY_REQUIREMENT_LABELS,
+  ROUTE_STRATEGY_LABELS,
+  SERVICE_LISTEN_MODE_LABELS,
+  SETTINGS_ACTIVE_TAB_KEY,
+  SETTINGS_TABS,
+  THEMES,
+  WORKER_PRESET_KEYS,
+  WORKER_PRESETS,
+  asRecord,
+  buildReleaseUrl,
+  type CheckUpdateRequest,
+  compareEnvOverrideItems,
+  formatFreeAccountModelLabel,
+  inferServiceBindPreview,
+  matchesRecommendedWorkerSettings,
+  normalizeEnvRiskLevel,
+  normalizeWorkerRecommendation,
+  parseIntegerInput,
+  readInitialSettingsTab,
+  stringifyNumber,
+  type SettingsTab,
+  type WorkerPreset,
+} from "@/app/settings/settings-page-helpers";
 
 export default function SettingsPage() {
   const { t } = useI18n();
@@ -645,7 +125,6 @@ export default function SettingsPage() {
   );
   const lastSyncedSnapshotThemeRef = useRef<string | null>(null);
   const lastSyncedAppearancePresetRef = useRef<string | null>(null);
-  const autoUpdateCheckedRef = useRef(false);
   const manualUpdateCheckPendingRef = useRef(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>(
     readInitialSettingsTab,
@@ -665,11 +144,11 @@ export default function SettingsPage() {
   const [modelForwardRulesDraft, setModelForwardRulesDraft] =
     useState<string | null>(null);
   const [lastUpdateCheck, setLastUpdateCheck] =
-    useState<UpdateCheckSummary | null>(null);
+    useState<UpdateCheckResult | null>(null);
   const [updateDialogCheck, setUpdateDialogCheck] =
-    useState<UpdateCheckSummary | null>(null);
+    useState<UpdateCheckResult | null>(null);
   const [preparedUpdate, setPreparedUpdate] =
-    useState<UpdatePrepareSummary | null>(null);
+    useState<UpdatePrepareResult | null>(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [manualUpdateCheckPending, setManualUpdateCheckPending] =
     useState(false);
@@ -814,8 +293,7 @@ export default function SettingsPage() {
       void request;
       return appClient.checkUpdate();
     },
-    onSuccess: (result, request) => {
-      const summary = normalizeUpdateCheckSummary(result);
+    onSuccess: (summary, request) => {
       setLastUpdateCheck(summary);
       setUpdateDialogCheck(summary);
       if (summary.hasUpdate) {
@@ -854,8 +332,7 @@ export default function SettingsPage() {
 
   const prepareUpdate = useMutation({
     mutationFn: () => appClient.prepareUpdate(),
-    onSuccess: (result) => {
-      const summary = normalizeUpdatePrepareSummary(result);
+    onSuccess: (summary) => {
       setPreparedUpdate(summary);
       setUpdateDialogOpen(true);
       toast.success(
@@ -879,7 +356,7 @@ export default function SettingsPage() {
       setLastUpdateCheck(null);
       setUpdateDialogCheck(null);
       setUpdateDialogOpen(false);
-      const message = readStringField(asRecord(result) ?? {}, "message");
+      const message = result.message.trim();
       toast.success(
         message ||
           (payload.isPortable ? t("即将重启并替换更新") : t("已开始替换更新流程")),
@@ -900,11 +377,10 @@ export default function SettingsPage() {
     let cancelled = false;
     void appClient
       .getStatus()
-      .then((result) => {
+      .then((summary) => {
         if (cancelled) {
           return;
         }
-        const summary = normalizeUpdateStatusSummary(result);
         if (summary.lastCheck) {
           setLastUpdateCheck(summary.lastCheck);
           setUpdateDialogCheck(summary.lastCheck);
@@ -963,18 +439,6 @@ export default function SettingsPage() {
       window.cancelAnimationFrame(frameId);
     };
   }, [isPageActive]);
-
-  useEffect(() => {
-    if (
-      !isDesktopRuntime ||
-      !snapshot?.updateAutoCheck ||
-      autoUpdateCheckedRef.current
-    ) {
-      return;
-    }
-    autoUpdateCheckedRef.current = true;
-    checkUpdate.mutate({ silent: true });
-  }, [checkUpdate, isDesktopRuntime, snapshot?.updateAutoCheck]);
 
   /**
    * 函数 `handleOpenReleasePage`
@@ -1099,7 +563,7 @@ export default function SettingsPage() {
   };
 
   const envOverrideCatalog = snapshot?.envOverrideCatalog ?? [];
-  const filteredEnvCatalog = !envSearch
+  const filteredEnvCatalog = (!envSearch
     ? envOverrideCatalog
     : envOverrideCatalog.filter((item) => {
         const keyword = envSearch.toLowerCase();
@@ -1107,9 +571,18 @@ export default function SettingsPage() {
           item.key.toLowerCase().includes(keyword) ||
           item.label.toLowerCase().includes(keyword)
         );
-      });
+      })
+  )
+    .slice()
+    .sort(compareEnvOverrideItems);
   const selectedEnvItem =
     envOverrideCatalog.find((item) => item.key === selectedEnvKey) ?? null;
+  const selectedEnvRiskLevel = normalizeEnvRiskLevel(selectedEnvItem?.riskLevel);
+  const selectedEnvEffectScope =
+    selectedEnvItem?.effectScope || "runtime-global";
+  const selectedEnvSafetyNote =
+    selectedEnvItem?.safetyNote ||
+    t("会影响运行时配置；修改后请观察请求链路是否稳定。");
 
   const upstreamProxyInput =
     upstreamProxyDraft ?? (snapshot?.upstreamProxyUrl || "");
@@ -1631,41 +1104,12 @@ export default function SettingsPage() {
           <Card className="glass-card border-none shadow-md">
             <CardHeader>
               <div className="flex items-center gap-2">
-                <Globe className="h-4 w-4 text-primary" />
-                <CardTitle className="text-base">{t("界面语言")}</CardTitle>
-              </div>
-              <CardDescription>
-                {t("切换应用界面语言，设置后会立即生效并持久化保存。")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <LanguageSwitcher triggerClassName="w-full md:w-[220px]" />
-            </CardContent>
-          </Card>
-
-          <Card className="glass-card border-none shadow-md">
-            <CardHeader>
-              <div className="flex items-center gap-2">
                 <AppWindow className="h-4 w-4 text-primary" />
                 <CardTitle className="text-base">{t("基础设置")}</CardTitle>
               </div>
               <CardDescription>{t("控制应用启动和窗口行为")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>{t("自动检查更新")}</Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t("启动时自动检测新版本")}
-                  </p>
-                </div>
-                <Switch
-                  checked={snapshot.updateAutoCheck}
-                  onCheckedChange={(value) =>
-                    updateSettings.mutate({ updateAutoCheck: value })
-                  }
-                />
-              </div>
               <div className="flex flex-col gap-3 rounded-2xl border border-border/50 bg-background/45 p-4 md:flex-row md:items-center md:justify-between">
                 <div className="space-y-1">
                   <Label>{updateActionLabel}</Label>
@@ -1823,6 +1267,7 @@ export default function SettingsPage() {
               </p>
             </CardContent>
           </Card>
+
         </TabsContent>
 
         <TabsContent value="appearance" className="space-y-6">
@@ -2536,7 +1981,9 @@ export default function SettingsPage() {
             <div className="space-y-1">
               <h3 className="text-sm font-semibold">{t("环境变量配置")}</h3>
               <p className="text-sm leading-6 text-muted-foreground">
-                {t("这里可以覆盖运行时环境变量；如果改乱了，可以一键恢复当前页所有变量的默认值。")}
+                {t(
+                  "这里保留旧版和外部部署环境变量覆盖；普通用户优先使用前面结构化设置，高风险项只建议排障时临时修改。",
+                )}
               </p>
             </div>
             <Button
@@ -2577,7 +2024,28 @@ export default function SettingsPage() {
                           : "hover:bg-accent",
                       )}
                     >
-                      <div className="truncate font-medium">{t(item.label)}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate font-medium">
+                          {t(item.label)}
+                        </span>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "shrink-0 px-1.5 py-0 text-[10px]",
+                            selectedEnvKey === item.key
+                              ? "border-primary-foreground/30 bg-primary-foreground/10 text-primary-foreground"
+                              : ENV_RISK_BADGE_CLASSES[
+                                  normalizeEnvRiskLevel(item.riskLevel)
+                                ],
+                          )}
+                        >
+                          {t(
+                            ENV_RISK_LABELS[
+                              normalizeEnvRiskLevel(item.riskLevel)
+                            ],
+                          )}
+                        </Badge>
+                      </div>
                       <code className="block truncate text-[10px] opacity-70">
                         {item.key}
                       </code>
@@ -2591,13 +2059,30 @@ export default function SettingsPage() {
               {selectedEnvKey ? (
                 <>
                   <CardHeader>
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-2">
                       <CardTitle className="text-lg">
                         {selectedEnvItem ? t(selectedEnvItem.label) : null}
                       </CardTitle>
-                      <code className="w-fit rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">
-                        {selectedEnvKey}
-                      </code>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <code className="w-fit rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                          {selectedEnvKey}
+                        </code>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "px-2 py-0.5",
+                            ENV_RISK_BADGE_CLASSES[selectedEnvRiskLevel],
+                          )}
+                        >
+                          {t(ENV_RISK_LABELS[selectedEnvRiskLevel])}
+                        </Badge>
+                        <Badge variant="secondary" className="px-2 py-0.5">
+                          {t(
+                            ENV_EFFECT_SCOPE_LABELS[selectedEnvEffectScope] ||
+                              selectedEnvEffectScope,
+                          )}
+                        </Badge>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-6">
@@ -2608,6 +2093,15 @@ export default function SettingsPage() {
                           `${selectedEnvItem?.label} 对应环境变量，修改后会应用到相关模块。`,
                       )}
                     </div>
+                    {selectedEnvRiskLevel === "high" ? (
+                      <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm leading-relaxed text-red-700 dark:text-red-300">
+                        {t(selectedEnvSafetyNote)}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-border/50 bg-muted/20 p-4 text-sm leading-relaxed text-muted-foreground">
+                        {t(selectedEnvSafetyNote)}
+                      </div>
+                    )}
 
                     <div className="space-y-2">
                       <Label>{t("当前值")}</Label>

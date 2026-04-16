@@ -25,6 +25,62 @@ fn normalize_upstream_url(raw: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
+fn derive_canonical_source(
+    response_adapter: Option<&str>,
+    aggregate_api_supplier_name: Option<&str>,
+    aggregate_api_url: Option<&str>,
+    attempted_aggregate_api_ids: &[String],
+) -> String {
+    if aggregate_api_supplier_name
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+        || aggregate_api_url
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty())
+        || !attempted_aggregate_api_ids.is_empty()
+    {
+        return "aggregate_passthrough".to_string();
+    }
+
+    let adapter = response_adapter
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Passthrough");
+    if adapter.starts_with("Anthropic") {
+        "anthropic_adapter".to_string()
+    } else if adapter.starts_with("Gemini") {
+        "gemini_adapter".to_string()
+    } else if adapter.starts_with("OpenAI") {
+        "openai_compat".to_string()
+    } else {
+        "native_codex".to_string()
+    }
+}
+
+fn derive_size_reject_stage(status_code: Option<i64>, error: Option<&str>) -> String {
+    let Some(error) = error.map(str::trim).filter(|value| !value.is_empty()) else {
+        return if status_code == Some(413) {
+            "upstream".to_string()
+        } else {
+            "-".to_string()
+        };
+    };
+    let code = crate::error_codes::code_for_message(error);
+    if !matches!(code, "input_too_large" | "request_body_too_large") {
+        return if status_code == Some(413) {
+            "upstream".to_string()
+        } else {
+            "-".to_string()
+        };
+    }
+
+    if error.to_ascii_lowercase().contains("upstream") {
+        "upstream".to_string()
+    } else {
+        "local".to_string()
+    }
+}
+
 /// 函数 `read_request_logs`
 ///
 /// 作者: gaohongshun
@@ -65,9 +121,10 @@ pub(crate) fn read_request_log_page(
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
     let query = normalize_optional_text(params.query);
     let status_filter = normalize_status_filter(params.status_filter);
+    let (start_ts, end_ts) = normalize_time_range(params.start_ts, params.end_ts);
     let page_size = normalize_page_size(params.page_size);
     let total = storage
-        .count_request_logs(query.as_deref(), status_filter.as_deref())
+        .count_request_logs(query.as_deref(), status_filter.as_deref(), start_ts, end_ts)
         .map_err(|err| format!("count request logs failed: {err}"))?;
     let page = clamp_page(params.page, total, page_size);
     let offset = (page - 1) * page_size;
@@ -75,6 +132,8 @@ pub(crate) fn read_request_log_page(
         .list_request_logs_paginated(
             query.as_deref(),
             status_filter.as_deref(),
+            start_ts,
+            end_ts,
             offset,
             page_size,
         )
@@ -124,6 +183,22 @@ pub(crate) fn normalize_status_filter(value: Option<String>) -> Option<String> {
         "" | "all" => None,
         "2xx" | "4xx" | "5xx" => Some(normalized),
         _ => None,
+    }
+}
+
+pub(crate) fn normalize_optional_timestamp(value: Option<i64>) -> Option<i64> {
+    value.filter(|timestamp| *timestamp > 0)
+}
+
+pub(crate) fn normalize_time_range(
+    start_ts: Option<i64>,
+    end_ts: Option<i64>,
+) -> (Option<i64>, Option<i64>) {
+    let start_ts = normalize_optional_timestamp(start_ts);
+    let end_ts = normalize_optional_timestamp(end_ts);
+    match (start_ts, end_ts) {
+        (Some(start_ts), Some(end_ts)) if start_ts > end_ts => (Some(end_ts), Some(start_ts)),
+        _ => (start_ts, end_ts),
     }
 }
 
@@ -191,6 +266,13 @@ fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
         .as_deref()
         .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
         .unwrap_or_default();
+    let canonical_source = derive_canonical_source(
+        item.response_adapter.as_deref(),
+        item.aggregate_api_supplier_name.as_deref(),
+        item.aggregate_api_url.as_deref(),
+        &attempted_aggregate_api_ids,
+    );
+    let size_reject_stage = derive_size_reject_stage(item.status_code, item.error.as_deref());
     RequestLogSummary {
         trace_id: item.trace_id,
         key_id: item.key_id,
@@ -212,11 +294,14 @@ fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
         service_tier: item.service_tier,
         effective_service_tier: item.effective_service_tier,
         response_adapter: item.response_adapter,
+        canonical_source: Some(canonical_source),
+        size_reject_stage: Some(size_reject_stage),
         upstream_url: normalize_upstream_url(item.upstream_url.as_deref()),
         aggregate_api_supplier_name: item.aggregate_api_supplier_name,
         aggregate_api_url: normalize_upstream_url(item.aggregate_api_url.as_deref()),
         status_code: item.status_code,
         duration_ms: item.duration_ms,
+        first_response_ms: item.first_response_ms,
         input_tokens: item.input_tokens,
         cached_input_tokens: item.cached_input_tokens,
         output_tokens: item.output_tokens,
@@ -231,8 +316,9 @@ fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_optional_text, normalize_status_filter, normalize_upstream_url,
-        RequestLogListParams, DEFAULT_REQUEST_LOG_PAGE_SIZE,
+        derive_canonical_source, derive_size_reject_stage, normalize_optional_text,
+        normalize_status_filter, normalize_upstream_url, RequestLogListParams,
+        DEFAULT_REQUEST_LOG_PAGE_SIZE,
     };
 
     /// 函数 `normalize_upstream_url_keeps_official_domains`
@@ -320,6 +406,52 @@ mod tests {
             normalize_upstream_url(Some(" https://api.openai.com/v1/responses ")).as_deref(),
             Some("https://api.openai.com/v1/responses")
         );
+    }
+
+    #[test]
+    fn derive_canonical_source_uses_adapter_and_aggregate_context() {
+        assert_eq!(
+            derive_canonical_source(Some("Passthrough"), None, None, &[]),
+            "native_codex"
+        );
+        assert_eq!(
+            derive_canonical_source(Some("OpenAIChatCompletionsSse"), None, None, &[]),
+            "openai_compat"
+        );
+        assert_eq!(
+            derive_canonical_source(Some("AnthropicSse"), None, None, &[]),
+            "anthropic_adapter"
+        );
+        assert_eq!(
+            derive_canonical_source(Some("GeminiJson"), None, None, &[]),
+            "gemini_adapter"
+        );
+        assert_eq!(
+            derive_canonical_source(
+                Some("Passthrough"),
+                Some("supplier"),
+                None,
+                &["agg-1".to_string()],
+            ),
+            "aggregate_passthrough"
+        );
+    }
+
+    #[test]
+    fn derive_size_reject_stage_distinguishes_local_and_upstream() {
+        assert_eq!(
+            derive_size_reject_stage(
+                Some(400),
+                Some("Input exceeds the maximum length of 1048576 characters."),
+            ),
+            "local"
+        );
+        assert_eq!(
+            derive_size_reject_stage(Some(413), Some("upstream request body too large")),
+            "upstream"
+        );
+        assert_eq!(derive_size_reject_stage(Some(413), None), "upstream");
+        assert_eq!(derive_size_reject_stage(Some(200), None), "-");
     }
 
     /// 函数 `request_log_list_params_default_to_first_page_with_twenty_items`

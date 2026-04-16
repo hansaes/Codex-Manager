@@ -2,10 +2,8 @@ pub(crate) const CLIENT_CODEX: &str = "codex";
 pub(crate) const PROTOCOL_OPENAI_COMPAT: &str = "openai_compat";
 pub(crate) const PROTOCOL_ANTHROPIC_NATIVE: &str = "anthropic_native";
 pub(crate) const PROTOCOL_GEMINI_NATIVE: &str = "gemini_native";
-pub(crate) const PROTOCOL_AZURE_OPENAI: &str = "azure_openai";
 pub(crate) const AUTH_BEARER: &str = "authorization_bearer";
 pub(crate) const AUTH_X_API_KEY: &str = "x_api_key";
-pub(crate) const AUTH_API_KEY: &str = "api_key";
 pub(crate) const ROTATION_ACCOUNT: &str = "account_rotation";
 pub(crate) const ROTATION_AGGREGATE_API: &str = "aggregate_api_rotation";
 
@@ -92,7 +90,6 @@ pub(crate) fn is_gemini_request_path(path: &str) -> bool {
 /// 返回函数执行结果
 pub(crate) fn resolve_gateway_protocol_type(protocol_type: &str, path: &str) -> &'static str {
     match normalize_key(protocol_type).as_str() {
-        "azure" | "azure_openai" => PROTOCOL_AZURE_OPENAI,
         _ if is_gemini_request_path(path) => PROTOCOL_GEMINI_NATIVE,
         // 中文注释：平台 Key 对 Codex / Claude Code 默认按路径通配；
         // `/v1/messages*` 走 Claude 语义，Gemini 原生路径走 Gemini 语义，其余标准路径走 OpenAI/Codex 语义。
@@ -118,7 +115,6 @@ pub(crate) fn normalize_protocol_type(value: Option<String>) -> Result<String, S
             "openai" | "openai_compat" => Ok(PROTOCOL_OPENAI_COMPAT.to_string()),
             "anthropic" | "anthropic_native" => Ok(PROTOCOL_ANTHROPIC_NATIVE.to_string()),
             "gemini" | "gemini_native" => Ok(PROTOCOL_GEMINI_NATIVE.to_string()),
-            "azure" | "azure_openai" => Ok(PROTOCOL_AZURE_OPENAI.to_string()),
             other => Err(format!("unsupported protocol type: {other}")),
         },
         None => Ok(PROTOCOL_OPENAI_COMPAT.to_string()),
@@ -142,8 +138,6 @@ pub(crate) fn profile_from_protocol(
     let protocol = normalize_protocol_type(Some(protocol_type.to_string()))?;
     let auth_scheme = if protocol == PROTOCOL_ANTHROPIC_NATIVE {
         AUTH_X_API_KEY.to_string()
-    } else if protocol == PROTOCOL_AZURE_OPENAI {
-        AUTH_API_KEY.to_string()
     } else {
         AUTH_BEARER.to_string()
     };
@@ -249,8 +243,8 @@ pub(crate) fn normalize_static_headers_json(
 mod tests {
     use super::{
         is_anthropic_request_path, is_gemini_count_tokens_request_path,
-        is_gemini_generate_content_request_path, resolve_gateway_protocol_type,
-        PROTOCOL_ANTHROPIC_NATIVE, PROTOCOL_AZURE_OPENAI, PROTOCOL_GEMINI_NATIVE,
+        is_gemini_generate_content_request_path, normalize_protocol_type,
+        resolve_gateway_protocol_type, PROTOCOL_ANTHROPIC_NATIVE, PROTOCOL_GEMINI_NATIVE,
         PROTOCOL_OPENAI_COMPAT,
     };
 
@@ -325,10 +319,21 @@ mod tests {
     }
 
     #[test]
-    fn azure_protocol_keeps_azure_mapping() {
+    fn removed_azure_protocol_falls_back_to_wildcard_routing() {
         assert_eq!(
-            resolve_gateway_protocol_type(PROTOCOL_AZURE_OPENAI, "/v1/messages"),
-            PROTOCOL_AZURE_OPENAI
+            resolve_gateway_protocol_type("azure_openai", "/v1/messages"),
+            PROTOCOL_ANTHROPIC_NATIVE
         );
+        assert_eq!(
+            resolve_gateway_protocol_type("azure_openai", "/v1/responses"),
+            PROTOCOL_OPENAI_COMPAT
+        );
+    }
+
+    #[test]
+    fn removed_azure_protocol_is_rejected_for_profile_configuration() {
+        let err = normalize_protocol_type(Some("azure_openai".to_string()))
+            .expect_err("azure profile protocol should be rejected");
+        assert!(err.contains("unsupported protocol type: azure_openai"));
     }
 }

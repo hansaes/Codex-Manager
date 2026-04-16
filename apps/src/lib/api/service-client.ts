@@ -1,6 +1,20 @@
 import { invoke, withAddr } from "./transport";
 import {
+  GatewayConcurrencyRecommendation,
+  readGatewayManualAccountId,
+  GatewayRouteStrategySettings,
+  GatewayTransportSettings,
+  GatewayUpstreamProxySettings,
+  ServiceListenConfig,
+  readGatewayConcurrencyRecommendation,
+  readGatewayRouteStrategySettings,
+  readGatewayTransportSettings,
+  readGatewayUpstreamProxySettings,
+  readServiceListenConfig,
+} from "./gateway-settings";
+import {
   normalizeAppSettings,
+  normalizeBackgroundTasks,
   normalizeGatewayErrorLogListResult,
   normalizeRequestLogFilterSummary,
   normalizeRequestLogListResult,
@@ -18,41 +32,6 @@ import {
 } from "../../types";
 import { readInitializeResult } from "@/lib/utils/service";
 
-/**
- * 函数 `readStringField`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - payload: 参数 payload
- * - key: 参数 key
- *
- * # 返回
- * 返回函数执行结果
- */
-function readStringField(payload: unknown, key: string): string {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return "";
-  }
-  /**
-   * 函数 `value`
-   *
-   * 作者: gaohongshun
-   *
-   * 时间: 2026-04-02
-   *
-   * # 参数
-   * - payload as Record<string, unknown>: 参数 payload as Record<string, unknown>
-   *
-   * # 返回
-   * 返回函数执行结果
-   */
-  const value = (payload as Record<string, unknown>)[key];
-  return typeof value === "string" ? value.trim() : "";
-}
-
 export const serviceClient = {
   start: (addr?: string) => invoke("service_start", { addr }),
   stop: () => invoke("service_stop"),
@@ -64,7 +43,11 @@ export const serviceClient = {
     return readInitializeResult(result);
   },
   async getStartupSnapshot(
-    params?: Record<string, unknown>
+    params?: {
+      requestLogLimit?: number;
+      dayStartTs?: number;
+      dayEndTs?: number;
+    }
   ): Promise<StartupSnapshot> {
     const result = await invoke<unknown>(
       "service_startup_snapshot",
@@ -87,20 +70,44 @@ export const serviceClient = {
       fetchedAt: params.fetchedAt || new Date().toISOString(),
     }),
 
-  getGatewayTransport: () => invoke<unknown>("service_gateway_transport_get", withAddr()),
-  setGatewayTransport: (settings: Record<string, unknown>) =>
-    invoke("service_gateway_transport_set", withAddr(settings)),
-  getUpstreamProxy: () =>
-    invoke<string>("service_gateway_upstream_proxy_get", withAddr()),
-  setUpstreamProxy: (proxyUrl: string) =>
-    invoke("service_gateway_upstream_proxy_set", withAddr({ proxyUrl })),
-  getRouteStrategy: () =>
-    invoke<string>("service_gateway_route_strategy_get", withAddr()),
-  setRouteStrategy: (strategy: string) =>
-    invoke("service_gateway_route_strategy_set", withAddr({ strategy })),
+  async getGatewayTransport(): Promise<GatewayTransportSettings> {
+    const result = await invoke<unknown>("service_gateway_transport_get", withAddr());
+    return readGatewayTransportSettings(result);
+  },
+  async setGatewayTransport(
+    settings: Record<string, unknown>
+  ): Promise<GatewayTransportSettings> {
+    const result = await invoke<unknown>(
+      "service_gateway_transport_set",
+      withAddr(settings)
+    );
+    return readGatewayTransportSettings(result);
+  },
+  async getUpstreamProxy(): Promise<GatewayUpstreamProxySettings> {
+    const result = await invoke<unknown>("service_gateway_upstream_proxy_get", withAddr());
+    return readGatewayUpstreamProxySettings(result);
+  },
+  async setUpstreamProxy(proxyUrl: string): Promise<GatewayUpstreamProxySettings> {
+    const result = await invoke<unknown>(
+      "service_gateway_upstream_proxy_set",
+      withAddr({ proxyUrl })
+    );
+    return readGatewayUpstreamProxySettings(result);
+  },
+  async getRouteStrategy(): Promise<GatewayRouteStrategySettings> {
+    const result = await invoke<unknown>("service_gateway_route_strategy_get", withAddr());
+    return readGatewayRouteStrategySettings(result);
+  },
+  async setRouteStrategy(strategy: string): Promise<GatewayRouteStrategySettings> {
+    const result = await invoke<unknown>(
+      "service_gateway_route_strategy_set",
+      withAddr({ strategy })
+    );
+    return readGatewayRouteStrategySettings(result);
+  },
   async getManualPreferredAccountId(): Promise<string> {
     const result = await invoke<unknown>("service_gateway_manual_account_get", withAddr());
-    return readStringField(result, "accountId");
+    return readGatewayManualAccountId(result);
   },
   setManualPreferredAccount: (accountId: string) =>
     invoke("service_gateway_manual_account_set", withAddr({ accountId })),
@@ -108,20 +115,29 @@ export const serviceClient = {
     invoke("service_gateway_manual_account_clear", withAddr()),
 
   getBackgroundTasks: () =>
-    invoke<BackgroundTaskSettings>("service_gateway_background_tasks_get", withAddr()),
+    invoke<unknown>("service_gateway_background_tasks_get", withAddr()).then(
+      normalizeBackgroundTasks
+    ),
   setBackgroundTasks: (settings: BackgroundTaskSettings) =>
-    invoke(
+    invoke<unknown>(
       "service_gateway_background_tasks_set",
       withAddr({ ...(settings as unknown as Record<string, unknown>) })
-    ),
-  getConcurrencyRecommendation: () =>
-    invoke<unknown>("service_gateway_concurrency_recommend_get", withAddr()),
+    ).then(normalizeBackgroundTasks),
+  async getConcurrencyRecommendation(): Promise<GatewayConcurrencyRecommendation> {
+    const result = await invoke<unknown>(
+      "service_gateway_concurrency_recommend_get",
+      withAddr()
+    );
+    return readGatewayConcurrencyRecommendation(result);
+  },
 
   async listRequestLogs(params?: {
     query?: string;
     statusFilter?: string;
     page?: number;
     pageSize?: number;
+    startTs?: number | null;
+    endTs?: number | null;
   }): Promise<RequestLogListResult> {
     const result = await invoke<unknown>(
       "service_requestlog_list",
@@ -130,6 +146,8 @@ export const serviceClient = {
         statusFilter: params?.statusFilter || "all",
         page: params?.page ?? 1,
         pageSize: params?.pageSize ?? 20,
+        startTs: params?.startTs ?? null,
+        endTs: params?.endTs ?? null,
       })
     );
     return normalizeRequestLogListResult(result);
@@ -137,12 +155,16 @@ export const serviceClient = {
   async getRequestLogSummary(params?: {
     query?: string;
     statusFilter?: string;
+    startTs?: number | null;
+    endTs?: number | null;
   }): Promise<RequestLogFilterSummary> {
     const result = await invoke<unknown>(
       "service_requestlog_summary",
       withAddr({
         query: params?.query || "",
         statusFilter: params?.statusFilter || "all",
+        startTs: params?.startTs ?? null,
+        endTs: params?.endTs ?? null,
       })
     );
     return normalizeRequestLogFilterSummary(result);
@@ -165,17 +187,28 @@ export const serviceClient = {
   clearGatewayErrorLogs: () =>
     invoke("service_requestlog_error_clear", withAddr()),
   clearRequestLogs: () => invoke("service_requestlog_clear", withAddr()),
-  async getTodaySummary(): Promise<RequestLogTodaySummary> {
+  async getTodaySummary(params?: {
+    dayStartTs?: number;
+    dayEndTs?: number;
+  }): Promise<RequestLogTodaySummary> {
     const result = await invoke<unknown>(
       "service_requestlog_today_summary",
-      withAddr()
+      withAddr(params)
     );
     return normalizeTodaySummary(result);
   },
 
-  getListenConfig: () => invoke<unknown>("service_listen_config_get", withAddr()),
-  setListenConfig: (mode: string) =>
-    invoke("service_listen_config_set", withAddr({ mode })),
+  async getListenConfig(): Promise<ServiceListenConfig> {
+    const result = await invoke<unknown>("service_listen_config_get", withAddr());
+    return readServiceListenConfig(result);
+  },
+  async setListenConfig(mode: string): Promise<ServiceListenConfig> {
+    const result = await invoke<unknown>(
+      "service_listen_config_set",
+      withAddr({ mode })
+    );
+    return readServiceListenConfig(result);
+  },
 
   getEnvOverrides: async () => {
     const result = await invoke<unknown>("app_settings_get");

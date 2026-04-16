@@ -2,6 +2,7 @@ use crate::apikey_profile::{
     is_gemini_generate_content_request_path, resolve_gateway_protocol_type,
     PROTOCOL_ANTHROPIC_NATIVE, PROTOCOL_GEMINI_NATIVE, ROTATION_AGGREGATE_API,
 };
+use crate::gateway::request_helpers::ParsedRequestMetadata;
 use bytes::Bytes;
 use codexmanager_core::storage::ApiKey;
 use reqwest::Method;
@@ -70,16 +71,28 @@ fn ensure_anthropic_model_is_listed(
     }
 
     let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Err(LocalValidationError::new(400, "claude model is required"));
+        return Err(LocalValidationError::new(
+            400,
+            crate::gateway::bilingual_error("Claude 模型必填", "claude model is required"),
+        ));
     };
 
     let models = crate::apikey_models::read_model_options_from_storage(storage).map_err(|err| {
-        LocalValidationError::new(500, format!("model options cache read failed: {err}"))
+        LocalValidationError::new(
+            500,
+            crate::gateway::bilingual_error(
+                "读取模型缓存失败",
+                format!("model options cache read failed: {err}"),
+            ),
+        )
     })?;
     if models.is_empty() {
         return Err(LocalValidationError::new(
             400,
-            format!("claude model not found in model list: {model}"),
+            crate::gateway::bilingual_error(
+                "Claude 模型不在模型列表中",
+                format!("claude model not found in model list: {model}"),
+            ),
         ));
     }
     let found = models
@@ -91,7 +104,10 @@ fn ensure_anthropic_model_is_listed(
     } else {
         Err(LocalValidationError::new(
             400,
-            format!("claude model not found in model list: {model}"),
+            crate::gateway::bilingual_error(
+                "Claude 模型不在模型列表中",
+                format!("claude model not found in model list: {model}"),
+            ),
         ))
     }
 }
@@ -133,6 +149,62 @@ fn should_derive_compat_conversation_anchor(protocol_type: &str, normalized_path
         || allow_compat_responses_path_rewrite(protocol_type, normalized_path)
 }
 
+/// 函数 `is_native_codex_client_request`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-16
+///
+/// # 参数
+/// - incoming_headers: 参数 incoming_headers
+///
+/// # 返回
+/// 返回函数执行结果
+fn is_native_codex_client_request(incoming_headers: &super::super::IncomingHeaderSnapshot) -> bool {
+    let user_agent = incoming_headers
+        .user_agent()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let originator = incoming_headers
+        .originator()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if user_agent.contains("opencode") || originator.contains("opencode") {
+        return false;
+    }
+
+    let has_codex_header_signals = incoming_headers.session_id().is_some()
+        || incoming_headers.client_request_id().is_some()
+        || incoming_headers.subagent().is_some()
+        || incoming_headers.beta_features().is_some()
+        || incoming_headers.window_id().is_some()
+        || incoming_headers.turn_metadata().is_some()
+        || incoming_headers.turn_state().is_some()
+        || incoming_headers.parent_thread_id().is_some()
+        || incoming_headers.conversation_id().is_some();
+
+    user_agent.contains("codex_cli_rs")
+        || originator.contains("codex_cli_rs")
+        || has_codex_header_signals
+}
+
+/// 函数 `should_force_codex_compat_rewrite`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-16
+///
+/// # 参数
+/// - normalized_path: 参数 normalized_path
+/// - incoming_headers: 参数 incoming_headers
+///
+/// # 返回
+/// 返回函数执行结果
+fn should_force_codex_compat_rewrite(normalized_path: &str, native_codex_client: bool) -> bool {
+    normalized_path.starts_with("/v1/responses") && !native_codex_client
+}
+
 fn should_normalize_compat_service_tier_for_codex_backend(
     protocol_type: &str,
     normalized_path: &str,
@@ -167,6 +239,36 @@ fn normalize_compat_service_tier_for_codex_backend(body: Vec<u8>) -> Vec<u8> {
     serde_json::to_vec(&payload).unwrap_or(body)
 }
 
+fn resolve_preferred_client_prompt_cache_key(
+    protocol_type: &str,
+    incoming_headers: &super::super::IncomingHeaderSnapshot,
+    initial_request_meta: &ParsedRequestMetadata,
+    client_request_meta: &ParsedRequestMetadata,
+) -> Option<String> {
+    if protocol_type == PROTOCOL_ANTHROPIC_NATIVE {
+        return None;
+    }
+
+    let preferred = initial_request_meta.prompt_cache_key.clone().or_else(|| {
+        if client_request_meta.has_prompt_cache_key {
+            client_request_meta.prompt_cache_key.clone()
+        } else {
+            None
+        }
+    });
+    let Some(preferred) = preferred else {
+        return None;
+    };
+
+    if incoming_headers.conversation_id().is_some() || incoming_headers.turn_state().is_some() {
+        // 中文注释：原生 Codex 已经提供稳定线程锚点时，prompt_cache_key 不能反客为主；
+        // 否则会和 conversation_id / turn-state 冲突，导致 resume 线程异常。
+        return None;
+    }
+
+    Some(preferred)
+}
+
 /// 函数 `resolve_local_conversation_id`
 ///
 /// 作者: gaohongshun
@@ -187,21 +289,11 @@ fn resolve_local_conversation_id(
     incoming_headers: &super::super::IncomingHeaderSnapshot,
     client_has_prompt_cache_key: bool,
 ) -> Option<String> {
-    incoming_headers
-        .conversation_id()
-        .map(str::to_string)
-        .or_else(|| {
-            if client_has_prompt_cache_key
-                || !should_derive_compat_conversation_anchor(protocol_type, normalized_path)
-            {
-                return None;
-            }
-            // 中文注释：Claude / chat.completions 兼容请求通常不会自带稳定线程锚点；
-            // 这里退化到平台密钥派生出的 sticky conversation，确保 prompt cache key 跨轮次稳定。
-            super::super::upstream::header_profile::derive_sticky_conversation_id_from_headers(
-                incoming_headers,
-            )
-        })
+    super::super::resolve_local_conversation_id_with_sticky_fallback(
+        incoming_headers,
+        !client_has_prompt_cache_key
+            && should_derive_compat_conversation_anchor(protocol_type, normalized_path),
+    )
 }
 
 /// 函数 `apply_passthrough_request_overrides`
@@ -234,7 +326,7 @@ fn apply_passthrough_request_overrides(
     let (effective_model, effective_reasoning, effective_service_tier) =
         resolve_effective_request_overrides(api_key);
     let rewritten_body =
-        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key(
+        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
             path,
             body,
             effective_model.as_deref(),
@@ -242,6 +334,7 @@ fn apply_passthrough_request_overrides(
             effective_service_tier.as_deref(),
             api_key.upstream_base_url.as_deref(),
             None,
+            false,
         );
     let request_meta = super::super::parse_request_metadata(&rewritten_body);
     (
@@ -281,8 +374,12 @@ pub(super) fn build_local_validation_result(
     let effective_protocol_type =
         resolve_gateway_protocol_type(api_key.protocol_type.as_str(), normalized_path.as_str());
     let request_method = request.method().as_str().to_string();
-    let method = Method::from_bytes(request_method.as_bytes())
-        .map_err(|_| LocalValidationError::new(405, "unsupported method"))?;
+    let method = Method::from_bytes(request_method.as_bytes()).map_err(|_| {
+        LocalValidationError::new(
+            405,
+            crate::gateway::bilingual_error("不支持的请求方法", "unsupported method"),
+        )
+    })?;
     let initial_service_tier_diagnostic = super::super::inspect_service_tier_for_log(&body);
     super::super::log_client_service_tier(
         trace_id.as_str(),
@@ -293,6 +390,20 @@ pub(super) fn build_local_validation_result(
         initial_service_tier_diagnostic.normalized_value.as_deref(),
     );
     let initial_request_meta = super::super::parse_request_metadata(&body);
+    let native_codex_client = is_native_codex_client_request(&incoming_headers);
+    log::debug!(
+        "event=gateway_client_profile trace_id={} path={} originator={} user_agent={} session_affinity={} native_codex={}",
+        trace_id.as_str(),
+        normalized_path.as_str(),
+        incoming_headers.originator().unwrap_or("-"),
+        incoming_headers.user_agent().unwrap_or("-"),
+        incoming_headers.session_affinity().unwrap_or("-"),
+        if native_codex_client {
+            "true"
+        } else {
+            "false"
+        }
+    );
     let initial_local_conversation_id = resolve_local_conversation_id(
         effective_protocol_type,
         normalized_path.as_str(),
@@ -315,6 +426,8 @@ pub(super) fn build_local_validation_result(
             &api_key,
             initial_request_meta.service_tier.clone(),
         );
+        super::super::validate_text_input_limit_for_path(&normalized_path, &rewritten_body)
+            .map_err(|err| LocalValidationError::new(400, err.message()))?;
         let incoming_headers = incoming_headers
             .with_conversation_id_override(initial_local_conversation_id.as_deref());
         return Ok(LocalValidationResult {
@@ -331,8 +444,6 @@ pub(super) fn build_local_validation_result(
             rotation_strategy: api_key.rotation_strategy,
             aggregate_api_id: api_key.aggregate_api_id,
             account_plan_filter: api_key.account_plan_filter,
-            upstream_base_url: api_key.upstream_base_url,
-            static_headers_json: api_key.static_headers_json,
             response_adapter: super::super::ResponseAdapter::Passthrough,
             gemini_stream_output_mode: None,
             tool_name_restore_map: super::super::ToolNameRestoreMap::default(),
@@ -352,7 +463,12 @@ pub(super) fn build_local_validation_result(
     let original_body = body.clone();
     let adapted =
         super::super::adapt_request_for_protocol(effective_protocol_type, &normalized_path, body)
-            .map_err(|err| LocalValidationError::new(400, err))?;
+            .map_err(|err| {
+            LocalValidationError::new(
+                400,
+                crate::gateway::bilingual_error("请求协议适配失败", err),
+            )
+        })?;
     let mut path = adapted.path;
     let mut response_adapter = adapted.response_adapter;
     let mut gemini_stream_output_mode = adapted.gemini_stream_output_mode;
@@ -382,14 +498,24 @@ pub(super) fn build_local_validation_result(
     let client_request_meta = super::super::parse_request_metadata(&body);
     let (effective_model, effective_reasoning, effective_service_tier) =
         resolve_effective_request_overrides(&api_key);
+    let preferred_prompt_cache_key = resolve_preferred_client_prompt_cache_key(
+        effective_protocol_type,
+        &incoming_headers,
+        &initial_request_meta,
+        &client_request_meta,
+    );
     let local_conversation_id = initial_local_conversation_id.clone();
+    let allow_codex_compat_rewrite =
+        allow_compat_responses_path_rewrite(effective_protocol_type, normalized_path.as_str())
+            || should_force_codex_compat_rewrite(normalized_path.as_str(), native_codex_client);
     let conversation_binding = super::super::conversation_binding::load_conversation_binding(
         &storage,
         api_key.key_hash.as_str(),
         local_conversation_id.as_deref(),
     )
     .map_err(|err| LocalValidationError::new(500, err))?;
-    let effective_thread_anchor = super::super::conversation_binding::effective_thread_anchor(
+    let effective_thread_anchor = super::super::resolve_fallback_thread_anchor(
+        &incoming_headers,
         local_conversation_id.as_deref(),
         conversation_binding.as_ref(),
     );
@@ -403,8 +529,19 @@ pub(super) fn build_local_validation_result(
             normalized_path.as_str(),
             path.as_str(),
         );
-    body = if effective_thread_anchor.is_some() {
-        super::super::apply_request_overrides_with_service_tier_and_forced_prompt_cache_key(
+    body = if preferred_prompt_cache_key.is_some() {
+        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
+            &path,
+            body,
+            effective_model.as_deref(),
+            effective_reasoning.as_deref(),
+            effective_service_tier.as_deref(),
+            api_key.upstream_base_url.as_deref(),
+            preferred_prompt_cache_key.as_deref(),
+            allow_codex_compat_rewrite,
+        )
+    } else if effective_thread_anchor.is_some() {
+        super::super::apply_request_overrides_with_service_tier_and_forced_prompt_cache_key_scope(
             &path,
             body,
             effective_model.as_deref(),
@@ -412,9 +549,10 @@ pub(super) fn build_local_validation_result(
             effective_service_tier.as_deref(),
             api_key.upstream_base_url.as_deref(),
             effective_thread_anchor.as_deref(),
+            allow_codex_compat_rewrite,
         )
     } else {
-        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key(
+        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
             &path,
             body,
             effective_model.as_deref(),
@@ -422,11 +560,15 @@ pub(super) fn build_local_validation_result(
             effective_service_tier.as_deref(),
             api_key.upstream_base_url.as_deref(),
             None,
+            allow_codex_compat_rewrite,
         )
     };
     if should_normalize_compat_service_tier {
         body = normalize_compat_service_tier_for_codex_backend(body);
     }
+    body = super::super::clear_prompt_cache_key_when_native_anchor(&path, body, &incoming_headers);
+    super::super::validate_text_input_limit_for_path(&path, &body)
+        .map_err(|err| LocalValidationError::new(400, err.message()))?;
 
     let request_meta = super::super::parse_request_metadata(&body);
     let model_for_log = request_meta.model.or(api_key.model_slug.clone());
@@ -436,7 +578,7 @@ pub(super) fn build_local_validation_result(
     let service_tier_for_log = client_request_meta.service_tier;
     let effective_service_tier_for_log = request_meta.service_tier;
     let is_stream = client_request_meta.is_stream;
-    let has_prompt_cache_key = client_request_meta.has_prompt_cache_key;
+    let has_prompt_cache_key = request_meta.has_prompt_cache_key;
     let request_shape = client_request_meta.request_shape;
 
     ensure_anthropic_model_is_listed(&storage, effective_protocol_type, model_for_log.as_deref())?;
@@ -452,8 +594,6 @@ pub(super) fn build_local_validation_result(
         has_prompt_cache_key,
         request_shape,
         protocol_type: effective_protocol_type.to_string(),
-        upstream_base_url: api_key.upstream_base_url,
-        static_headers_json: api_key.static_headers_json,
         response_adapter,
         gemini_stream_output_mode,
         tool_name_restore_map,

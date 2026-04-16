@@ -409,7 +409,8 @@ fn anthropic_sse_reader_final_usage_contains_input_cache_and_output_tokens() {
         )],
     );
     let usage_collector = Arc::new(Mutex::new(super::UpstreamResponseUsage::default()));
-    let mut reader = super::AnthropicSseReader::new(response, usage_collector, None);
+    let mut reader =
+        super::AnthropicSseReader::new(response, usage_collector, None, std::time::Instant::now());
     let mut out = String::new();
     reader
         .read_to_string(&mut out)
@@ -435,8 +436,12 @@ fn anthropic_sse_reader_uses_request_model_when_upstream_stream_omits_model() {
         )],
     );
     let usage_collector = Arc::new(Mutex::new(super::UpstreamResponseUsage::default()));
-    let mut reader =
-        super::AnthropicSseReader::new(response, usage_collector, Some("gpt-5.4"));
+    let mut reader = super::AnthropicSseReader::new(
+        response,
+        usage_collector,
+        Some("gpt-5.4"),
+        std::time::Instant::now(),
+    );
     let mut out = String::new();
     reader
         .read_to_string(&mut out)
@@ -1121,8 +1126,12 @@ fn openai_chat_sse_reader_requires_terminal_event_before_success() {
         ),
     );
     let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
-    let mut reader =
-        OpenAIChatCompletionsSseReader::new(upstream, Arc::clone(&usage_collector), None);
+    let mut reader = OpenAIChatCompletionsSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        None,
+        std::time::Instant::now(),
+    );
     let mut mapped = String::new();
     reader
         .read_to_string(&mut mapped)
@@ -1134,7 +1143,10 @@ fn openai_chat_sse_reader_requires_terminal_event_before_success() {
     assert!(mapped.contains("chat.completion.chunk"));
     assert!(!mapped.contains("data: [DONE]"));
     assert!(!collector.saw_terminal);
-    assert_eq!(collector.terminal_error.as_deref(), Some("网络抖动"));
+    assert_eq!(
+        collector.terminal_error.as_deref(),
+        Some("连接中断（可能是网络波动或客户端主动取消）")
+    );
 }
 
 /// 函数 `openai_completions_sse_reader_requires_terminal_event_before_success`
@@ -1158,7 +1170,11 @@ fn openai_completions_sse_reader_requires_terminal_event_before_success() {
         ),
     );
     let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
-    let mut reader = OpenAICompletionsSseReader::new(upstream, Arc::clone(&usage_collector));
+    let mut reader = OpenAICompletionsSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        std::time::Instant::now(),
+    );
     let mut mapped = String::new();
     reader
         .read_to_string(&mut mapped)
@@ -1170,7 +1186,10 @@ fn openai_completions_sse_reader_requires_terminal_event_before_success() {
     assert!(mapped.contains("\"object\":\"text_completion\""));
     assert!(!mapped.contains("data: [DONE]"));
     assert!(!collector.saw_terminal);
-    assert_eq!(collector.terminal_error.as_deref(), Some("网络抖动"));
+    assert_eq!(
+        collector.terminal_error.as_deref(),
+        Some("连接中断（可能是网络波动或客户端主动取消）")
+    );
 }
 
 #[test]
@@ -1191,6 +1210,7 @@ fn gemini_sse_reader_waits_for_completed_full_arguments_before_emitting_tool_cal
         None,
         GeminiStreamOutputMode::Sse,
         false,
+        std::time::Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1247,6 +1267,7 @@ fn gemini_sse_reader_does_not_treat_function_call_output_as_final_text() {
         None,
         GeminiStreamOutputMode::Sse,
         false,
+        std::time::Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1306,6 +1327,7 @@ fn gemini_sse_reader_completed_message_output_still_emits_final_text() {
         None,
         GeminiStreamOutputMode::Sse,
         false,
+        std::time::Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1361,6 +1383,7 @@ fn gemini_cli_sse_reader_wraps_chunks_in_response_field() {
         None,
         GeminiStreamOutputMode::Sse,
         true,
+        std::time::Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1412,6 +1435,7 @@ fn gemini_cli_sse_reader_does_not_emit_comment_keepalive_frames() {
         None,
         GeminiStreamOutputMode::Sse,
         true,
+        std::time::Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1433,6 +1457,7 @@ fn gemini_sse_reader_requires_response_completed_before_done() {
         None,
         GeminiStreamOutputMode::Sse,
         false,
+        std::time::Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1445,7 +1470,10 @@ fn gemini_sse_reader_requires_response_completed_before_done() {
         .clone();
     assert!(mapped.starts_with("event: error\ndata: "));
     assert!(!collector.saw_terminal);
-    assert_eq!(collector.terminal_error.as_deref(), Some("网络抖动"));
+    assert_eq!(
+        collector.terminal_error.as_deref(),
+        Some("连接中断（可能是网络波动或客户端主动取消）")
+    );
     assert_eq!(collector.last_event_type, None);
 }
 
@@ -1462,6 +1490,7 @@ fn gemini_sse_reader_marks_incomplete_trailing_json_as_stream_error() {
         None,
         GeminiStreamOutputMode::Sse,
         false,
+        std::time::Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1474,7 +1503,10 @@ fn gemini_sse_reader_marks_incomplete_trailing_json_as_stream_error() {
         .clone();
     assert!(mapped.starts_with("event: error\ndata: "));
     assert!(!collector.saw_terminal);
-    assert_eq!(collector.terminal_error.as_deref(), Some("网络抖动"));
+    assert_eq!(
+        collector.terminal_error.as_deref(),
+        Some("连接中断（可能是网络波动或客户端主动取消）")
+    );
     assert_eq!(collector.last_event_type, None);
 }
 
@@ -1495,6 +1527,7 @@ fn gemini_raw_reader_outputs_plain_json_chunks() {
         None,
         GeminiStreamOutputMode::Raw,
         false,
+        std::time::Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1516,6 +1549,7 @@ fn gemini_sse_reader_emits_structured_error_frame_for_incomplete_stream() {
         None,
         GeminiStreamOutputMode::Sse,
         false,
+        std::time::Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1536,6 +1570,7 @@ fn gemini_raw_reader_emits_plain_json_error_for_incomplete_stream() {
         None,
         GeminiStreamOutputMode::Raw,
         true,
+        std::time::Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1569,7 +1604,43 @@ fn passthrough_sse_reader_emits_keepalive_for_responses_stream() {
         &[
             (
                 "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_keepalive_1\"}}\n\n",
-                50,
+                0,
+            ),
+            ("data: [DONE]\n\n", 50),
+        ],
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = PassthroughSseUsageReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        SseKeepAliveFrame::OpenAIResponses,
+        PassthroughSseProtocol::Generic,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read passthrough sse");
+    server.join().expect("join streaming mock upstream");
+    super::reload_from_env();
+
+    assert!(mapped.contains("\"type\":\"codexmanager.keepalive\""));
+    assert!(mapped.contains("\"type\":\"response.created\""));
+    assert!(mapped.contains("data: [DONE]"));
+}
+
+#[test]
+fn passthrough_sse_reader_waits_for_first_upstream_frame_before_keepalive() {
+    let _guard = crate::test_env_guard();
+    let _keepalive_guard = EnvGuard::set("CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS", "5");
+    super::reload_from_env();
+
+    let (upstream, server) = open_streaming_mock_http_response(
+        "text/event-stream",
+        &[
+            (
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_wait_first_frame\"}}\n\n",
+                25,
             ),
             ("data: [DONE]\n\n", 0),
         ],
@@ -1580,15 +1651,16 @@ fn passthrough_sse_reader_emits_keepalive_for_responses_stream() {
         Arc::clone(&usage_collector),
         SseKeepAliveFrame::OpenAIResponses,
         PassthroughSseProtocol::Generic,
+        std::time::Instant::now(),
     );
     let mut mapped = String::new();
     reader
         .read_to_string(&mut mapped)
-        .expect("read passthrough sse");
-    server.join().expect("join streaming mock upstream");
+        .expect("read passthrough sse without initial keepalive");
+    server.join().expect("join delayed first-frame upstream");
     super::reload_from_env();
 
-    assert!(mapped.contains("\"type\":\"codexmanager.keepalive\""));
+    assert!(!mapped.contains("\"type\":\"codexmanager.keepalive\""));
     assert!(mapped.contains("\"type\":\"response.created\""));
     assert!(mapped.contains("data: [DONE]"));
 }
@@ -1619,6 +1691,7 @@ fn passthrough_sse_reader_captures_raw_html_error_body() {
         Arc::clone(&usage_collector),
         SseKeepAliveFrame::OpenAIResponses,
         PassthroughSseProtocol::Generic,
+        std::time::Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1661,6 +1734,7 @@ fn passthrough_sse_reader_treats_message_stop_as_terminal_for_anthropic_native()
         Arc::clone(&usage_collector),
         SseKeepAliveFrame::Anthropic,
         PassthroughSseProtocol::AnthropicNative,
+        std::time::Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1699,6 +1773,10 @@ fn openai_chat_sse_reader_emits_keepalive_chunk_during_idle_gap() {
         "text/event-stream",
         &[
             (
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_chat_keepalive_1\",\"created\":1,\"model\":\"gpt-5.3-codex\"}}\n\n",
+                0,
+            ),
+            (
                 "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_chat_keepalive_1\",\"created\":1,\"model\":\"gpt-5.3-codex\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\"}]}]}}\n\n",
                 50,
             ),
@@ -1706,8 +1784,12 @@ fn openai_chat_sse_reader_emits_keepalive_chunk_during_idle_gap() {
         ],
     );
     let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
-    let mut reader =
-        OpenAIChatCompletionsSseReader::new(upstream, Arc::clone(&usage_collector), None);
+    let mut reader = OpenAIChatCompletionsSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        None,
+        std::time::Instant::now(),
+    );
     let mut mapped = String::new();
     reader
         .read_to_string(&mut mapped)

@@ -8,6 +8,7 @@ pub(crate) struct RequestLogUsage {
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
     pub reasoning_output_tokens: Option<i64>,
+    pub first_response_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -351,6 +352,7 @@ pub(crate) fn write_request_log_with_attempts(
     let total_tokens = normalize_token(usage.total_tokens);
     let reasoning_output_tokens = normalize_token(usage.reasoning_output_tokens);
     let duration_ms = normalize_duration_ms(duration_ms);
+    let first_response_ms = usage.first_response_ms.map(|value| value.max(0));
     let created_at = now_ts();
     let estimated_cost_usd =
         estimate_cost_usd(model, input_tokens, cached_input_tokens, output_tokens);
@@ -359,9 +361,6 @@ pub(crate) fn write_request_log_with_attempts(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("http");
-    let gateway_mode = super::current_gateway_mode();
-    let transparent_mode = gateway_mode == "transparent";
-    let enhanced_mode = gateway_mode == "enhanced";
     let service_tier = trace_context
         .service_tier
         .map(str::trim)
@@ -370,16 +369,16 @@ pub(crate) fn write_request_log_with_attempts(
         .effective_service_tier
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    super::trace_log::log_failed_request(
-        created_at,
-        trace_context.trace_id,
+    super::trace_log::log_failed_request(super::trace_log::FailedRequestLog {
+        ts: created_at,
+        trace_id: trace_context.trace_id,
         key_id,
         account_id,
         method,
         request_path,
-        Some(original_path),
-        Some(adapted_path),
-        Some(request_type),
+        original_path: Some(original_path),
+        adapted_path: Some(adapted_path),
+        request_type: Some(request_type),
         model,
         reasoning_effort,
         service_tier,
@@ -387,7 +386,7 @@ pub(crate) fn write_request_log_with_attempts(
         status_code,
         error,
         duration_ms,
-    );
+    });
     let success = status_code
         .map(|status| (200..300).contains(&status))
         .unwrap_or(false);
@@ -428,9 +427,9 @@ pub(crate) fn write_request_log_with_attempts(
             adapted_path: Some(adapted_path.to_string()),
             method: method.to_string(),
             request_type: Some(request_type.to_string()),
-            gateway_mode: Some(gateway_mode.clone()),
-            transparent_mode: Some(transparent_mode),
-            enhanced_mode: Some(enhanced_mode),
+            gateway_mode: None,
+            transparent_mode: None,
+            enhanced_mode: None,
             model: model.map(|v| v.to_string()),
             reasoning_effort: reasoning_effort.map(|v| v.to_string()),
             service_tier: service_tier.map(str::to_string),
@@ -446,6 +445,7 @@ pub(crate) fn write_request_log_with_attempts(
             aggregate_api_url: trace_context.aggregate_api_url.map(str::to_string),
             status_code: status_code.map(|v| i64::from(v)),
             duration_ms,
+            first_response_ms,
             input_tokens: None,
             cached_input_tokens: None,
             output_tokens: None,

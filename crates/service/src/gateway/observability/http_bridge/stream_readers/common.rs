@@ -7,9 +7,10 @@ use std::time::{Duration, Instant};
 
 const DEFAULT_SSE_KEEPALIVE_INTERVAL_MS: u64 = 15_000;
 const ENV_SSE_KEEPALIVE_INTERVAL_MS: &str = "CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS";
+const UPSTREAM_SSE_FRAME_CHANNEL_CAPACITY: usize = 128;
 
 static SSE_KEEPALIVE_INTERVAL_MS: AtomicU64 = AtomicU64::new(DEFAULT_SSE_KEEPALIVE_INTERVAL_MS);
-const STREAM_INCOMPLETE_FALLBACK_MESSAGE: &str = "网络抖动";
+const STREAM_INCOMPLETE_FALLBACK_MESSAGE: &str = "连接中断（可能是网络波动或客户端主动取消）";
 const STREAM_READ_FAILED_FALLBACK_MESSAGE: &str = "stream read failed";
 const STREAM_IDLE_TIMEOUT_FALLBACK_MESSAGE: &str = "stream idle timeout";
 
@@ -20,6 +21,32 @@ pub(crate) struct PassthroughSseCollector {
     pub(crate) terminal_error: Option<String>,
     pub(crate) upstream_error_hint: Option<String>,
     pub(crate) last_event_type: Option<String>,
+}
+
+fn elapsed_ms_since(started_at: Instant) -> i64 {
+    started_at.elapsed().as_millis().min(i64::MAX as u128) as i64
+}
+
+pub(super) fn mark_first_response_ms(
+    usage_collector: &Arc<Mutex<PassthroughSseCollector>>,
+    started_at: Instant,
+) {
+    if let Ok(mut collector) = usage_collector.lock() {
+        if collector.usage.first_response_ms.is_none() {
+            collector.usage.first_response_ms = Some(elapsed_ms_since(started_at));
+        }
+    }
+}
+
+pub(super) fn mark_first_response_ms_on_usage(
+    usage_collector: &Arc<Mutex<UpstreamResponseUsage>>,
+    started_at: Instant,
+) {
+    if let Ok(mut usage) = usage_collector.lock() {
+        if usage.first_response_ms.is_none() {
+            usage.first_response_ms = Some(elapsed_ms_since(started_at));
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,7 +111,8 @@ impl UpstreamSseFramePump {
     /// # 返回
     /// 返回函数执行结果
     pub(crate) fn new(upstream: reqwest::blocking::Response) -> Self {
-        let (tx, rx) = mpsc::sync_channel::<UpstreamSseFramePumpItem>(32);
+        let (tx, rx) =
+            mpsc::sync_channel::<UpstreamSseFramePumpItem>(UPSTREAM_SSE_FRAME_CHANNEL_CAPACITY);
         thread::spawn(move || {
             let mut reader = BufReader::new(upstream);
             let mut pending_frame_lines = Vec::new();
@@ -187,7 +215,11 @@ pub(super) fn stream_wait_timeout(last_upstream_activity: Instant) -> Duration {
     if elapsed >= idle_timeout {
         return Duration::from_millis(1);
     }
-    keepalive.min(idle_timeout.saturating_sub(elapsed).max(Duration::from_millis(1)))
+    keepalive.min(
+        idle_timeout
+            .saturating_sub(elapsed)
+            .max(Duration::from_millis(1)),
+    )
 }
 
 pub(super) fn stream_idle_timed_out(last_upstream_activity: Instant) -> bool {
@@ -197,6 +229,10 @@ pub(super) fn stream_idle_timed_out(last_upstream_activity: Instant) -> bool {
 
 pub(super) fn stream_idle_timeout_message() -> String {
     STREAM_IDLE_TIMEOUT_FALLBACK_MESSAGE.to_string()
+}
+
+pub(super) fn should_emit_keepalive(saw_upstream_frame: bool) -> bool {
+    saw_upstream_frame
 }
 
 /// 函数 `current_sse_keepalive_interval_ms`
@@ -388,7 +424,7 @@ mod tests {
     fn classify_upstream_stream_read_error_maps_disconnect() {
         assert_eq!(
             classify_upstream_stream_read_error("connection reset by peer"),
-            "网络抖动"
+            "连接中断（可能是网络波动或客户端主动取消）"
         );
     }
 
@@ -407,7 +443,7 @@ mod tests {
     fn classify_upstream_stream_read_error_maps_timeout() {
         assert_eq!(
             classify_upstream_stream_read_error("operation timed out"),
-            "网络抖动"
+            "连接中断（可能是网络波动或客户端主动取消）"
         );
     }
 
@@ -424,7 +460,13 @@ mod tests {
     /// 无
     #[test]
     fn stream_terminal_messages_are_user_friendly() {
-        assert_eq!(stream_incomplete_message(), "网络抖动");
-        assert_eq!(stream_reader_disconnected_message(), "网络抖动");
+        assert_eq!(
+            stream_incomplete_message(),
+            "连接中断（可能是网络波动或客户端主动取消）"
+        );
+        assert_eq!(
+            stream_reader_disconnected_message(),
+            "连接中断（可能是网络波动或客户端主动取消）"
+        );
     }
 }

@@ -78,10 +78,6 @@ fn should_apply_codex_responses_compat(path: &str, explicit_upstream_base: Optio
     is_codex_backend_base(&normalized_base)
 }
 
-fn should_apply_codex_enhanced_rewrite(use_codex_responses_compat: bool) -> bool {
-    use_codex_responses_compat && !super::transparent_gateway_mode_enabled()
-}
-
 /// 函数 `path_matches_retain_fn`
 ///
 /// 作者: gaohongshun
@@ -437,7 +433,7 @@ pub(super) fn apply_request_overrides_with_service_tier(
     service_tier: Option<&str>,
     upstream_base_url: Option<&str>,
 ) -> Vec<u8> {
-    apply_request_overrides_with_service_tier_and_prompt_cache_key(
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
         path,
         body,
         model_slug,
@@ -445,6 +441,7 @@ pub(super) fn apply_request_overrides_with_service_tier(
         service_tier,
         upstream_base_url,
         None,
+        false,
     )
 }
 
@@ -468,7 +465,7 @@ pub(super) fn apply_request_overrides_with_prompt_cache_key(
     upstream_base_url: Option<&str>,
     prompt_cache_key: Option<&str>,
 ) -> Vec<u8> {
-    apply_request_overrides_with_service_tier_and_prompt_cache_key(
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
         path,
         body,
         model_slug,
@@ -476,6 +473,7 @@ pub(super) fn apply_request_overrides_with_prompt_cache_key(
         None,
         upstream_base_url,
         prompt_cache_key,
+        false,
     )
 }
 
@@ -490,6 +488,7 @@ pub(super) fn apply_request_overrides_with_prompt_cache_key(
 ///
 /// # 返回
 /// 返回函数执行结果
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn apply_request_overrides_with_service_tier_and_prompt_cache_key(
     path: &str,
     body: Vec<u8>,
@@ -498,6 +497,28 @@ pub(super) fn apply_request_overrides_with_service_tier_and_prompt_cache_key(
     service_tier: Option<&str>,
     upstream_base_url: Option<&str>,
     prompt_cache_key: Option<&str>,
+) -> Vec<u8> {
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
+        path,
+        body,
+        model_slug,
+        reasoning_effort,
+        service_tier,
+        upstream_base_url,
+        prompt_cache_key,
+        false,
+    )
+}
+
+pub(super) fn apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
+    path: &str,
+    body: Vec<u8>,
+    model_slug: Option<&str>,
+    reasoning_effort: Option<&str>,
+    service_tier: Option<&str>,
+    upstream_base_url: Option<&str>,
+    prompt_cache_key: Option<&str>,
+    allow_codex_compat_rewrite: bool,
 ) -> Vec<u8> {
     apply_request_overrides_with_prompt_cache_key_mode(
         path,
@@ -508,6 +529,7 @@ pub(super) fn apply_request_overrides_with_service_tier_and_prompt_cache_key(
         prompt_cache_key,
         false,
         service_tier,
+        allow_codex_compat_rewrite,
     )
 }
 
@@ -522,6 +544,7 @@ pub(super) fn apply_request_overrides_with_service_tier_and_prompt_cache_key(
 ///
 /// # 返回
 /// 返回函数执行结果
+#[cfg(test)]
 pub(super) fn apply_request_overrides_with_forced_prompt_cache_key(
     path: &str,
     body: Vec<u8>,
@@ -552,6 +575,7 @@ pub(super) fn apply_request_overrides_with_forced_prompt_cache_key(
 ///
 /// # 返回
 /// 返回函数执行结果
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn apply_request_overrides_with_service_tier_and_forced_prompt_cache_key(
     path: &str,
     body: Vec<u8>,
@@ -560,6 +584,28 @@ pub(super) fn apply_request_overrides_with_service_tier_and_forced_prompt_cache_
     service_tier: Option<&str>,
     upstream_base_url: Option<&str>,
     prompt_cache_key: Option<&str>,
+) -> Vec<u8> {
+    apply_request_overrides_with_service_tier_and_forced_prompt_cache_key_scope(
+        path,
+        body,
+        model_slug,
+        reasoning_effort,
+        service_tier,
+        upstream_base_url,
+        prompt_cache_key,
+        false,
+    )
+}
+
+pub(super) fn apply_request_overrides_with_service_tier_and_forced_prompt_cache_key_scope(
+    path: &str,
+    body: Vec<u8>,
+    model_slug: Option<&str>,
+    reasoning_effort: Option<&str>,
+    service_tier: Option<&str>,
+    upstream_base_url: Option<&str>,
+    prompt_cache_key: Option<&str>,
+    allow_codex_compat_rewrite: bool,
 ) -> Vec<u8> {
     apply_request_overrides_with_prompt_cache_key_mode(
         path,
@@ -570,6 +616,7 @@ pub(super) fn apply_request_overrides_with_service_tier_and_forced_prompt_cache_
         prompt_cache_key,
         true,
         service_tier,
+        allow_codex_compat_rewrite,
     )
 }
 
@@ -600,10 +647,10 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
     prompt_cache_key: Option<&str>,
     force_prompt_cache_key: bool,
     service_tier: Option<&str>,
+    allow_codex_compat_rewrite: bool,
 ) -> Vec<u8> {
     let use_codex_responses_compat = should_apply_codex_responses_compat(path, upstream_base_url);
-    let use_codex_enhanced_rewrite =
-        should_apply_codex_enhanced_rewrite(use_codex_responses_compat);
+    let use_codex_compat_rewrite = allow_codex_compat_rewrite && use_codex_responses_compat;
     let normalized_model = model_slug.map(str::trim).filter(|v| !v.is_empty());
     let normalized_reasoning = reasoning_effort
         .and_then(crate::reasoning_effort::normalize_reasoning_effort)
@@ -622,7 +669,7 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
             if let Some(model) = normalized_model {
                 obj.insert("model".to_string(), Value::String(model.to_string()));
                 changed = true;
-            } else if use_codex_enhanced_rewrite && apply_model_forward_rule_if_needed(obj) {
+            } else if use_codex_compat_rewrite && apply_model_forward_rule_if_needed(obj) {
                 changed = true;
             }
 
@@ -665,7 +712,7 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
                 if responses::normalize_codex_backend_service_tier(path, obj) {
                     changed = true;
                 }
-                if use_codex_enhanced_rewrite {
+                if use_codex_compat_rewrite {
                     if responses::normalize_dynamic_tools_to_tools(path, obj) {
                         changed = true;
                     }
@@ -681,7 +728,7 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
                 }
                 if !responses::is_compact_path(path) {
                     let had_stream_passthrough = obj.contains_key("stream_passthrough");
-                    if use_codex_enhanced_rewrite {
+                    if use_codex_compat_rewrite {
                         let stream_passthrough = responses::take_stream_passthrough_flag(path, obj);
                         if had_stream_passthrough {
                             changed = true;
@@ -706,7 +753,7 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
                         changed = true;
                     }
                     let should_apply_prompt_cache_key =
-                        force_prompt_cache_key || use_codex_enhanced_rewrite;
+                        force_prompt_cache_key || use_codex_compat_rewrite;
                     if should_apply_prompt_cache_key {
                         let existing_prompt_cache_key = obj
                             .get("prompt_cache_key")
@@ -727,14 +774,13 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
                             changed = true;
                         }
                         log::debug!(
-                            "event=gateway_prompt_cache_key_summary path={} source={} force_override={} changed={} codex_compat={} compact={} gateway_mode={} final_present={}",
+                            "event=gateway_prompt_cache_key_summary path={} source={} force_override={} changed={} codex_compat={} compact={} final_present={}",
                             path,
                             prompt_cache_key_decision.source.as_str(),
                             if force_prompt_cache_key { "true" } else { "false" },
                             if prompt_cache_key_decision.changed { "true" } else { "false" },
                             if use_codex_responses_compat { "true" } else { "false" },
                             if responses::is_compact_path(path) { "true" } else { "false" },
-                            super::current_gateway_mode(),
                             if obj.get("prompt_cache_key").and_then(Value::as_str).is_some() {
                                 "true"
                             } else {
@@ -743,7 +789,7 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
                         );
                     }
                 }
-                if use_codex_enhanced_rewrite && responses::ensure_instructions(path, obj) {
+                if use_codex_compat_rewrite && responses::ensure_instructions(path, obj) {
                     changed = true;
                 }
                 dropped_keys.extend(responses::retain_codex_fields(path, obj));

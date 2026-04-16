@@ -7,7 +7,10 @@ pub(crate) struct IncomingHeaderSnapshot {
     authorization_bearer_strict: Option<String>,
     authorization_bearer_case_insensitive: Option<String>,
     x_api_key: Option<String>,
+    user_agent: Option<String>,
+    originator: Option<String>,
     session_id: Option<String>,
+    session_affinity: Option<String>,
     client_request_id: Option<String>,
     subagent: Option<String>,
     beta_features: Option<String>,
@@ -58,9 +61,29 @@ impl IncomingHeaderSnapshot {
                 }
                 continue;
             }
+            if snapshot.user_agent.is_none() && name.eq_ignore_ascii_case("User-Agent") {
+                if !value.is_empty() {
+                    snapshot.user_agent = Some(value.to_string());
+                }
+                continue;
+            }
+            if snapshot.originator.is_none() && name.eq_ignore_ascii_case("originator") {
+                if !value.is_empty() {
+                    snapshot.originator = Some(value.to_string());
+                }
+                continue;
+            }
             if snapshot.session_id.is_none() && name.eq_ignore_ascii_case("session_id") {
                 if !value.is_empty() {
                     snapshot.session_id = Some(value.to_string());
+                }
+                continue;
+            }
+            if snapshot.session_affinity.is_none()
+                && name.eq_ignore_ascii_case("x-session-affinity")
+            {
+                if !value.is_empty() {
+                    snapshot.session_affinity = Some(value.to_string());
                 }
                 continue;
             }
@@ -163,10 +186,31 @@ impl IncomingHeaderSnapshot {
                 }
                 continue;
             }
+            if snapshot.user_agent.is_none() && header.field.equiv("User-Agent") {
+                let value = header.value.as_str().trim();
+                if !value.is_empty() {
+                    snapshot.user_agent = Some(value.to_string());
+                }
+                continue;
+            }
+            if snapshot.originator.is_none() && header.field.equiv("originator") {
+                let value = header.value.as_str().trim();
+                if !value.is_empty() {
+                    snapshot.originator = Some(value.to_string());
+                }
+                continue;
+            }
             if snapshot.session_id.is_none() && header.field.equiv("session_id") {
                 let value = header.value.as_str().trim();
                 if !value.is_empty() {
                     snapshot.session_id = Some(value.to_string());
+                }
+                continue;
+            }
+            if snapshot.session_affinity.is_none() && header.field.equiv("x-session-affinity") {
+                let value = header.value.as_str().trim();
+                if !value.is_empty() {
+                    snapshot.session_affinity = Some(value.to_string());
                 }
                 continue;
             }
@@ -212,8 +256,7 @@ impl IncomingHeaderSnapshot {
                 }
                 continue;
             }
-            if snapshot.parent_thread_id.is_none()
-                && header.field.equiv("x-codex-parent-thread-id")
+            if snapshot.parent_thread_id.is_none() && header.field.equiv("x-codex-parent-thread-id")
             {
                 let value = header.value.as_str().trim();
                 if !value.is_empty() {
@@ -277,6 +320,36 @@ impl IncomingHeaderSnapshot {
             .or(self.authorization_bearer_case_insensitive.as_deref())
     }
 
+    /// 函数 `user_agent`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-16
+    ///
+    /// # 参数
+    /// - crate: 参数 crate
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub(crate) fn user_agent(&self) -> Option<&str> {
+        self.user_agent.as_deref()
+    }
+
+    /// 函数 `originator`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-16
+    ///
+    /// # 参数
+    /// - crate: 参数 crate
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub(crate) fn originator(&self) -> Option<&str> {
+        self.originator.as_deref()
+    }
+
     /// 函数 `has_authorization`
     ///
     /// 作者: gaohongshun
@@ -320,6 +393,21 @@ impl IncomingHeaderSnapshot {
     /// 返回函数执行结果
     pub(crate) fn session_id(&self) -> Option<&str> {
         self.session_id.as_deref()
+    }
+
+    /// 函数 `session_affinity`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-16
+    ///
+    /// # 参数
+    /// - crate: 参数 crate
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub(crate) fn session_affinity(&self) -> Option<&str> {
+        self.session_affinity.as_deref()
     }
 
     /// 函数 `client_request_id`
@@ -503,12 +591,10 @@ impl IncomingHeaderSnapshot {
 }
 
 fn should_capture_passthrough_codex_header(name: &str) -> bool {
-    name.to_ascii_lowercase().starts_with("x-codex-")
-        && !name.eq_ignore_ascii_case("x-codex-beta-features")
-        && !name.eq_ignore_ascii_case("x-codex-window-id")
-        && !name.eq_ignore_ascii_case("x-codex-turn-metadata")
-        && !name.eq_ignore_ascii_case("x-codex-turn-state")
-        && !name.eq_ignore_ascii_case("x-codex-parent-thread-id")
+    // 中文注释：Codex 上游只接受源码里明确构造的那组头；未知 x-codex-* 一律不做透传。
+    // 这里保留入口只是为了让调用点语义清晰，但当前实现不允许任何额外透传头。
+    let _ = name;
+    false
 }
 
 fn remember_passthrough_header(headers: &mut Vec<(String, String)>, name: &str, value: &str) {

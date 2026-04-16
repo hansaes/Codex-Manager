@@ -1,0 +1,41 @@
+export interface LoginStatusResult {
+  status: string;
+  error: string;
+}
+
+export interface DeviceAuthInfo {
+  userCodeUrl: string;
+  tokenUrl: string;
+  verificationUrl: string;
+  redirectUri: string;
+}
+
+export interface LoginStartResult {
+  type: string;
+  authUrl?: string | null;
+  loginId: string;
+  verificationUrl?: string | null;
+  userCode?: string | null;
+}
+
+export interface CurrentAccessTokenAccount {
+  type: string;
+  accountId: string;
+  email: string;
+  planType: string;
+  planTypeRaw?: string | null;
+  chatgptAccountId: string | null;
+  workspaceId: string | null;
+  status: string;
+}
+
+export interface CurrentAccessTokenAccountReadResult {
+  account: CurrentAccessTokenAccount | null;
+  requiresOpenaiAuth: boolean;
+}
+
+export interface ChatgptAuthTokensRefreshResult {
+  accessToken: string;
+  chatgptAccountId: string;
+  chatgptPlanType: string | null;
+}

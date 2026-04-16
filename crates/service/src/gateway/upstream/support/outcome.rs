@@ -1,6 +1,10 @@
 use codexmanager_core::storage::Storage;
 use reqwest::header::HeaderValue;
 
+use super::failover_policy::{
+    classify_custom_upstream_status, follow_up_action, CustomUpstreamStatusKind, FollowUpAction,
+};
+
 pub(in super::super) enum UpstreamOutcomeDecision {
     Failover,
     RespondUpstream,
@@ -29,6 +33,13 @@ pub(in super::super) fn decide_upstream_outcome<F>(
 where
     F: FnMut(Option<&str>, u16, Option<&str>),
 {
+    fn from_follow_up_action(action: FollowUpAction) -> UpstreamOutcomeDecision {
+        match action {
+            FollowUpAction::Failover => UpstreamOutcomeDecision::Failover,
+            FollowUpAction::RespondUpstream => UpstreamOutcomeDecision::RespondUpstream,
+        }
+    }
+
     let is_official_target = super::super::config::is_official_openai_target(url);
     if status.is_success() {
         super::super::super::clear_account_cooldown(account_id);
@@ -48,20 +59,14 @@ where
             status.as_u16(),
             Some("upstream challenge blocked"),
         );
-        if has_more_candidates {
-            return UpstreamOutcomeDecision::Failover;
-        }
-        return UpstreamOutcomeDecision::RespondUpstream;
+        return from_follow_up_action(follow_up_action(true, has_more_candidates));
     }
 
     if is_official_target && status.as_u16() == 429 {
         super::super::super::mark_account_cooldown_for_status(account_id, status.as_u16());
         let _ = crate::usage_refresh::enqueue_usage_refresh_for_account(account_id);
         log_gateway_result(Some(url), status.as_u16(), Some("upstream rate-limited"));
-        if has_more_candidates {
-            return UpstreamOutcomeDecision::Failover;
-        }
-        return UpstreamOutcomeDecision::RespondUpstream;
+        return from_follow_up_action(follow_up_action(true, has_more_candidates));
     }
 
     if is_official_target && status.as_u16() == 401 {
@@ -70,32 +75,29 @@ where
     }
 
     if !is_official_target {
-        if matches!(status.as_u16(), 429 | 500..=599) {
-            // 中文注释：自定义上游继续保留原有容错策略，避免破坏兼容行为。
-            super::super::super::mark_account_cooldown_for_status(account_id, status.as_u16());
-        }
-        if status.as_u16() == 404 && has_more_candidates {
-            super::super::super::mark_account_cooldown_for_status(account_id, status.as_u16());
-            log_gateway_result(
-                Some(url),
-                status.as_u16(),
-                Some("upstream not-found failover"),
-            );
-            return UpstreamOutcomeDecision::Failover;
-        }
-        if status.as_u16() == 429 {
-            log_gateway_result(Some(url), status.as_u16(), Some("upstream rate-limited"));
-            if has_more_candidates {
-                return UpstreamOutcomeDecision::Failover;
+        match classify_custom_upstream_status(status.as_u16()) {
+            CustomUpstreamStatusKind::NotFound if has_more_candidates => {
+                super::super::super::mark_account_cooldown_for_status(account_id, status.as_u16());
+                log_gateway_result(
+                    Some(url),
+                    status.as_u16(),
+                    Some("upstream not-found failover"),
+                );
+                return from_follow_up_action(follow_up_action(true, has_more_candidates));
             }
-            return UpstreamOutcomeDecision::RespondUpstream;
-        }
-        if matches!(status.as_u16(), 500..=599) {
-            log_gateway_result(Some(url), status.as_u16(), Some("upstream server error"));
-            if has_more_candidates {
-                return UpstreamOutcomeDecision::Failover;
+            CustomUpstreamStatusKind::NotFound => {}
+            CustomUpstreamStatusKind::RateLimited => {
+                // 中文注释：自定义上游继续保留原有容错策略，避免破坏兼容行为。
+                super::super::super::mark_account_cooldown_for_status(account_id, status.as_u16());
+                log_gateway_result(Some(url), status.as_u16(), Some("upstream rate-limited"));
+                return from_follow_up_action(follow_up_action(true, has_more_candidates));
             }
-            return UpstreamOutcomeDecision::RespondUpstream;
+            CustomUpstreamStatusKind::ServerError => {
+                super::super::super::mark_account_cooldown_for_status(account_id, status.as_u16());
+                log_gateway_result(Some(url), status.as_u16(), Some("upstream server error"));
+                return from_follow_up_action(follow_up_action(true, has_more_candidates));
+            }
+            CustomUpstreamStatusKind::Other => {}
         }
     }
 
@@ -117,10 +119,7 @@ where
             super::super::super::mark_account_cooldown_for_status(account_id, status.as_u16());
             log_gateway_result(Some(url), status.as_u16(), Some("upstream non-success"));
         }
-        if has_more_candidates {
-            return UpstreamOutcomeDecision::Failover;
-        }
-        return UpstreamOutcomeDecision::RespondUpstream;
+        return from_follow_up_action(follow_up_action(true, has_more_candidates));
     }
 
     log_gateway_result(Some(url), status.as_u16(), Some("upstream non-success"));

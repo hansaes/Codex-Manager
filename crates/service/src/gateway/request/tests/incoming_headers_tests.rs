@@ -86,6 +86,18 @@ fn goog_api_key_header_is_accepted_as_platform_key() {
 fn codex_headers_are_captured_from_http_headers() {
     let mut headers = axum::http::HeaderMap::new();
     headers.insert(
+        "User-Agent",
+        axum::http::HeaderValue::from_static("codex_cli_rs/0.999.0"),
+    );
+    headers.insert(
+        "originator",
+        axum::http::HeaderValue::from_static("codex_cli_rs"),
+    );
+    headers.insert(
+        "x-session-affinity",
+        axum::http::HeaderValue::from_static("affinity_123"),
+    );
+    headers.insert(
         "x-codex-parent-thread-id",
         axum::http::HeaderValue::from_static("thread_parent_123"),
     );
@@ -99,13 +111,10 @@ fn codex_headers_are_captured_from_http_headers() {
     );
 
     let snapshot = IncomingHeaderSnapshot::from_http_headers(&headers);
+    assert_eq!(snapshot.user_agent(), Some("codex_cli_rs/0.999.0"));
+    assert_eq!(snapshot.originator(), Some("codex_cli_rs"));
+    assert_eq!(snapshot.session_affinity(), Some("affinity_123"));
     assert_eq!(snapshot.parent_thread_id(), Some("thread_parent_123"));
     assert_eq!(snapshot.window_id(), Some("thread_child_123:7"));
-    assert_eq!(
-        snapshot.passthrough_codex_headers(),
-        &[(
-            "x-codex-other-limit-name".to_string(),
-            "promo_header".to_string()
-        )]
-    );
+    assert!(snapshot.passthrough_codex_headers().is_empty());
 }

@@ -16,7 +16,25 @@ import {
   normalizeUsageList,
   normalizeUsageSnapshot,
 } from "./normalize";
+import {
+  readChatgptAuthTokensRefreshResult,
+  readCurrentAccessTokenAccountReadResult,
+  readLoginStatusResult,
+} from "./account-auth";
+import {
+  AccountExportResult,
+  AccountImportError,
+  AccountImportResult,
+  AccountWarmupResult,
+  DeleteUnavailableFreeResult,
+  readAccountExportResult,
+  readAccountImportResult,
+  readAccountWarmupResult,
+  readApiKeySecret,
+  readDeleteUnavailableFreeResult,
+} from "./account-maintenance";
 import { serializeManagedModelForRpc } from "./model-catalog";
+import { unwrapUsageSnapshotPayload } from "./usage-response";
 import {
   AccountListResult,
   AccountUsage,
@@ -38,36 +56,14 @@ import {
   UsageAggregateSummary,
 } from "../../types";
 
-interface AccountImportResult {
-  canceled?: boolean;
-  total?: number;
-  created?: number;
-  updated?: number;
-  failed?: number;
-  errors?: AccountImportError[];
-  fileCount?: number;
-  directoryPath?: string;
-  contents?: string[];
-}
-
-interface AccountImportError {
-  index: number;
-  message: string;
-}
-
-interface AccountExportResult {
-  canceled?: boolean;
-  exported?: number;
-  outputDir?: string;
-}
-
 export interface AccountExportPayload {
   selectedAccountIds?: string[];
   exportMode?: "single" | "multiple";
 }
 
-interface DeleteUnavailableFreeResult {
-  deleted?: number;
+export interface AccountWarmupPayload {
+  accountIds?: string[];
+  message?: string;
 }
 
 interface LoginStartPayload {
@@ -276,9 +272,8 @@ async function importAccountContents(contents: string[]): Promise<AccountImportR
   const merged = createEmptyImportResult();
   let processed = 0;
   for (const batch of batches) {
-    const imported = await invoke<AccountImportResult>(
-      "service_account_import",
-      withAddr({ contents: batch })
+    const imported = readAccountImportResult(
+      await invoke<unknown>("service_account_import", withAddr({ contents: batch }))
     );
     mergeImportResult(merged, imported, processed);
     processed += batch.length;
@@ -296,8 +291,10 @@ export const accountClient = {
     invoke("service_account_delete", withAddr({ accountId })),
   deleteMany: (accountIds: string[]) =>
     invoke("service_account_delete_many", withAddr({ accountIds })),
-  deleteUnavailableFree: () =>
-    invoke<DeleteUnavailableFreeResult>("service_account_delete_unavailable_free", withAddr()),
+  deleteUnavailableFree: async (): Promise<DeleteUnavailableFreeResult> =>
+    readDeleteUnavailableFreeResult(
+      await invoke<unknown>("service_account_delete_unavailable_free", withAddr())
+    ),
   updateSort: (accountId: string, sort: number) =>
     invoke("service_account_update", withAddr({ accountId, sort })),
   updateProfile: (accountId: string, params: AccountUpdatePayload) =>
@@ -328,9 +325,8 @@ export const accountClient = {
     invoke("service_account_update", withAddr({ accountId, status: "active" })),
   import: importAccountContents,
   async importByDirectory(): Promise<AccountImportResult> {
-    const picked = await invoke<AccountImportResult>(
-      "service_account_import_by_directory",
-      withAddr()
+    const picked = readAccountImportResult(
+      await invoke<unknown>("service_account_import_by_directory", withAddr())
     );
     if (picked?.canceled || !Array.isArray(picked?.contents) || picked.contents.length === 0) {
       return picked;
@@ -345,9 +341,8 @@ export const accountClient = {
     };
   },
   async importByFile(): Promise<AccountImportResult> {
-    const picked = await invoke<AccountImportResult>(
-      "service_account_import_by_file",
-      withAddr()
+    const picked = readAccountImportResult(
+      await invoke<unknown>("service_account_import_by_file", withAddr())
     );
     if (picked?.canceled || !Array.isArray(picked?.contents) || picked.contents.length === 0) {
       return picked;
@@ -360,8 +355,8 @@ export const accountClient = {
       fileCount: picked.fileCount || picked.contents.length,
     };
   },
-  export: (params?: AccountExportPayload) =>
-    invoke<AccountExportResult>(
+  export: async (params?: AccountExportPayload): Promise<AccountExportResult> =>
+    readAccountExportResult(await invoke<unknown>(
       "service_account_export_by_account_files",
       withAddr({
         selectedAccountIds: Array.isArray(params?.selectedAccountIds)
@@ -369,15 +364,21 @@ export const accountClient = {
           : [],
         exportMode: params?.exportMode || "multiple",
       })
+    )),
+  warmup: async (params?: AccountWarmupPayload): Promise<AccountWarmupResult> =>
+    readAccountWarmupResult(
+      await invoke<unknown>(
+        "service_account_warmup",
+        withAddr({
+          accountIds: Array.isArray(params?.accountIds) ? params.accountIds : [],
+          message: params?.message || "hi",
+        }),
+      ),
     ),
 
   async getUsage(accountId: string): Promise<AccountUsage | null> {
     const result = await invoke<unknown>("service_usage_read", withAddr({ accountId }));
-    const source =
-      result && typeof result === "object" && "snapshot" in result
-        ? (result as { snapshot?: unknown }).snapshot
-        : result;
-    return normalizeUsageSnapshot(source);
+    return normalizeUsageSnapshot(unwrapUsageSnapshotPayload(result));
   },
   async listUsage(): Promise<AccountUsage[]> {
     const result = await invoke<unknown>("service_usage_list", withAddr());
@@ -413,14 +414,7 @@ export const accountClient = {
   },
   async getLoginStatus(loginId: string): Promise<LoginStatusResult> {
     const result = await invoke<unknown>("service_login_status", withAddr({ loginId }));
-    const source =
-      result && typeof result === "object" && !Array.isArray(result)
-        ? (result as Record<string, unknown>)
-        : {};
-    return {
-      status: typeof source.status === "string" ? source.status.trim() : "",
-      error: typeof source.error === "string" ? source.error.trim() : "",
-    };
+    return readLoginStatusResult(result);
   },
   completeLogin: (state: string, code: string, redirectUri: string) =>
     invoke("service_login_complete", withAddr({ state, code, redirectUri })),
@@ -440,17 +434,7 @@ export const accountClient = {
       "service_account_read",
       withAddr({ refreshToken })
     );
-    const source =
-      result && typeof result === "object" && !Array.isArray(result)
-        ? (result as Record<string, unknown>)
-        : {};
-    return {
-      account:
-        source.account && typeof source.account === "object" && !Array.isArray(source.account)
-          ? (source.account as CurrentAccessTokenAccountReadResult["account"])
-          : null,
-      requiresOpenaiAuth: Boolean(source.requiresOpenaiAuth),
-    };
+    return readCurrentAccessTokenAccountReadResult(result);
   },
   logoutCurrentAccessTokenAccount: () =>
     invoke("service_account_logout", withAddr()),
@@ -461,18 +445,7 @@ export const accountClient = {
       "service_chatgpt_auth_tokens_refresh",
       withAddr({ previousAccountId: previousAccountId || null })
     );
-    const source =
-      result && typeof result === "object" && !Array.isArray(result)
-        ? (result as Record<string, unknown>)
-        : {};
-    return {
-      accessToken: String(source.accessToken || "").trim(),
-      chatgptAccountId: String(source.chatgptAccountId || "").trim(),
-      chatgptPlanType:
-        typeof source.chatgptPlanType === "string"
-          ? source.chatgptPlanType.trim()
-          : null,
-    };
+    return readChatgptAuthTokensRefreshResult(result);
   },
 
   async listAggregateApis(): Promise<AggregateApi[]> {
@@ -634,10 +607,10 @@ export const accountClient = {
   deleteManagedModel: (slug: string) =>
     invoke("service_model_catalog_delete", withAddr({ slug })),
   async readApiKeySecret(keyId: string): Promise<string> {
-    const result = await invoke<{ key?: string }>(
+    const result = await invoke<unknown>(
       "service_apikey_read_secret",
       withAddr({ keyId })
     );
-    return String(result?.key || "").trim();
+    return readApiKeySecret(result);
   },
 };

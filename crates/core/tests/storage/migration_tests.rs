@@ -232,6 +232,15 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         )
         .expect("count 043 migration");
     assert_eq!(applied_043, 1);
+    let applied_050: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '050_api_key_profiles_drop_azure_protocol'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 050 migration");
+    assert_eq!(applied_050, 1);
 
     assert!(!storage
         .has_column("accounts", "note")
@@ -263,6 +272,9 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
     assert!(storage
         .has_column("request_logs", "duration_ms")
         .expect("check request_logs.duration_ms"));
+    assert!(storage
+        .has_column("request_logs", "first_response_ms")
+        .expect("check request_logs.first_response_ms"));
     assert!(storage
         .has_column("request_logs", "initial_account_id")
         .expect("check request_logs.initial_account_id"));
@@ -565,6 +577,124 @@ fn api_key_profile_migration_backfills_existing_keys() {
     assert_eq!(profile_row.4.as_deref(), Some("low"));
     assert_eq!(profile_row.5, None);
     assert_eq!(profile_row.6, None);
+}
+
+#[test]
+fn api_key_profile_drop_azure_protocol_migration_normalizes_legacy_rows() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage
+        .conn
+        .execute_batch(
+            "CREATE TABLE api_keys (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                model_slug TEXT,
+                reasoning_effort TEXT,
+                key_hash TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                last_used_at INTEGER
+            );
+            CREATE TABLE api_key_profiles (
+                key_id TEXT PRIMARY KEY REFERENCES api_keys(id) ON DELETE CASCADE,
+                client_type TEXT NOT NULL CHECK (client_type IN ('codex', 'claude_code')),
+                protocol_type TEXT NOT NULL CHECK (protocol_type IN ('openai_compat', 'anthropic_native', 'azure_openai')),
+                auth_scheme TEXT NOT NULL CHECK (auth_scheme IN ('authorization_bearer', 'x_api_key', 'api_key')),
+                upstream_base_url TEXT,
+                static_headers_json TEXT,
+                default_model TEXT,
+                reasoning_effort TEXT,
+                service_tier TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            INSERT INTO api_keys (id, name, model_slug, reasoning_effort, key_hash, status, created_at, last_used_at)
+            VALUES ('key-azure', 'azure', NULL, NULL, 'hash-azure', 'active', 100, NULL);
+            INSERT INTO api_key_profiles (
+                key_id,
+                client_type,
+                protocol_type,
+                auth_scheme,
+                upstream_base_url,
+                static_headers_json,
+                default_model,
+                reasoning_effort,
+                service_tier,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                'key-azure',
+                'codex',
+                'azure_openai',
+                'api_key',
+                'https://legacy-resource.openai.azure.com',
+                '{\"api-key\":\"legacy\"}',
+                'gpt-4o',
+                'medium',
+                'fast',
+                100,
+                100
+            );",
+        )
+        .expect("prepare legacy azure profile");
+    storage
+        .ensure_migrations_table()
+        .expect("ensure migration tracker");
+
+    storage
+        .apply_sql_migration(
+            "050_api_key_profiles_drop_azure_protocol",
+            include_str!("../../migrations/050_api_key_profiles_drop_azure_protocol.sql"),
+        )
+        .expect("apply 050 migration");
+
+    let status: String = storage
+        .conn
+        .query_row(
+            "SELECT status FROM api_keys WHERE id = 'key-azure'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("load migrated key status");
+    assert_eq!(status, "disabled");
+
+    let profile_row: (
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = storage
+        .conn
+        .query_row(
+            "SELECT protocol_type, auth_scheme, upstream_base_url, static_headers_json, default_model, reasoning_effort, service_tier
+             FROM api_key_profiles
+             WHERE key_id = 'key-azure'",
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
+        )
+        .expect("load migrated profile");
+
+    assert_eq!(profile_row.0, "openai_compat");
+    assert_eq!(profile_row.1, "authorization_bearer");
+    assert_eq!(profile_row.2, None);
+    assert_eq!(profile_row.3, None);
+    assert_eq!(profile_row.4.as_deref(), Some("gpt-4o"));
+    assert_eq!(profile_row.5.as_deref(), Some("medium"));
+    assert_eq!(profile_row.6.as_deref(), Some("fast"));
 }
 
 /// 函数 `key_hash_index_migration_adds_api_keys_index`

@@ -152,7 +152,13 @@ fn classify_usage_refresh_error(message: &str) -> String {
 /// # 返回
 /// 返回函数执行结果
 fn extract_usage_status_code(message: &str) -> Option<u16> {
-    let rest = message.strip_prefix("usage endpoint status ")?;
+    let rest = if let Some(rest) = message.strip_prefix("usage endpoint status ") {
+        Some(rest)
+    } else if let Some(rest) = message.strip_prefix("usage endpoint failed: status=") {
+        Some(rest)
+    } else {
+        None
+    }?;
     let digits: String = rest.chars().take_while(|ch| ch.is_ascii_digit()).collect();
     if digits.is_empty() {
         return None;

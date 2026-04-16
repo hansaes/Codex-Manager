@@ -8,7 +8,7 @@ pub(in super::super) const OUTPUT_TEXT_TRUNCATED_MARKER: &str = "[output_text tr
 static OUTPUT_TEXT_LIMIT_BYTES: AtomicUsize = AtomicUsize::new(DEFAULT_OUTPUT_TEXT_LIMIT_BYTES);
 static OUTPUT_TEXT_LIMIT_LOADED: OnceLock<()> = OnceLock::new();
 const UPSTREAM_ERROR_HINT_LIMIT_BYTES: usize = 16 * 1024;
-const STREAM_INCOMPLETE_FALLBACK_MESSAGE: &str = "网络抖动";
+const STREAM_INCOMPLETE_FALLBACK_MESSAGE: &str = "连接中断（可能是网络波动或客户端主动取消）";
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct UpstreamResponseUsage {
@@ -17,6 +17,7 @@ pub(crate) struct UpstreamResponseUsage {
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
     pub reasoning_output_tokens: Option<i64>,
+    pub first_response_ms: Option<i64>,
     pub output_text: Option<String>,
 }
 
@@ -124,6 +125,9 @@ pub(in super::super) fn merge_usage(
     if source.reasoning_output_tokens.is_some() {
         target.reasoning_output_tokens = source.reasoning_output_tokens;
     }
+    if target.first_response_ms.is_none() {
+        target.first_response_ms = source.first_response_ms;
+    }
     if let Some(source_text) = source.output_text {
         let target_text = target.output_text.get_or_insert_with(String::new);
         append_output_text_raw(target_text, source_text.as_str());
@@ -147,6 +151,7 @@ pub(in super::super) fn usage_has_signal(usage: &UpstreamResponseUsage) -> bool 
         || usage.output_tokens.is_some()
         || usage.total_tokens.is_some()
         || usage.reasoning_output_tokens.is_some()
+        || usage.first_response_ms.is_some()
         || usage
             .output_text
             .as_ref()
@@ -208,6 +213,7 @@ fn parse_usage_from_object(usage: Option<&Map<String, Value>>) -> UpstreamRespon
         output_tokens,
         total_tokens,
         reasoning_output_tokens,
+        first_response_ms: None,
         output_text: None,
     }
 }
@@ -1078,7 +1084,10 @@ mod tests {
             stream_terminal_seen: false,
             ..UpstreamResponseBridgeResult::default()
         };
-        assert_eq!(bridge.error_message(true).as_deref(), Some("网络抖动"));
+        assert_eq!(
+            bridge.error_message(true).as_deref(),
+            Some("连接中断（可能是网络波动或客户端主动取消）")
+        );
     }
 
     #[test]

@@ -775,11 +775,14 @@ pub struct RequestLogSummary {
     pub service_tier: Option<String>,
     pub effective_service_tier: Option<String>,
     pub response_adapter: Option<String>,
+    pub canonical_source: Option<String>,
+    pub size_reject_stage: Option<String>,
     pub upstream_url: Option<String>,
     pub aggregate_api_supplier_name: Option<String>,
     pub aggregate_api_url: Option<String>,
     pub status_code: Option<i64>,
     pub duration_ms: Option<i64>,
+    pub first_response_ms: Option<i64>,
     pub input_tokens: Option<i64>,
     pub cached_input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
@@ -797,6 +800,8 @@ pub struct RequestLogListParams {
     pub page_size: i64,
     pub query: Option<String>,
     pub status_filter: Option<String>,
+    pub start_ts: Option<i64>,
+    pub end_ts: Option<i64>,
 }
 
 impl Default for RequestLogListParams {
@@ -817,6 +822,8 @@ impl Default for RequestLogListParams {
             page_size: 20,
             query: None,
             status_filter: None,
+            start_ts: None,
+            end_ts: None,
         }
     }
 }
@@ -843,6 +850,8 @@ impl RequestLogListParams {
             },
             query: self.query,
             status_filter: self.status_filter,
+            start_ts: self.start_ts.filter(|value| *value > 0),
+            end_ts: self.end_ts.filter(|value| *value > 0),
         }
     }
 }
