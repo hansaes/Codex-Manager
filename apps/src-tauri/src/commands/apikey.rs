@@ -71,6 +71,9 @@ pub async fn service_apikey_create(
     rotation_strategy: Option<String>,
     aggregate_api_id: Option<String>,
     account_plan_filter: Option<String>,
+    total_token_limit: Option<i64>,
+    total_cost_usd_limit: Option<f64>,
+    total_request_limit: Option<i64>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
       "name": name,
@@ -83,6 +86,9 @@ pub async fn service_apikey_create(
       "rotationStrategy": rotation_strategy,
       "aggregateApiId": aggregate_api_id,
       "accountPlanFilter": account_plan_filter,
+      "totalTokenLimit": total_token_limit,
+      "totalCostUsdLimit": total_cost_usd_limit,
+      "totalRequestLimit": total_request_limit,
     });
     rpc_call_in_background("apikey/create", addr, Some(params)).await
 }
@@ -222,6 +228,9 @@ pub async fn service_apikey_update_model(
     rotation_strategy: Option<String>,
     aggregate_api_id: Option<String>,
     account_plan_filter: Option<String>,
+    total_token_limit: Option<i64>,
+    total_cost_usd_limit: Option<f64>,
+    total_request_limit: Option<i64>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
       "id": key_id,
@@ -235,6 +244,9 @@ pub async fn service_apikey_update_model(
       "rotationStrategy": rotation_strategy,
       "aggregateApiId": aggregate_api_id,
       "accountPlanFilter": account_plan_filter,
+      "totalTokenLimit": total_token_limit,
+      "totalCostUsdLimit": total_cost_usd_limit,
+      "totalRequestLimit": total_request_limit,
     });
     rpc_call_in_background("apikey/updateModel", addr, Some(params)).await
 }

@@ -543,6 +543,9 @@ export const accountClient = {
         rotationStrategy: params.rotationStrategy || null,
         aggregateApiId: params.aggregateApiId || null,
         accountPlanFilter: params.accountPlanFilter || null,
+        totalTokenLimit: params.totalTokenLimit ?? null,
+        totalCostUsdLimit: params.totalCostUsdLimit ?? null,
+        totalRequestLimit: params.totalRequestLimit ?? null,
       })
     );
     return normalizeApiKeyCreateResult(result);
@@ -568,6 +571,9 @@ export const accountClient = {
         rotationStrategy: params.rotationStrategy || null,
         aggregateApiId: params.aggregateApiId || null,
         accountPlanFilter: params.accountPlanFilter || null,
+        totalTokenLimit: params.totalTokenLimit ?? null,
+        totalCostUsdLimit: params.totalCostUsdLimit ?? null,
+        totalRequestLimit: params.totalRequestLimit ?? null,
       })
     ),
   disableApiKey: (keyId: string) =>
