@@ -4,6 +4,7 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod account_metadata;
+mod account_subscriptions;
 mod accounts;
 mod aggregate_apis;
 mod api_key_quota_limits;
@@ -40,6 +41,16 @@ pub struct AccountMetadata {
     pub account_id: String,
     pub note: Option<String>,
     pub tags: Option<String>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccountSubscription {
+    pub account_id: String,
+    pub has_subscription: bool,
+    pub plan_type: Option<String>,
+    pub expires_at: Option<i64>,
+    pub renews_at: Option<i64>,
     pub updated_at: i64,
 }
 
@@ -689,6 +700,11 @@ impl Storage {
             "053_api_key_quota_limits",
             include_str!("../../migrations/053_api_key_quota_limits.sql"),
         )?;
+        self.apply_sql_or_compat_migration(
+            "054_account_subscriptions",
+            include_str!("../../migrations/054_account_subscriptions.sql"),
+            |s| s.ensure_account_subscriptions_table(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_api_key_quota_limits_table()?;
         self.ensure_aggregate_apis_table()?;
@@ -699,6 +715,7 @@ impl Storage {
         self.ensure_request_log_effective_service_tier_column()?;
         self.ensure_request_log_first_response_column()?;
         self.ensure_model_catalog_models_table()?;
+        self.ensure_account_subscriptions_table()?;
         Ok(())
     }
 

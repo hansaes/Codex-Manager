@@ -860,7 +860,7 @@ async fn official_responses_websocket_proxies_frames_and_headers() {
 }
 
 #[tokio::test]
-async fn official_responses_websocket_preserves_explicit_prompt_cache_key() {
+async fn official_responses_websocket_clears_explicit_prompt_cache_key_when_session_anchor_exists() {
     let _guard = crate::test_env_guard();
     let db_path = new_test_db_path("codexmanager-proxy-runtime-ws-explicit-prompt-cache-key");
     let _db_guard = EnvGuard::set("CODEXMANAGER_DB_PATH", db_path.to_string_lossy().as_ref());
@@ -924,7 +924,7 @@ async fn official_responses_websocket_preserves_explicit_prompt_cache_key() {
     let payload: serde_json::Value =
         serde_json::from_str(&upstream_frame).expect("parse upstream frame");
     assert_eq!(payload["type"], "response.create");
-    assert_eq!(payload["prompt_cache_key"], "client_ws_thread_123");
+    assert!(payload.get("prompt_cache_key").is_none());
 
     let client_event = tokio::time::timeout(Duration::from_secs(5), client_ws.next())
         .await

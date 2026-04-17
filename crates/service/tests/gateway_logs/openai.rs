@@ -1486,12 +1486,9 @@ fn gateway_openai_compact_route_aligns_with_codex_remote_compact_request() {
             .map(String::as_str),
         Some("thread_parent_compact_cli")
     );
-    assert_eq!(
-        captured
-            .headers
-            .get("x-codex-other-limit-name")
-            .map(String::as_str),
-        Some("promo_header_http")
+    assert!(
+        !captured.headers.contains_key("x-codex-other-limit-name"),
+        "compact should not forward x-codex-other-limit-name"
     );
     assert!(
         captured.headers.contains_key("user-agent"),
