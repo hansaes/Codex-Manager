@@ -579,7 +579,6 @@ fn is_supported_openai_responses_key(key: &str) -> bool {
             | "top_p"
             | "truncation"
             | "user"
-            | "stream_passthrough"
     )
 }
 

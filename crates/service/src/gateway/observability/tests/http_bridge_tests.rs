@@ -1784,7 +1784,9 @@ fn openai_responses_passthrough_reader_collects_output_item_field_text() {
     reader
         .read_to_string(&mut mapped)
         .expect("read output_item openai responses stream");
-    server.join().expect("join output_item openai responses upstream");
+    server
+        .join()
+        .expect("join output_item openai responses upstream");
 
     let collector = usage_collector
         .lock()
@@ -1822,7 +1824,9 @@ fn openai_responses_passthrough_reader_marks_incomplete_terminal_error_from_stat
     reader
         .read_to_string(&mut mapped)
         .expect("read incomplete openai responses stream");
-    server.join().expect("join incomplete openai responses upstream");
+    server
+        .join()
+        .expect("join incomplete openai responses upstream");
 
     let collector = usage_collector
         .lock()
@@ -1835,6 +1839,10 @@ fn openai_responses_passthrough_reader_marks_incomplete_terminal_error_from_stat
     );
     assert_eq!(
         collector.terminal_error.as_deref(),
+        Some("上游流式空闲超时")
+    );
+    assert_eq!(
+        collector.upstream_error_hint.as_deref(),
         Some("code=stream_timeout stream timeout at upstream")
     );
     assert!(collector.saw_terminal);
@@ -1842,6 +1850,46 @@ fn openai_responses_passthrough_reader_marks_incomplete_terminal_error_from_stat
         collector.last_event_type.as_deref(),
         Some("response.incomplete")
     );
+}
+
+#[test]
+fn openai_responses_passthrough_reader_maps_bare_incomplete_to_disconnect_message() {
+    let (upstream, server) = open_streaming_mock_http_response(
+        "text/event-stream",
+        &[(
+            "event: response.output_text.delta\n\
+             data: {\"delta\":{\"text\":\"partial answer\"}}\n\n\
+             event: response.incomplete\n\
+             data: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\"}}\n\n",
+            0,
+        )],
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = OpenAIResponsesPassthroughSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        SseKeepAliveFrame::OpenAIResponses,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read incomplete openai responses stream");
+    server
+        .join()
+        .expect("join incomplete openai responses upstream");
+
+    let collector = usage_collector
+        .lock()
+        .expect("lock usage collector")
+        .clone();
+    assert!(mapped.contains("event: response.incomplete"));
+    assert_eq!(
+        collector.terminal_error.as_deref(),
+        Some("连接中断（可能是网络波动或客户端主动取消）")
+    );
+    assert_eq!(collector.upstream_error_hint, None);
+    assert!(collector.saw_terminal);
 }
 
 /// 函数 `passthrough_sse_reader_captures_raw_html_error_body`

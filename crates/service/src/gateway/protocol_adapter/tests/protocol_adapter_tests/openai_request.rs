@@ -47,12 +47,12 @@ fn openai_chat_completions_are_adapted_to_responses() {
             .and_then(serde_json::Value::as_str),
         Some("hi")
     );
-    assert_eq!(
-        value
-            .get("stream_passthrough")
-            .and_then(serde_json::Value::as_bool),
-        Some(false)
-    );
+    assert!(value.get("stream_passthrough").is_none());
+    assert!(value.get("instructions").is_none());
+    assert!(value.get("reasoning").is_none());
+    assert!(value.get("include").is_none());
+    assert!(value.get("parallel_tool_calls").is_none());
+    assert!(value.get("tool_choice").is_none());
 }
 
 /// 函数 `openai_chat_completions_preserve_multimodal_user_content`
@@ -226,7 +226,7 @@ fn openai_chat_completions_stream_uses_sse_adapter() {
     );
 }
 
-/// 函数 `openai_chat_completions_default_tool_choice_is_auto`
+/// 函数 `openai_chat_completions_omits_tool_defaults_without_tools`
 ///
 /// 作者: gaohongshun
 ///
@@ -238,16 +238,14 @@ fn openai_chat_completions_stream_uses_sse_adapter() {
 /// # 返回
 /// 无
 #[test]
-fn openai_chat_completions_default_tool_choice_is_auto() {
+fn openai_chat_completions_omits_tool_defaults_without_tools() {
     let body = br#"{"model":"gpt-5.3-codex","messages":[{"role":"user","content":"hi"}]}"#.to_vec();
     let adapted = adapt_request_for_protocol(PROTOCOL_OPENAI_COMPAT, "/v1/chat/completions", body)
         .expect("adapt request");
     let value: serde_json::Value =
         serde_json::from_slice(&adapted.body).expect("parse adapted body");
-    assert_eq!(
-        value.get("tool_choice").and_then(serde_json::Value::as_str),
-        Some("auto")
-    );
+    assert!(value.get("tool_choice").is_none());
+    assert!(value.get("parallel_tool_calls").is_none());
 }
 
 /// 函数 `openai_chat_completions_forward_service_tier_to_responses`
@@ -462,6 +460,12 @@ fn openai_chat_completions_shortens_tool_names_and_builds_restore_map() {
     );
     assert_eq!(
         value
+            .get("parallel_tool_calls")
+            .and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        value
             .get("input")
             .and_then(serde_json::Value::as_array)
             .and_then(|items| {
@@ -499,6 +503,40 @@ fn openai_chat_completions_stream_passthrough_is_forwarded() {
             .get("stream_passthrough")
             .and_then(serde_json::Value::as_bool),
         Some(true)
+    );
+}
+
+#[test]
+fn openai_chat_completions_reasoning_defaults_are_omitted_when_absent() {
+    let body = br#"{"model":"gpt-5.3-codex","messages":[{"role":"user","content":"hi"}]}"#.to_vec();
+    let adapted = adapt_request_for_protocol(PROTOCOL_OPENAI_COMPAT, "/v1/chat/completions", body)
+        .expect("adapt request");
+    let value: serde_json::Value =
+        serde_json::from_slice(&adapted.body).expect("parse adapted body");
+    assert!(value.get("reasoning").is_none());
+    assert!(value.get("include").is_none());
+}
+
+#[test]
+fn openai_chat_completions_preserve_explicit_reasoning_effort_and_include() {
+    let body = br#"{"model":"gpt-5.3-codex","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"high"}"#.to_vec();
+    let adapted = adapt_request_for_protocol(PROTOCOL_OPENAI_COMPAT, "/v1/chat/completions", body)
+        .expect("adapt request");
+    let value: serde_json::Value =
+        serde_json::from_slice(&adapted.body).expect("parse adapted body");
+    assert_eq!(
+        value
+            .get("reasoning")
+            .and_then(|reasoning| reasoning.get("effort"))
+            .and_then(serde_json::Value::as_str),
+        Some("high")
+    );
+    assert_eq!(
+        value
+            .get("include")
+            .and_then(serde_json::Value::as_array)
+            .map(Vec::len),
+        Some(1)
     );
 }
 

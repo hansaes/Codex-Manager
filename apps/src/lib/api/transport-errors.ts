@@ -37,13 +37,23 @@ function normalizeKnownAppErrorMessage(message: string): string {
   }
 
   const normalized = trimmed.toLowerCase();
-  if (normalized === "request or response body error") {
-    return "上游中途断开，未返回具体错误信息";
-  }
-  if (normalized === "stream read failed") {
+  if (
+    normalized === "request or response body error" ||
+    normalized === "stream read failed" ||
+    normalized === "上游中途断开，未返回具体错误信息"
+  ) {
     return "上游中途断开，未返回具体错误信息";
   }
   if (
+    normalized === "stream idle timeout" ||
+    normalized === "上游流式空闲超时" ||
+    normalized.includes("stream_timeout") ||
+    normalized.includes("idle timeout")
+  ) {
+    return "上游流式空闲超时";
+  }
+  if (
+    normalized === "response.incomplete" ||
     normalized === "网络抖动" ||
     normalized === "stream disconnected before completion" ||
     normalized === "连接中断（可能是网络波动或客户端主动取消）"

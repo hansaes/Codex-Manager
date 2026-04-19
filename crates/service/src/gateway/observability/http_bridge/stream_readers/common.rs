@@ -11,8 +11,8 @@ const UPSTREAM_SSE_FRAME_CHANNEL_CAPACITY: usize = 128;
 
 static SSE_KEEPALIVE_INTERVAL_MS: AtomicU64 = AtomicU64::new(DEFAULT_SSE_KEEPALIVE_INTERVAL_MS);
 const STREAM_INCOMPLETE_FALLBACK_MESSAGE: &str = "连接中断（可能是网络波动或客户端主动取消）";
-const STREAM_READ_FAILED_FALLBACK_MESSAGE: &str = "stream read failed";
-const STREAM_IDLE_TIMEOUT_FALLBACK_MESSAGE: &str = "stream idle timeout";
+const STREAM_READ_FAILED_FALLBACK_MESSAGE: &str = "上游中途断开，未返回具体错误信息";
+const STREAM_IDLE_TIMEOUT_FALLBACK_MESSAGE: &str = "上游流式空闲超时";
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PassthroughSseCollector {
@@ -369,13 +369,17 @@ pub(super) fn classify_upstream_stream_read_error(raw: &str) -> String {
         return STREAM_READ_FAILED_FALLBACK_MESSAGE.to_string();
     }
     let normalized = trimmed.to_ascii_lowercase();
+    if normalized == "request or response body error" || normalized == "stream read failed" {
+        return STREAM_READ_FAILED_FALLBACK_MESSAGE.to_string();
+    }
+    if normalized.contains("timed out") || normalized.contains("timeout") {
+        return STREAM_IDLE_TIMEOUT_FALLBACK_MESSAGE.to_string();
+    }
     if normalized.contains("connection reset")
         || normalized.contains("connection aborted")
         || normalized.contains("connection was forcibly closed")
         || normalized.contains("broken pipe")
         || normalized.contains("unexpected eof")
-        || normalized.contains("timed out")
-        || normalized.contains("timeout")
         || normalized.contains("connection closed before message completed")
     {
         return STREAM_INCOMPLETE_FALLBACK_MESSAGE.to_string();
@@ -405,7 +409,7 @@ mod tests {
     fn classify_upstream_stream_read_error_maps_body_error() {
         assert_eq!(
             classify_upstream_stream_read_error("request or response body error"),
-            "request or response body error"
+            "上游中途断开，未返回具体错误信息"
         );
     }
 
@@ -443,7 +447,7 @@ mod tests {
     fn classify_upstream_stream_read_error_maps_timeout() {
         assert_eq!(
             classify_upstream_stream_read_error("operation timed out"),
-            "连接中断（可能是网络波动或客户端主动取消）"
+            "上游流式空闲超时"
         );
     }
 
@@ -468,5 +472,6 @@ mod tests {
             stream_reader_disconnected_message(),
             "连接中断（可能是网络波动或客户端主动取消）"
         );
+        assert_eq!(super::stream_idle_timeout_message(), "上游流式空闲超时");
     }
 }

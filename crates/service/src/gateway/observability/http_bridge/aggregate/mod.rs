@@ -1,3 +1,4 @@
+pub(super) mod openai_responses_event;
 mod output_text;
 mod sse_aggregate;
 mod sse_frame;
@@ -15,7 +16,6 @@ pub(super) use sse_aggregate::{collect_non_stream_json_from_sse_bytes, looks_lik
 pub(super) use sse_frame::parse_usage_from_sse_frame;
 pub(crate) use sse_frame::PassthroughSseProtocol;
 pub(super) use sse_frame::{
-    extract_sse_frame_payload, inspect_openai_responses_sse_frame, inspect_sse_frame,
-    inspect_sse_frame_for_protocol, is_response_completed_event_name, parse_sse_frame_json,
-    SseTerminal,
+    extract_sse_frame_payload, inspect_sse_frame, inspect_sse_frame_for_protocol,
+    is_response_completed_event_name, parse_sse_frame_json, SseTerminal,
 };

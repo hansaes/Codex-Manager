@@ -1,9 +1,9 @@
 use super::{
-    classify_upstream_stream_read_error, inspect_openai_responses_sse_frame,
-    mark_first_response_ms, merge_usage, should_emit_keepalive, stream_idle_timed_out,
-    stream_idle_timeout_message, stream_reader_disconnected_message, stream_wait_timeout,
-    upstream_hint_or_stream_incomplete_message, Arc, Cursor, Mutex, PassthroughSseCollector,
-    Read, SseKeepAliveFrame, SseTerminal,
+    classify_upstream_stream_read_error, mark_first_response_ms, merge_usage,
+    should_emit_keepalive, stream_idle_timed_out, stream_idle_timeout_message,
+    stream_reader_disconnected_message, stream_wait_timeout,
+    upstream_hint_or_stream_incomplete_message, Arc, Cursor, Mutex, OpenAIResponsesEvent,
+    PassthroughSseCollector, Read, SseKeepAliveFrame, SseTerminal,
 };
 use crate::gateway::upstream::{GatewayByteStream, GatewayByteStreamItem, GatewayStreamResponse};
 use eventsource_stream::{Event, Eventsource};
@@ -147,15 +147,18 @@ impl OpenAIResponsesPassthroughSseReader {
     }
 
     fn update_usage_from_frame(&self, lines: &[String]) {
-        let inspection = inspect_openai_responses_sse_frame(lines);
+        let Some(event) = OpenAIResponsesEvent::parse(lines) else {
+            return;
+        };
         if let Ok(mut collector) = self.usage_collector.lock() {
-            if let Some(event_type) = inspection.last_event_type {
+            if let Some(event_type) = event.event_type {
                 collector.last_event_type = Some(event_type);
             }
-            if let Some(parsed) = inspection.usage {
-                merge_usage(&mut collector.usage, parsed);
+            merge_usage(&mut collector.usage, event.usage);
+            if let Some(upstream_error_hint) = event.upstream_error_hint {
+                collector.upstream_error_hint = Some(upstream_error_hint);
             }
-            if let Some(terminal) = inspection.terminal {
+            if let Some(terminal) = event.terminal {
                 collector.saw_terminal = true;
                 if let SseTerminal::Err(message) = terminal {
                     collector.terminal_error = Some(message);

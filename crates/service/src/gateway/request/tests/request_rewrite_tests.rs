@@ -679,6 +679,28 @@ fn responses_stream_passthrough_keeps_client_stream_flag_when_enabled() {
     assert!(value.get("stream_passthrough").is_none());
 }
 
+#[test]
+fn responses_official_allowlist_drops_stream_passthrough() {
+    let _guard = crate::test_env_guard();
+    let _strict_guard = RuntimeEnvGuard::set(STRICT_REQUEST_PARAM_ALLOWLIST_ENV, "true");
+    let body = json!({
+        "model": "gpt-4.1",
+        "input": "hello",
+        "stream_passthrough": true,
+        "unknown_field": "drop-me"
+    });
+    let out = apply_request_overrides(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        None,
+        None,
+        Some("https://api.openai.com/v1"),
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
+    assert!(value.get("stream_passthrough").is_none());
+    assert!(value.get("unknown_field").is_none());
+}
+
 /// 函数 `responses_dynamic_tools_are_mapped_to_tools_for_codex_backend`
 ///
 /// 作者: gaohongshun
