@@ -93,7 +93,10 @@ impl Storage {
     ///
     /// # 返回
     /// 返回函数执行结果
-    pub fn find_account_subscription(&self, account_id: &str) -> Result<Option<AccountSubscription>> {
+    pub fn find_account_subscription(
+        &self,
+        account_id: &str,
+    ) -> Result<Option<AccountSubscription>> {
         let mut stmt = self.conn.prepare(
             "SELECT account_id, has_subscription, plan_type, expires_at, renews_at, updated_at
              FROM account_subscriptions

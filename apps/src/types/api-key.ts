@@ -36,12 +36,19 @@ export interface AggregateApi {
   authType: string;
   authParams: Record<string, unknown> | null;
   action: string | null;
+  upstreamFormat: string;
+  modelsPath: string | null;
+  responsesPath: string | null;
+  chatCompletionsPath: string | null;
   status: string;
   createdAt: number | null;
   updatedAt: number | null;
   lastTestAt: number | null;
   lastTestStatus: string | null;
   lastTestError: string | null;
+  modelsLastSyncedAt: number | null;
+  modelsLastSyncStatus: string | null;
+  modelsLastSyncError: string | null;
 }
 
 export interface AggregateApiCreateResult {
@@ -64,6 +71,30 @@ export interface AggregateApiTestResult {
   message: string | null;
   testedAt: number;
   latencyMs: number;
+}
+
+export interface AggregateApiModel {
+  aggregateApiId: string;
+  modelSlug: string;
+  displayName: string | null;
+  updatedAt: number | null;
+}
+
+export interface AggregateApiFetchedModel extends AggregateApiModel {
+  rawJson: string | null;
+}
+
+export interface AggregateApiFetchModelsResult {
+  id: string;
+  count: number;
+  fetchedAt: number;
+  items: AggregateApiFetchedModel[];
+}
+
+export interface AggregateApiSaveModelsResult {
+  id: string;
+  count: number;
+  syncedAt: number;
 }
 
 export interface ApiKeyUsageStat {

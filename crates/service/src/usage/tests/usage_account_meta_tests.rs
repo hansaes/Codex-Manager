@@ -293,5 +293,8 @@ fn derive_account_meta_filters_storage_style_scope_suffix_from_token_claims() {
         chatgpt_account_id.as_deref(),
         Some("ed08d56a-c038-4322-b325-53f504c0c88c")
     );
-    assert_eq!(workspace_id.as_deref(), Some("org-AP6ypcMi84Thfueli6EU3B4m"));
+    assert_eq!(
+        workspace_id.as_deref(),
+        Some("org-AP6ypcMi84Thfueli6EU3B4m")
+    );
 }

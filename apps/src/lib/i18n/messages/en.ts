@@ -139,6 +139,7 @@ export const EN_MESSAGES: MessageCatalog = {
   删除密钥: "Delete key",
   全部: "All",
   低配额: "Low quota",
+  限流: "Rate limited",
   封禁: "Banned",
   未知: "Unknown",
   重置: "Reset",
@@ -561,7 +562,7 @@ export const EN_MESSAGES: MessageCatalog = {
   密码字段名: "Password field name",
   "开启后将用该 path 覆盖转发 action（例如 GLM 前缀路径）。":
     "When enabled, this path overrides the forwarded action (for example, GLM prefixed paths).",
-  "例如：/api/paas/v4/chat/completions": "e.g. /api/paas/v4/chat/completions",
+  "例如：/api/paas/v4/responses": "e.g. /api/paas/v4/responses",
   新密钥已生成: "New key generated",
   已使用: "Used",
   "重置时间:": "Reset at:",

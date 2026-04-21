@@ -6,6 +6,7 @@ use crate::gateway::request_helpers::ParsedRequestMetadata;
 use bytes::Bytes;
 use codexmanager_core::storage::ApiKey;
 use reqwest::Method;
+use std::collections::HashSet;
 use tiny_http::Request;
 
 use super::{LocalValidationError, LocalValidationResult};
@@ -115,6 +116,63 @@ fn ensure_anthropic_model_is_listed(
             crate::gateway::bilingual_error(
                 "Claude 模型不在模型列表中",
                 format!("claude model not found in model list: {model}"),
+            ),
+        ))
+    }
+}
+
+fn aggregate_allowed_model_slugs(
+    storage: &codexmanager_core::storage::Storage,
+    api_key: &ApiKey,
+    requested_model: Option<&str>,
+) -> Result<Option<HashSet<String>>, LocalValidationError> {
+    let Some(resolved_catalog) =
+        super::super::aggregate_catalog::resolve_aggregate_model_catalog(
+            storage,
+            api_key,
+            requested_model,
+        )
+        .map_err(|err| {
+            LocalValidationError::new(
+                500,
+                crate::gateway::bilingual_error(
+                    "读取聚合模型失败",
+                    format!("aggregate model catalog read failed: {err}"),
+                ),
+            )
+        })?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(
+        resolved_catalog
+            .models
+            .into_iter()
+            .map(|item| item.model_slug.trim().to_ascii_lowercase())
+            .filter(|value| !value.is_empty())
+            .collect(),
+    ))
+}
+
+fn ensure_aggregate_model_is_allowed(
+    storage: &codexmanager_core::storage::Storage,
+    api_key: &ApiKey,
+    model: Option<&str>,
+) -> Result<(), LocalValidationError> {
+    let Some(allowed_models) = aggregate_allowed_model_slugs(storage, api_key, model)? else {
+        return Ok(());
+    };
+    let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    if allowed_models.contains(&model.to_ascii_lowercase()) {
+        Ok(())
+    } else {
+        Err(LocalValidationError::new(
+            400,
+            crate::gateway::bilingual_error(
+                "模型不在聚合 API 已选择列表中",
+                format!("aggregate model not found in selected catalog: {model}"),
             ),
         ))
     }
@@ -434,6 +492,24 @@ pub(super) fn build_local_validation_result(
             &api_key,
             initial_request_meta.service_tier.clone(),
         );
+        let effective_aggregate_api_id =
+            super::super::aggregate_catalog::resolve_aggregate_model_catalog(
+                &storage,
+                &api_key,
+                model_for_log.as_deref(),
+            )
+            .map_err(|err| {
+                LocalValidationError::new(
+                    500,
+                    crate::gateway::bilingual_error(
+                        "读取聚合模型失败",
+                        format!("aggregate model catalog read failed: {err}"),
+                    ),
+                )
+            })?
+            .and_then(|catalog| catalog.aggregate_api_id)
+            .or_else(|| api_key.aggregate_api_id.clone());
+        ensure_aggregate_model_is_allowed(&storage, &api_key, model_for_log.as_deref())?;
         super::super::validate_text_input_limit_for_path(&normalized_path, &rewritten_body)
             .map_err(|err| LocalValidationError::new(400, err.message()))?;
         let incoming_headers = incoming_headers
@@ -450,7 +526,7 @@ pub(super) fn build_local_validation_result(
             request_shape,
             protocol_type: effective_protocol_type.to_string(),
             rotation_strategy: api_key.rotation_strategy,
-            aggregate_api_id: api_key.aggregate_api_id,
+            aggregate_api_id: effective_aggregate_api_id,
             account_plan_filter: api_key.account_plan_filter,
             response_adapter: super::super::ResponseAdapter::Passthrough,
             gemini_stream_output_mode: None,

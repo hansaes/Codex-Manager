@@ -13,8 +13,8 @@ use super::{
     inspect_sse_frame, inspect_sse_frame_for_protocol, is_response_completed_event_name,
     map_chunk_has_chat_text, map_chunk_has_completion_text, merge_usage,
     normalize_chat_chunk_delta_role, parse_sse_frame_json, should_skip_chat_live_text_event,
-    should_skip_completion_live_text_event, update_openai_stream_meta, OpenAIStreamMeta,
-    PassthroughSseProtocol, SseTerminal, UpstreamResponseUsage,
+    should_skip_completion_live_text_event, update_openai_stream_meta, OpenAIResponsesEvent,
+    OpenAIStreamMeta, PassthroughSseProtocol, SseTerminal, UpstreamResponseUsage,
 };
 
 #[path = "stream_readers/anthropic.rs"]
@@ -27,6 +27,8 @@ mod gemini;
 mod openai_chat;
 #[path = "stream_readers/openai_completions.rs"]
 mod openai_completions;
+#[path = "stream_readers/openai_responses.rs"]
+mod openai_responses;
 #[path = "stream_readers/passthrough.rs"]
 mod passthrough;
 
@@ -44,6 +46,7 @@ pub(crate) use common::{
 pub(crate) use gemini::GeminiSseReader;
 pub(crate) use openai_chat::OpenAIChatCompletionsSseReader;
 pub(crate) use openai_completions::OpenAICompletionsSseReader;
+pub(crate) use openai_responses::OpenAIResponsesPassthroughSseReader;
 pub(crate) use passthrough::PassthroughSseUsageReader;
 
 /// 函数 `reload_from_env`

@@ -4,8 +4,9 @@ use super::{
     parse_sse_frame_json, parse_usage_from_json, parse_usage_from_sse_frame,
     should_skip_chat_live_text_event, should_skip_completion_live_text_event,
     synthesize_chat_completion_sse_from_json, synthesize_completions_sse_from_json,
-    GeminiSseReader, OpenAIChatCompletionsSseReader, OpenAICompletionsSseReader, OpenAIStreamMeta,
-    PassthroughSseCollector, PassthroughSseProtocol, PassthroughSseUsageReader, SseKeepAliveFrame,
+    GeminiSseReader, OpenAIChatCompletionsSseReader, OpenAICompletionsSseReader,
+    OpenAIResponsesPassthroughSseReader, OpenAIStreamMeta, PassthroughSseCollector,
+    PassthroughSseProtocol, PassthroughSseUsageReader, SseKeepAliveFrame,
 };
 use crate::gateway::GeminiStreamOutputMode;
 use serde_json::json;
@@ -1663,6 +1664,237 @@ fn passthrough_sse_reader_waits_for_first_upstream_frame_before_keepalive() {
     assert!(!mapped.contains("\"type\":\"codexmanager.keepalive\""));
     assert!(mapped.contains("\"type\":\"response.created\""));
     assert!(mapped.contains("data: [DONE]"));
+}
+
+#[test]
+fn openai_responses_passthrough_reader_passthroughs_raw_sse_without_keepalive_injection() {
+    let _guard = crate::test_env_guard();
+    let _keepalive_guard = EnvGuard::set("CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS", "15");
+    super::reload_from_env();
+
+    let (upstream, server) = open_streaming_mock_http_response(
+        "text/event-stream",
+        &[
+            (
+                "event: response.created\n\
+                 data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_eventsource_keepalive\"}}\n\n",
+                0,
+            ),
+            (
+                "event: response.completed\n\
+                 data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_eventsource_keepalive\"}}\n\n",
+                50,
+            ),
+        ],
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = OpenAIResponsesPassthroughSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        SseKeepAliveFrame::OpenAIResponses,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read openai responses passthrough sse");
+    server
+        .join()
+        .expect("join openai responses keepalive upstream");
+    super::reload_from_env();
+
+    let collector = usage_collector
+        .lock()
+        .expect("lock usage collector")
+        .clone();
+    assert!(!mapped.contains("\"type\":\"codexmanager.keepalive\""));
+    assert_eq!(
+        mapped,
+        "event: response.created\n\
+         data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_eventsource_keepalive\"}}\n\n\
+         event: response.completed\n\
+         data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_eventsource_keepalive\"}}\n\n"
+    );
+    assert!(collector.saw_terminal);
+    assert_eq!(
+        collector.last_event_type.as_deref(),
+        Some("response.completed")
+    );
+}
+
+#[test]
+fn openai_responses_passthrough_reader_parses_split_events_with_eventsource_stream() {
+    let (upstream, server) = open_streaming_mock_http_response(
+        "text/event-stream",
+        &[
+            ("event: response.output_text.delta\n", 0),
+            ("data: {\"type\":\"response.output_text.delta\",\"delta\":\"hel", 0),
+            ("lo\"}\n\n", 0),
+            (
+                "event: response.completed\n\
+                 data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_split\",\"usage\":{\"input_tokens\":1,\"input_tokens_details\":null,\"output_tokens\":1,\"output_tokens_details\":null,\"total_tokens\":2}}}\n\n",
+                0,
+            ),
+        ],
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = OpenAIResponsesPassthroughSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        SseKeepAliveFrame::OpenAIResponses,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read split openai responses stream");
+    server.join().expect("join split openai responses upstream");
+
+    let collector = usage_collector
+        .lock()
+        .expect("lock usage collector")
+        .clone();
+    assert!(mapped.contains("event: response.output_text.delta"));
+    assert!(mapped.contains("\"delta\":\"hello\""));
+    assert!(mapped.contains("event: response.completed"));
+    assert_eq!(collector.usage.output_text.as_deref(), Some("hello"));
+    assert_eq!(collector.usage.total_tokens, Some(2));
+    assert!(collector.saw_terminal);
+    assert_eq!(
+        collector.last_event_type.as_deref(),
+        Some("response.completed")
+    );
+}
+
+#[test]
+fn openai_responses_passthrough_reader_collects_output_item_field_text() {
+    let (upstream, server) = open_streaming_mock_http_response(
+        "text/event-stream",
+        &[(
+            "event: response.output_item.done\n\
+             data: {\"output_item\":{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello from output_item\"}]}}\n\n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_output_item\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n",
+            0,
+        )],
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = OpenAIResponsesPassthroughSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        SseKeepAliveFrame::OpenAIResponses,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read output_item openai responses stream");
+    server
+        .join()
+        .expect("join output_item openai responses upstream");
+
+    let collector = usage_collector
+        .lock()
+        .expect("lock usage collector")
+        .clone();
+    assert!(mapped.contains("event: response.output_item.done"));
+    assert_eq!(
+        collector.usage.output_text.as_deref(),
+        Some("hello from output_item")
+    );
+    assert_eq!(collector.usage.total_tokens, Some(2));
+    assert!(collector.saw_terminal);
+}
+
+#[test]
+fn openai_responses_passthrough_reader_marks_incomplete_terminal_error_from_status_details() {
+    let (upstream, server) = open_streaming_mock_http_response(
+        "text/event-stream",
+        &[(
+            "event: response.output_text.delta\n\
+             data: {\"delta\":{\"text\":\"partial answer\"}}\n\n\
+             event: response.incomplete\n\
+             data: {\"response\":{\"status\":\"incomplete\",\"status_details\":{\"error\":{\"message\":\"stream timeout at upstream\",\"code\":\"stream_timeout\"}}}}\n\n",
+            0,
+        )],
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = OpenAIResponsesPassthroughSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        SseKeepAliveFrame::OpenAIResponses,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read incomplete openai responses stream");
+    server
+        .join()
+        .expect("join incomplete openai responses upstream");
+
+    let collector = usage_collector
+        .lock()
+        .expect("lock usage collector")
+        .clone();
+    assert!(mapped.contains("event: response.incomplete"));
+    assert_eq!(
+        collector.usage.output_text.as_deref(),
+        Some("partial answer")
+    );
+    assert_eq!(
+        collector.terminal_error.as_deref(),
+        Some("上游流式空闲超时")
+    );
+    assert_eq!(
+        collector.upstream_error_hint.as_deref(),
+        Some("code=stream_timeout stream timeout at upstream")
+    );
+    assert!(collector.saw_terminal);
+    assert_eq!(
+        collector.last_event_type.as_deref(),
+        Some("response.incomplete")
+    );
+}
+
+#[test]
+fn openai_responses_passthrough_reader_maps_bare_incomplete_to_disconnect_message() {
+    let (upstream, server) = open_streaming_mock_http_response(
+        "text/event-stream",
+        &[(
+            "event: response.output_text.delta\n\
+             data: {\"delta\":{\"text\":\"partial answer\"}}\n\n\
+             event: response.incomplete\n\
+             data: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\"}}\n\n",
+            0,
+        )],
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = OpenAIResponsesPassthroughSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        SseKeepAliveFrame::OpenAIResponses,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read incomplete openai responses stream");
+    server
+        .join()
+        .expect("join incomplete openai responses upstream");
+
+    let collector = usage_collector
+        .lock()
+        .expect("lock usage collector")
+        .clone();
+    assert!(mapped.contains("event: response.incomplete"));
+    assert_eq!(
+        collector.terminal_error.as_deref(),
+        Some("连接中断（可能是网络波动或客户端主动取消）")
+    );
+    assert_eq!(collector.upstream_error_hint, None);
+    assert!(collector.saw_terminal);
 }
 
 /// 函数 `passthrough_sse_reader_captures_raw_html_error_body`

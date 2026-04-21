@@ -101,7 +101,10 @@ pub fn parse_id_token_claims(token: &str) -> Result<IdTokenClaims, String> {
 fn normalize_scoped_identity_value(value: Option<&str>, marker: &str) -> Option<String> {
     let raw = value.map(str::trim).filter(|value| !value.is_empty())?;
 
-    let scoped = raw.rsplit_once("::").map(|(_, suffix)| suffix).unwrap_or(raw);
+    let scoped = raw
+        .rsplit_once("::")
+        .map(|(_, suffix)| suffix)
+        .unwrap_or(raw);
     if let Some(found) = scoped.split('|').find_map(|segment| {
         segment
             .trim()

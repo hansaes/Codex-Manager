@@ -1,10 +1,13 @@
 use codexmanager_core::rpc::types::{
-    AggregateApiCreateResult, AggregateApiSecretResult, AggregateApiSummary, AggregateApiTestResult,
+    AggregateApiCreateResult, AggregateApiFetchModelsResult, AggregateApiFetchedModelSummary,
+    AggregateApiModelSummary, AggregateApiSaveModelsResult, AggregateApiSecretResult,
+    AggregateApiSummary, AggregateApiTestResult,
 };
-use codexmanager_core::storage::{now_ts, AggregateApi};
+use codexmanager_core::storage::{now_ts, AggregateApi, AggregateApiModel};
 use reqwest::header::{HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashSet;
 use std::io::Read;
 use std::time::Instant;
 
@@ -16,6 +19,18 @@ pub(crate) const AGGREGATE_API_PROVIDER_CODEX: &str = "codex";
 pub(crate) const AGGREGATE_API_PROVIDER_CLAUDE: &str = "claude";
 pub(crate) const AGGREGATE_API_AUTH_APIKEY: &str = "apikey";
 pub(crate) const AGGREGATE_API_AUTH_USERPASS: &str = "userpass";
+pub(crate) const AGGREGATE_API_REQUEST_MODELS_PATH: &str = "/v1/models";
+pub(crate) const AGGREGATE_API_REQUEST_RESPONSES_PATH: &str = "/v1/responses";
+pub(crate) const AGGREGATE_API_REQUEST_CHAT_COMPLETIONS_PATH: &str =
+    "/v1/chat/completions";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AggregateApiEndpointKind {
+    Models,
+    Responses,
+    ChatCompletions,
+    Other,
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,6 +56,16 @@ struct UserPassAuthParams {
     username_name: Option<String>,
     #[serde(default)]
     password_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AggregateApiModelSelectionInput {
+    model_slug: String,
+    #[serde(default)]
+    display_name: Option<String>,
+    #[serde(default)]
+    raw_json: Option<String>,
 }
 
 /// 函数 `normalize_secret`
@@ -152,6 +177,55 @@ fn normalize_action(value: Option<String>) -> Result<Option<String>, String> {
     Ok(Some(with_slash))
 }
 
+fn normalize_upstream_format(value: Option<String>) -> Result<String, String> {
+    match value {
+        Some(raw) => {
+            let normalized = raw.trim().to_ascii_lowercase().replace('-', "_");
+            match normalized.as_str() {
+                "responses" | "response" => Ok("responses".to_string()),
+                "chat_completions" | "chat/completions" | "chat_completion" => {
+                    Ok("chat_completions".to_string())
+                }
+                other => Err(format!("unsupported aggregate api upstream format: {other}")),
+            }
+        }
+        None => Ok("responses".to_string()),
+    }
+}
+
+fn normalize_models_path(value: Option<String>) -> Result<Option<String>, String> {
+    normalize_endpoint_path(value, "models")
+}
+
+fn normalize_responses_path(value: Option<String>) -> Result<Option<String>, String> {
+    normalize_endpoint_path(value, "responses")
+}
+
+fn normalize_chat_completions_path(value: Option<String>) -> Result<Option<String>, String> {
+    normalize_endpoint_path(value, "chat completions")
+}
+
+fn normalize_endpoint_path(value: Option<String>, label: &str) -> Result<Option<String>, String> {
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") || trimmed.contains("://")
+    {
+        return Err(format!(
+            "aggregate api {label} path must be a path, not a full url"
+        ));
+    }
+    if trimmed.starts_with('/') {
+        Ok(Some(trimmed.to_string()))
+    } else {
+        Ok(Some(format!("/{trimmed}")))
+    }
+}
+
 fn normalize_auth_params_json(
     auth_type: &str,
     enabled: Option<bool>,
@@ -246,7 +320,11 @@ fn normalize_action_override(
 mod tests {
     use codexmanager_core::storage::AggregateApi;
 
-    use super::{action_path_or_default, normalize_action_override};
+    use super::{
+        action_path_or_default, normalize_action_override, normalize_aggregate_api_models_payload,
+        normalize_models_path, normalize_selected_aggregate_api_models,
+        normalize_upstream_format,
+    };
 
     fn aggregate_api_with_action(action: Option<&str>) -> AggregateApi {
         AggregateApi {
@@ -258,12 +336,19 @@ mod tests {
             auth_type: "apikey".to_string(),
             auth_params_json: None,
             action: action.map(str::to_string),
+            upstream_format: "responses".to_string(),
+            models_path: Some("/models".to_string()),
+            responses_path: None,
+            chat_completions_path: None,
             status: "active".to_string(),
             created_at: 0,
             updated_at: 0,
             last_test_at: None,
             last_test_status: None,
             last_test_error: None,
+            models_last_synced_at: None,
+            models_last_sync_status: None,
+            models_last_sync_error: None,
         }
     }
 
@@ -286,6 +371,289 @@ mod tests {
         let path = action_path_or_default(&api, "/v1/messages?beta=true");
         assert_eq!(path, "/v1/messages?beta=true");
     }
+
+    #[test]
+    fn normalize_upstream_format_accepts_chat_completions_aliases() {
+        assert_eq!(
+            normalize_upstream_format(Some("chat/completions".to_string())).unwrap(),
+            "chat_completions"
+        );
+        assert_eq!(
+            normalize_upstream_format(Some("responses".to_string())).unwrap(),
+            "responses"
+        );
+    }
+
+    #[test]
+    fn normalize_models_path_rejects_full_url() {
+        let err = normalize_models_path(Some("https://example.com/models".to_string()))
+            .expect_err("full url should be rejected");
+        assert!(err.contains("path"));
+    }
+
+    #[test]
+    fn normalize_aggregate_api_models_payload_reads_openai_models_shape() {
+        let models = normalize_aggregate_api_models_payload(&serde_json::json!({
+            "data": [
+                { "id": "gpt-4.1", "owned_by": "openai" },
+                { "id": "gpt-4.1-mini", "object": "model" }
+            ]
+        }))
+        .expect("normalize models");
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].model_slug, "gpt-4.1");
+        assert_eq!(models[0].display_name.as_deref(), Some("gpt-4.1"));
+    }
+
+    #[test]
+    fn normalize_selected_aggregate_models_dedupes_and_fills_defaults() {
+        let models = normalize_selected_aggregate_api_models(
+            "agg-test",
+            &serde_json::json!([
+                { "modelSlug": "gpt-4.1", "displayName": "GPT-4.1", "rawJson": "{\"id\":\"gpt-4.1\"}" },
+                { "modelSlug": "gpt-4.1", "displayName": "Duplicate" },
+                { "modelSlug": "gpt-4.1-mini" }
+            ]),
+        )
+        .expect("normalize selected models");
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].aggregate_api_id, "agg-test");
+        assert_eq!(models[0].model_slug, "gpt-4.1");
+        assert_eq!(models[1].display_name.as_deref(), Some("gpt-4.1-mini"));
+        assert!(models[1].raw_json.contains("gpt-4.1-mini"));
+    }
+}
+
+fn split_request_path(path: &str) -> (&str, Option<&str>) {
+    let trimmed = path.trim();
+    trimmed
+        .split_once('?')
+        .map_or((trimmed, None), |(path, query)| (path, Some(query)))
+}
+
+fn normalize_path_part(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return "/".to_string();
+    }
+    let normalized = if trimmed.starts_with('/') {
+        trimmed.to_string()
+    } else {
+        format!("/{trimmed}")
+    };
+    if normalized.len() > 1 {
+        normalized.trim_end_matches('/').to_string()
+    } else {
+        normalized
+    }
+}
+
+fn join_path_segments(prefix: &str, suffix: &str) -> String {
+    let prefix = prefix.trim_end_matches('/');
+    let suffix = suffix.trim_start_matches('/');
+    if prefix.is_empty() {
+        if suffix.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{suffix}")
+        }
+    } else if suffix.is_empty() {
+        prefix.to_string()
+    } else {
+        format!("{prefix}/{suffix}")
+    }
+}
+
+fn request_path_for_prefix(request_path: &str, include_v1: bool) -> String {
+    let normalized = normalize_path_part(request_path);
+    if include_v1 {
+        return normalized;
+    }
+    if let Some(rest) = normalized.strip_prefix("/v1") {
+        if rest.is_empty() {
+            "/".to_string()
+        } else {
+            rest.to_string()
+        }
+    } else {
+        normalized
+    }
+}
+
+fn attach_query(path: String, query: Option<&str>) -> String {
+    match query.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(query) => format!("{path}?{query}"),
+        None => path,
+    }
+}
+
+fn fixed_endpoint_template(base_path: &str) -> Option<(String, bool)> {
+    let normalized = normalize_path_part(base_path);
+    let lower = normalized.to_ascii_lowercase();
+    for (suffix, include_v1) in [
+        ("/v1/chat/completions", true),
+        ("/chat/completions", false),
+        ("/v1/responses", true),
+        ("/responses", false),
+        ("/v1/models", true),
+        ("/models", false),
+    ] {
+        if lower == suffix || lower.ends_with(suffix) {
+            let prefix_len = normalized.len() - suffix.len();
+            let prefix = normalized[..prefix_len].to_string();
+            return Some((prefix, include_v1));
+        }
+    }
+    None
+}
+
+fn aggregate_api_endpoint_kind(path: &str) -> AggregateApiEndpointKind {
+    match normalize_path_part(path).to_ascii_lowercase().as_str() {
+        "/v1/models" | "/models" => AggregateApiEndpointKind::Models,
+        "/v1/responses" | "/responses" => AggregateApiEndpointKind::Responses,
+        "/v1/chat/completions" | "/chat/completions" => {
+            AggregateApiEndpointKind::ChatCompletions
+        }
+        _ => AggregateApiEndpointKind::Other,
+    }
+}
+
+fn aggregate_api_endpoint_request_path(kind: AggregateApiEndpointKind) -> Option<&'static str> {
+    match kind {
+        AggregateApiEndpointKind::Models => Some(AGGREGATE_API_REQUEST_MODELS_PATH),
+        AggregateApiEndpointKind::Responses => Some(AGGREGATE_API_REQUEST_RESPONSES_PATH),
+        AggregateApiEndpointKind::ChatCompletions => {
+            Some(AGGREGATE_API_REQUEST_CHAT_COMPLETIONS_PATH)
+        }
+        AggregateApiEndpointKind::Other => None,
+    }
+}
+
+fn aggregate_api_endpoint_suffix(
+    kind: AggregateApiEndpointKind,
+    include_v1: bool,
+) -> Option<&'static str> {
+    match (kind, include_v1) {
+        (AggregateApiEndpointKind::Models, true) => Some("/v1/models"),
+        (AggregateApiEndpointKind::Models, false) => Some("/models"),
+        (AggregateApiEndpointKind::Responses, true) => Some("/v1/responses"),
+        (AggregateApiEndpointKind::Responses, false) => Some("/responses"),
+        (AggregateApiEndpointKind::ChatCompletions, true) => Some("/v1/chat/completions"),
+        (AggregateApiEndpointKind::ChatCompletions, false) => Some("/chat/completions"),
+        (AggregateApiEndpointKind::Other, _) => None,
+    }
+}
+
+fn normalized_legacy_action_path(api: &AggregateApi) -> Option<String> {
+    api.action
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            if value.starts_with('/') {
+                value.to_string()
+            } else {
+                format!("/{value}")
+            }
+        })
+}
+
+fn configured_endpoint_path(
+    api: &AggregateApi,
+    kind: AggregateApiEndpointKind,
+) -> Option<String> {
+    match kind {
+        AggregateApiEndpointKind::Models => api
+            .models_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(normalize_path_part),
+        AggregateApiEndpointKind::Responses => api
+            .responses_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(normalize_path_part)
+            .or_else(|| normalized_legacy_action_path(api)),
+        AggregateApiEndpointKind::ChatCompletions => api
+            .chat_completions_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(normalize_path_part)
+            .or_else(|| normalized_legacy_action_path(api)),
+        AggregateApiEndpointKind::Other => normalized_legacy_action_path(api),
+    }
+}
+
+fn auto_resolve_aggregate_api_path(
+    base_url: &str,
+    request_path: &str,
+    kind: AggregateApiEndpointKind,
+) -> String {
+    let (path_part, query_part) = split_request_path(request_path);
+    let normalized_request = normalize_path_part(path_part);
+    let base_path = reqwest::Url::parse(base_url)
+        .map(|url| normalize_path_part(url.path()))
+        .unwrap_or_else(|_| "/".to_string());
+
+    let resolved = if let Some((prefix, include_v1)) = fixed_endpoint_template(base_path.as_str()) {
+        if let Some(suffix) = aggregate_api_endpoint_suffix(kind, include_v1) {
+            join_path_segments(prefix.as_str(), suffix)
+        } else {
+            join_path_segments(
+                prefix.as_str(),
+                request_path_for_prefix(normalized_request.as_str(), include_v1).as_str(),
+            )
+        }
+    } else if base_path == "/" {
+        aggregate_api_endpoint_suffix(kind, true)
+            .map(str::to_string)
+            .unwrap_or(normalized_request)
+    } else if base_path.to_ascii_lowercase().ends_with("/v1") {
+        if let Some(suffix) = aggregate_api_endpoint_suffix(kind, false) {
+            join_path_segments(base_path.as_str(), suffix)
+        } else {
+            join_path_segments(
+                base_path.as_str(),
+                request_path_for_prefix(normalized_request.as_str(), false).as_str(),
+            )
+        }
+    } else if let Some(suffix) = aggregate_api_endpoint_suffix(kind, false) {
+        join_path_segments(base_path.as_str(), suffix)
+    } else {
+        join_path_segments(base_path.as_str(), normalized_request.as_str())
+    };
+
+    attach_query(resolved, query_part)
+}
+
+pub(crate) fn resolve_aggregate_api_request_path(api: &AggregateApi, request_path: &str) -> String {
+    let kind = aggregate_api_endpoint_kind(split_request_path(request_path).0);
+    if let Some(configured_path) = configured_endpoint_path(api, kind) {
+        return attach_query(configured_path, split_request_path(request_path).1);
+    }
+    auto_resolve_aggregate_api_path(api.url.as_str(), request_path, kind)
+}
+
+fn build_aggregate_api_request_url(api: &AggregateApi, request_path: &str) -> Result<String, String> {
+    let mut url =
+        reqwest::Url::parse(api.url.as_str()).map_err(|_| "invalid aggregate api url".to_string())?;
+    let resolved_path = resolve_aggregate_api_request_path(api, request_path);
+    let (path_part, query_part) = split_request_path(resolved_path.as_str());
+    url.set_path(path_part);
+    url.set_query(query_part.filter(|value| !value.trim().is_empty()));
+    Ok(url.to_string())
+}
+
+fn build_aggregate_api_endpoint_url(
+    api: &AggregateApi,
+    kind: AggregateApiEndpointKind,
+) -> Result<String, String> {
+    let request_path = aggregate_api_endpoint_request_path(kind)
+        .ok_or_else(|| "unsupported aggregate api endpoint kind".to_string())?;
+    build_aggregate_api_request_url(api, request_path)
 }
 
 fn serialize_userpass_secret(username: &str, password: &str) -> Result<String, String> {
@@ -518,6 +886,90 @@ fn read_first_chunk(mut response: reqwest::blocking::Response) -> Result<(), Str
     }
 }
 
+fn normalize_aggregate_api_models_payload(
+    payload: &serde_json::Value,
+) -> Result<Vec<AggregateApiModel>, String> {
+    let items = payload
+        .get("data")
+        .and_then(|value| value.as_array())
+        .or_else(|| payload.get("models").and_then(|value| value.as_array()))
+        .or_else(|| payload.as_array())
+        .ok_or_else(|| "aggregate api models payload must contain an array".to_string())?;
+
+    let mut models = Vec::new();
+    let now = now_ts();
+    for item in items {
+        let Some(obj) = item.as_object() else {
+            continue;
+        };
+        let slug = obj
+            .get("id")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "aggregate api model item missing id".to_string())?;
+        models.push(AggregateApiModel {
+            aggregate_api_id: String::new(),
+            model_slug: slug.to_string(),
+            display_name: Some(slug.to_string()),
+            raw_json: serde_json::to_string(item)
+                .map_err(|_| "aggregate api model item is invalid".to_string())?,
+            created_at: now,
+            updated_at: now,
+        });
+    }
+    Ok(models)
+}
+
+fn normalize_selected_aggregate_api_models(
+    aggregate_api_id: &str,
+    payload: &serde_json::Value,
+) -> Result<Vec<AggregateApiModel>, String> {
+    let items = payload
+        .as_array()
+        .ok_or_else(|| "aggregate api selected models must be an array".to_string())?;
+    let now = now_ts();
+    let mut seen = HashSet::new();
+    let mut models = Vec::new();
+    for item in items {
+        let parsed: AggregateApiModelSelectionInput = serde_json::from_value(item.clone())
+            .map_err(|_| "aggregate api selected model item is invalid".to_string())?;
+        let slug = parsed.model_slug.trim();
+        if slug.is_empty() || !seen.insert(slug.to_string()) {
+            continue;
+        }
+        let display_name = parsed
+            .display_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| Some(slug.to_string()));
+        let raw_json = parsed
+            .raw_json
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                serde_json::to_string(&json!({
+                    "id": slug,
+                    "display_name": display_name.clone().unwrap_or_else(|| slug.to_string()),
+                }))
+                .unwrap_or_else(|_| format!("{{\"id\":\"{slug}\"}}"))
+            });
+        models.push(AggregateApiModel {
+            aggregate_api_id: aggregate_api_id.to_string(),
+            model_slug: slug.to_string(),
+            display_name,
+            raw_json,
+            created_at: now,
+            updated_at: now,
+        });
+    }
+    Ok(models)
+}
+
 /// 函数 `build_claude_probe_body`
 ///
 /// 作者: gaohongshun
@@ -643,8 +1095,7 @@ fn probe_codex_models_endpoint(
     api: &AggregateApi,
     secret: &str,
 ) -> Result<i64, String> {
-    let probe_path = action_path_or_default(api, "/models");
-    let base_url = normalize_probe_url(api.url.as_str(), probe_path.as_str());
+    let base_url = build_aggregate_api_endpoint_url(api, AggregateApiEndpointKind::Models)?;
     let url = append_client_version_query(base_url.as_str());
     let builder = client.get(url.as_str());
     let (builder, updated_url) = apply_probe_auth(builder, url.clone(), api, secret)?;
@@ -685,21 +1136,19 @@ fn probe_codex_responses_endpoint(
     api: &AggregateApi,
     secret: &str,
 ) -> Result<i64, String> {
-    let action_hint = api
-        .action
+    let endpoint_kind = if api
+        .chat_completions_path
         .as_deref()
         .map(str::trim)
-        .unwrap_or("/responses")
-        .to_ascii_lowercase();
-    let default_path = if action_hint.contains("chat/completions") {
-        "/chat/completions"
-    } else if action_hint.contains("responses") {
-        "/responses"
+        .filter(|value| !value.is_empty())
+        .is_some()
+        || api.upstream_format == "chat_completions"
+    {
+        AggregateApiEndpointKind::ChatCompletions
     } else {
-        "/responses"
+        AggregateApiEndpointKind::Responses
     };
-    let probe_path = action_path_or_default(api, default_path);
-    let url = normalize_probe_url(api.url.as_str(), probe_path.as_str());
+    let url = build_aggregate_api_endpoint_url(api, endpoint_kind)?;
     let builder = client.post(url.as_str());
     let (builder, updated_url) = apply_probe_auth(builder, url.clone(), api, secret)?;
     let builder = if updated_url != url {
@@ -709,7 +1158,7 @@ fn probe_codex_responses_endpoint(
     } else {
         builder
     };
-    let request_body = if probe_path.to_ascii_lowercase().contains("chat/completions") {
+    let request_body = if endpoint_kind == AggregateApiEndpointKind::ChatCompletions {
         json!({
             "model": "gpt-4o-mini",
             "messages": [{"role":"user","content":"hi"}],
@@ -768,6 +1217,39 @@ fn probe_codex_endpoint(
         .err()
         .unwrap_or_else(|| "codex responses probe failed".to_string());
     Err(format!("{models_err}; {responses_err}"))
+}
+
+fn fetch_aggregate_models_from_upstream(
+    client: &reqwest::blocking::Client,
+    api: &AggregateApi,
+    secret: &str,
+) -> Result<Vec<AggregateApiModel>, String> {
+    let base_url = build_aggregate_api_endpoint_url(api, AggregateApiEndpointKind::Models)?;
+    let url = append_client_version_query(base_url.as_str());
+    let builder = client.get(url.as_str());
+    let (builder, updated_url) = apply_probe_auth(builder, url.clone(), api, secret)?;
+    let builder = if updated_url != url {
+        let rebuilt = client.get(updated_url.as_str());
+        let (rebuilt, _) = apply_probe_auth(rebuilt, updated_url, api, secret)?;
+        rebuilt
+    } else {
+        builder
+    };
+    let response = add_codex_probe_headers(builder)?
+        .send()
+        .map_err(|err| err.to_string())?;
+    let status_code = response.status().as_u16() as i64;
+    if !response.status().is_success() {
+        return Err(format!("aggregate api models fetch http_status={status_code}"));
+    }
+    let payload = response
+        .json::<serde_json::Value>()
+        .map_err(|err| format!("aggregate api models payload parse failed: {err}"))?;
+    let mut models = normalize_aggregate_api_models_payload(&payload)?;
+    for model in &mut models {
+        model.aggregate_api_id = api.id.clone();
+    }
+    Ok(models)
 }
 
 /// 函数 `probe_claude_endpoint`
@@ -854,12 +1336,19 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
                 .filter(|value| !value.is_empty())
                 .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok()),
             action: item.action,
+            upstream_format: item.upstream_format,
+            models_path: item.models_path,
+            responses_path: item.responses_path,
+            chat_completions_path: item.chat_completions_path,
             status: item.status,
             created_at: item.created_at,
             updated_at: item.updated_at,
             last_test_at: item.last_test_at,
             last_test_status: item.last_test_status,
             last_test_error: item.last_test_error,
+            models_last_synced_at: item.models_last_synced_at,
+            models_last_sync_status: item.models_last_sync_status,
+            models_last_sync_error: item.models_last_sync_error,
         })
         .collect())
 }
@@ -886,6 +1375,10 @@ pub(crate) fn create_aggregate_api(
     auth_params: Option<serde_json::Value>,
     action_custom_enabled: Option<bool>,
     action: Option<String>,
+    upstream_format: Option<String>,
+    models_path: Option<String>,
+    responses_path: Option<String>,
+    chat_completions_path: Option<String>,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<AggregateApiCreateResult, String> {
@@ -903,6 +1396,12 @@ pub(crate) fn create_aggregate_api(
     )?;
     let normalized_action =
         normalize_action_override(action_custom_enabled, action)?.unwrap_or(None);
+    let normalized_upstream_format = normalize_upstream_format(upstream_format)?;
+    let normalized_models_path =
+        normalize_models_path(models_path)?.or_else(|| Some("/models".to_string()));
+    let normalized_responses_path = normalize_responses_path(responses_path)?;
+    let normalized_chat_completions_path =
+        normalize_chat_completions_path(chat_completions_path)?;
     let normalized_secret = if normalized_auth_type == AGGREGATE_API_AUTH_APIKEY {
         normalize_secret(key).ok_or_else(|| "key is required".to_string())?
     } else {
@@ -931,12 +1430,19 @@ pub(crate) fn create_aggregate_api(
             .map(|value| if value.is_empty() { None } else { Some(value) })
             .unwrap_or(None),
         action: normalized_action,
+        upstream_format: normalized_upstream_format,
+        models_path: normalized_models_path,
+        responses_path: normalized_responses_path,
+        chat_completions_path: normalized_chat_completions_path,
         status: "active".to_string(),
         created_at,
         updated_at: created_at,
         last_test_at: None,
         last_test_status: None,
         last_test_error: None,
+        models_last_synced_at: None,
+        models_last_sync_status: None,
+        models_last_sync_error: None,
     };
     storage
         .insert_aggregate_api(&record)
@@ -979,6 +1485,10 @@ pub(crate) fn update_aggregate_api(
     auth_params: Option<serde_json::Value>,
     action_custom_enabled: Option<bool>,
     action: Option<String>,
+    upstream_format: Option<String>,
+    models_path: Option<String>,
+    responses_path: Option<String>,
+    chat_completions_path: Option<String>,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<(), String> {
@@ -1064,6 +1574,30 @@ pub(crate) fn update_aggregate_api(
         }
     }
 
+    if let Some(raw) = upstream_format {
+        let normalized = normalize_upstream_format(Some(raw))?;
+        storage
+            .update_aggregate_api_upstream_format(api_id, normalized.as_str())
+            .map_err(|err| err.to_string())?;
+    }
+    if let Some(normalized) = normalize_models_path(models_path)? {
+        storage
+            .update_aggregate_api_models_path(api_id, Some(normalized.as_str()))
+            .map_err(|err| err.to_string())?;
+    }
+    if responses_path.is_some() {
+        let normalized = normalize_responses_path(responses_path)?;
+        storage
+            .update_aggregate_api_responses_path(api_id, normalized.as_deref())
+            .map_err(|err| err.to_string())?;
+    }
+    if chat_completions_path.is_some() {
+        let normalized = normalize_chat_completions_path(chat_completions_path)?;
+        storage
+            .update_aggregate_api_chat_completions_path(api_id, normalized.as_deref())
+            .map_err(|err| err.to_string())?;
+    }
+
     if next_auth_type == AGGREGATE_API_AUTH_APIKEY {
         let normalized_secret = normalize_secret(key);
         if auth_type_changed && normalized_secret.is_none() {
@@ -1096,6 +1630,103 @@ pub(crate) fn update_aggregate_api(
         }
     }
     Ok(())
+}
+
+pub(crate) fn list_aggregate_api_models(
+    api_id: &str,
+) -> Result<Vec<AggregateApiModelSummary>, String> {
+    if api_id.is_empty() {
+        return Err("aggregate api id required".to_string());
+    }
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let items = storage
+        .list_aggregate_api_models(api_id)
+        .map_err(|err| err.to_string())?;
+    Ok(items
+        .into_iter()
+        .map(|item| AggregateApiModelSummary {
+            aggregate_api_id: item.aggregate_api_id,
+            model_slug: item.model_slug,
+            display_name: item.display_name,
+            updated_at: item.updated_at,
+        })
+        .collect())
+}
+
+pub(crate) fn fetch_aggregate_api_models(
+    api_id: &str,
+) -> Result<AggregateApiFetchModelsResult, String> {
+    if api_id.is_empty() {
+        return Err("aggregate api id required".to_string());
+    }
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let api = storage
+        .find_aggregate_api_by_id(api_id)
+        .map_err(|err| err.to_string())?
+        .ok_or_else(|| "aggregate api not found".to_string())?;
+    let secret = storage
+        .find_aggregate_api_secret_by_id(api_id)
+        .map_err(|err| err.to_string())?
+        .ok_or_else(|| "aggregate api secret not found".to_string())?;
+
+    let client = gateway::fresh_upstream_client();
+    match fetch_aggregate_models_from_upstream(&client, &api, secret.as_str()) {
+        Ok(models) => {
+            let fetched_at = now_ts();
+            Ok(AggregateApiFetchModelsResult {
+                id: api_id.to_string(),
+                count: models.len() as i64,
+                fetched_at,
+                items: models
+                    .into_iter()
+                    .map(|item| AggregateApiFetchedModelSummary {
+                        aggregate_api_id: item.aggregate_api_id,
+                        model_slug: item.model_slug,
+                        display_name: item.display_name,
+                        raw_json: Some(item.raw_json),
+                        updated_at: item.updated_at,
+                    })
+                    .collect(),
+            })
+        }
+        Err(err) => {
+            let _ = storage.update_aggregate_api_models_sync_result(
+                api_id,
+                Some(now_ts()),
+                Some("failed"),
+                Some(err.as_str()),
+            );
+            Err(err)
+        }
+    }
+}
+
+pub(crate) fn save_aggregate_api_models(
+    api_id: &str,
+    items: Option<serde_json::Value>,
+) -> Result<AggregateApiSaveModelsResult, String> {
+    if api_id.is_empty() {
+        return Err("aggregate api id required".to_string());
+    }
+    let payload = items.ok_or_else(|| "selected aggregate api models required".to_string())?;
+    let models = normalize_selected_aggregate_api_models(api_id, &payload)?;
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    storage
+        .find_aggregate_api_by_id(api_id)
+        .map_err(|err| err.to_string())?
+        .ok_or_else(|| "aggregate api not found".to_string())?;
+    let synced_at = now_ts();
+    storage
+        .replace_aggregate_api_models(api_id, &models)
+        .map_err(|err| err.to_string())?;
+    storage
+        .update_aggregate_api_models_sync_result(api_id, Some(synced_at), Some("success"), None)
+        .map_err(|err| err.to_string())?;
+    Ok(AggregateApiSaveModelsResult {
+        id: api_id.to_string(),
+        count: models.len() as i64,
+        synced_at,
+    })
 }
 
 /// 函数 `delete_aggregate_api`

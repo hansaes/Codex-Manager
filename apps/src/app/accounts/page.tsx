@@ -21,7 +21,7 @@ import {
   type StatusFilter,
 } from "@/app/accounts/accounts-page-helpers";
 import { AccountsPageView } from "@/app/accounts/accounts-page-view";
-import { isBannedAccount } from "@/lib/utils/usage";
+import { isBannedAccount, isLimitedAccount } from "@/lib/utils/usage";
 import type { Account } from "@/types";
 
 export default function AccountsPage() {
@@ -112,6 +112,7 @@ export default function AccountsPage() {
         statusFilter === "all" ||
         (statusFilter === "available" && account.isAvailable) ||
         (statusFilter === "low_quota" && account.isLowQuota) ||
+        (statusFilter === "limited" && isLimitedAccount(account)) ||
         (statusFilter === "banned" && isBannedAccount(account));
       return matchSearch && matchPlan && matchStatus;
     });
@@ -127,6 +128,10 @@ export default function AccountsPage() {
       {
         id: "low_quota" as const,
         label: `${t("低配额")} (${accounts.filter((account) => account.isLowQuota).length})`,
+      },
+      {
+        id: "limited" as const,
+        label: `${t("限流")} (${accounts.filter((account) => isLimitedAccount(account)).length})`,
       },
       {
         id: "banned" as const,

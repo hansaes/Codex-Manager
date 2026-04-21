@@ -476,8 +476,7 @@ fn subscription_request_uses_only_authorization_without_custom_usage_headers() {
         )
         .with_status_code(TinyStatusCode(200))
         .with_header(
-            Header::from_bytes("Content-Type", "application/json")
-                .expect("content-type header"),
+            Header::from_bytes("Content-Type", "application/json").expect("content-type header"),
         );
         request
             .respond(response)

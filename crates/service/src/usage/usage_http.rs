@@ -672,7 +672,10 @@ fn summarize_endpoint_error_response(
     }
 
     if details.is_empty() {
-        format!("{endpoint_name} endpoint failed: status={} body={body_hint}", status)
+        format!(
+            "{endpoint_name} endpoint failed: status={} body={body_hint}",
+            status
+        )
     } else {
         format!(
             "{endpoint_name} endpoint failed: status={} body={body_hint}, {}",

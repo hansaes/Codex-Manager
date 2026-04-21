@@ -117,6 +117,9 @@ pub(crate) fn classify_message(message: &str) -> ErrorCode {
     if eq("上游请求超时") || contains("连接超时") {
         return ErrorCode::UpstreamTimeout;
     }
+    if eq("stream idle timeout") || eq("上游流式空闲超时") || contains("stream_timeout") {
+        return ErrorCode::UpstreamTimeout;
+    }
     if starts_with("upstream blocked by cloudflare/waf") || eq("upstream challenge blocked") {
         return ErrorCode::UpstreamChallengeBlocked;
     }
@@ -143,6 +146,10 @@ pub(crate) fn classify_message(message: &str) -> ErrorCode {
         return ErrorCode::ResponseWriteFailed;
     }
     if eq("stream disconnected before completion")
+        || eq("request or response body error")
+        || eq("stream read failed")
+        || eq("response.incomplete")
+        || eq("上游中途断开，未返回具体错误信息")
         || eq("网络抖动")
         || eq("连接中断（可能是网络波动或客户端主动取消）")
     {
@@ -175,6 +182,9 @@ pub(crate) fn classify_message(message: &str) -> ErrorCode {
         return ErrorCode::UpstreamNonSuccess;
     }
     if starts_with("模型不支持") {
+        return ErrorCode::UpstreamNonSuccess;
+    }
+    if eq("response.failed") || eq("上游请求失败，未返回具体错误信息") {
         return ErrorCode::UpstreamNonSuccess;
     }
     if starts_with("invalid upstream ")
@@ -325,6 +335,10 @@ mod tests {
             ErrorCode::UpstreamTimeout
         );
         assert_eq!(
+            classify_message("上游流式空闲超时"),
+            ErrorCode::UpstreamTimeout
+        );
+        assert_eq!(
             classify_message("上游被安全验证拦截（Cloudflare/WAF）"),
             ErrorCode::UpstreamChallengeBlocked
         );
@@ -332,10 +346,22 @@ mod tests {
             classify_message("stream disconnected before completion"),
             ErrorCode::StreamInterrupted
         );
+        assert_eq!(
+            classify_message("上游中途断开，未返回具体错误信息"),
+            ErrorCode::StreamInterrupted
+        );
+        assert_eq!(
+            classify_message("response.incomplete"),
+            ErrorCode::StreamInterrupted
+        );
         assert_eq!(classify_message("网络抖动"), ErrorCode::StreamInterrupted);
         assert_eq!(
             classify_message("连接中断（可能是网络波动或客户端主动取消）"),
             ErrorCode::StreamInterrupted
+        );
+        assert_eq!(
+            classify_message("上游请求失败，未返回具体错误信息"),
+            ErrorCode::UpstreamNonSuccess
         );
         assert_eq!(
             classify_message("无可用账号(no available account)"),

@@ -1583,8 +1583,7 @@ fn rpc_chatgpt_auth_tokens_refresh_updates_access_token() {
     );
     let (usage_base_url, subscription_rx, subscription_join) = start_mock_subscription_server(
         200,
-        serde_json::to_string(&subscription_response)
-            .expect("serialize subscription response"),
+        serde_json::to_string(&subscription_response).expect("serialize subscription response"),
     );
     let _issuer_guard = EnvGuard::set("CODEXMANAGER_ISSUER", &issuer);
     let _client_id_guard = EnvGuard::set("CODEXMANAGER_CLIENT_ID", "client-test-rpc-refresh");

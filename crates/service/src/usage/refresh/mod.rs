@@ -526,12 +526,8 @@ fn refresh_account_snapshot(
     subscription_account_id: Option<&str>,
 ) -> Result<UsageAvailabilityStatus, String> {
     if let Some(subscription_account_id) = subscription_account_id {
-        let subscription = fetch_account_subscription(
-            base_url,
-            bearer,
-            subscription_account_id,
-            workspace_id,
-        )?;
+        let subscription =
+            fetch_account_subscription(base_url, bearer, subscription_account_id, workspace_id)?;
         storage
             .upsert_account_subscription(
                 account_id,

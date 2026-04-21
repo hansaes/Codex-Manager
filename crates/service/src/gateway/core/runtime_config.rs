@@ -186,6 +186,24 @@ pub(crate) fn fresh_upstream_client_for_account(account_id: &str) -> Client {
     build_upstream_client()
 }
 
+pub(crate) fn async_upstream_client_for_account(account_id: &str) -> reqwest::Client {
+    ensure_runtime_config_loaded();
+    let pool = crate::lock_utils::read_recover(upstream_client_pool_lock(), "upstream_client_pool");
+    if let Some(proxy_url) = pool.proxy_for_account(account_id) {
+        return build_async_upstream_client_with_proxy(Some(proxy_url));
+    }
+    build_async_upstream_client()
+}
+
+pub(crate) fn fresh_async_upstream_client_for_account(account_id: &str) -> reqwest::Client {
+    ensure_runtime_config_loaded();
+    let pool = crate::lock_utils::read_recover(upstream_client_pool_lock(), "upstream_client_pool");
+    if let Some(proxy_url) = pool.proxy_for_account(account_id) {
+        return build_async_upstream_client_with_proxy(Some(proxy_url));
+    }
+    build_async_upstream_client()
+}
+
 /// 函数 `upstream_connect_timeout_cached`
 ///
 /// 作者: gaohongshun
@@ -215,6 +233,11 @@ fn upstream_connect_timeout_cached() -> Duration {
 fn build_upstream_client() -> Client {
     let proxy_url = current_upstream_proxy_url();
     build_upstream_client_with_proxy(proxy_url.as_deref())
+}
+
+fn build_async_upstream_client() -> reqwest::Client {
+    let proxy_url = current_upstream_proxy_url();
+    build_async_upstream_client_with_proxy(proxy_url.as_deref())
 }
 
 /// 函数 `build_upstream_client_with_proxy`
@@ -254,6 +277,35 @@ fn build_upstream_client_with_proxy(proxy_url: Option<&str>) -> Client {
     builder.build().unwrap_or_else(|err| {
         log::warn!("event=gateway_upstream_client_build_failed err={}", err);
         Client::new()
+    })
+}
+
+fn build_async_upstream_client_with_proxy(proxy_url: Option<&str>) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(upstream_connect_timeout_cached())
+        .pool_max_idle_per_host(32)
+        .pool_idle_timeout(Some(Duration::from_secs(90)))
+        .tcp_keepalive(Some(Duration::from_secs(30)));
+    if let Some(proxy_url) = proxy_url {
+        let proxy = match Proxy::all(proxy_url) {
+            Ok(proxy) => proxy,
+            Err(err) => {
+                log::warn!(
+                    "event=gateway_proxy_pool_invalid_proxy proxy={} err={}",
+                    proxy_url,
+                    err
+                );
+                return build_async_upstream_client();
+            }
+        };
+        builder = builder.proxy(proxy);
+    }
+    builder.build().unwrap_or_else(|err| {
+        log::warn!(
+            "event=gateway_async_upstream_client_build_failed err={}",
+            err
+        );
+        reqwest::Client::new()
     })
 }
 

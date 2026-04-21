@@ -5,10 +5,11 @@ use std::time::{Duration, Instant};
 
 use super::super::attempt_flow::transport::send_upstream_request;
 use super::super::attempt_flow::transport::UpstreamRequestContext;
+use super::super::GatewayUpstreamResponse;
 
 pub(in super::super) enum AltPathRetryResult {
     NotTriggered,
-    Upstream(reqwest::blocking::Response),
+    Upstream(GatewayUpstreamResponse),
     Failover,
     Terminal { status_code: u16, message: String },
 }

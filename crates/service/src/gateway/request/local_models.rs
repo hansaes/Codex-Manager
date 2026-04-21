@@ -1,5 +1,9 @@
 use codexmanager_core::rpc::types::ModelsResponse;
+use serde_json::json;
 const MODEL_CACHE_SCOPE_DEFAULT: &str = "default";
+const OPENAI_MODELS_LIST_OBJECT: &str = "list";
+const OPENAI_MODEL_OBJECT: &str = "model";
+const DEFAULT_MODEL_CREATED_TS: i64 = 1_626_777_600;
 
 /// 函数 `serialize_models_response`
 ///
@@ -13,7 +17,62 @@ const MODEL_CACHE_SCOPE_DEFAULT: &str = "default";
 /// # 返回
 /// 返回函数执行结果
 fn serialize_models_response(models: &ModelsResponse) -> String {
-    serde_json::to_string(models).unwrap_or_else(|_| "{\"models\":[]}".to_string())
+    let models_value = serde_json::to_value(models).unwrap_or_else(|_| json!({ "models": [] }));
+    let model_items = models
+        .models
+        .iter()
+        .map(openai_model_item_from_model_info)
+        .collect::<Vec<_>>();
+    let mut root = match models_value {
+        serde_json::Value::Object(map) => map,
+        _ => serde_json::Map::new(),
+    };
+    root.insert("data".to_string(), serde_json::Value::Array(model_items));
+    root.insert(
+        "object".to_string(),
+        serde_json::Value::String(OPENAI_MODELS_LIST_OBJECT.to_string()),
+    );
+    root.insert("success".to_string(), serde_json::Value::Bool(true));
+    serde_json::to_string(&serde_json::Value::Object(root))
+        .unwrap_or_else(|_| "{\"models\":[],\"data\":[],\"object\":\"list\",\"success\":true}".to_string())
+}
+
+fn openai_model_item_from_model_info(
+    model: &codexmanager_core::rpc::types::ModelInfo,
+) -> serde_json::Value {
+    let owned_by = model
+        .extra
+        .get("owned_by")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("custom");
+    let created = model
+        .extra
+        .get("created")
+        .and_then(|value| value.as_i64())
+        .unwrap_or(DEFAULT_MODEL_CREATED_TS);
+    let supported_endpoint_types = model
+        .extra
+        .get("supported_endpoint_types")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items.iter()
+                .filter_map(|item| item.as_str().map(str::trim))
+                .filter(|value| !value.is_empty())
+                .map(|value| serde_json::Value::String(value.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .filter(|items| !items.is_empty())
+        .unwrap_or_else(|| vec![serde_json::Value::String("openai".to_string())]);
+
+    json!({
+        "id": model.slug,
+        "object": OPENAI_MODEL_OBJECT,
+        "created": created,
+        "owned_by": owned_by,
+        "supported_endpoint_types": supported_endpoint_types,
+    })
 }
 
 fn should_hide_model_descriptions_for_request(request: &tiny_http::Request) -> bool {
@@ -54,6 +113,42 @@ fn read_cached_models_response(
     storage: &codexmanager_core::storage::Storage,
 ) -> Result<ModelsResponse, String> {
     crate::apikey_models::read_model_options_from_storage(storage)
+}
+
+fn aggregate_models_response_for_key(
+    storage: &codexmanager_core::storage::Storage,
+    key_id: &str,
+) -> Result<Option<ModelsResponse>, String> {
+    let Some(api_key) = storage
+        .find_api_key_by_id(key_id)
+        .map_err(|err| err.to_string())?
+    else {
+        return Ok(None);
+    };
+    if api_key.rotation_strategy != crate::apikey_profile::ROTATION_AGGREGATE_API {
+        return Ok(None);
+    }
+    let Some(resolved_catalog) =
+        super::aggregate_catalog::resolve_aggregate_model_catalog(storage, &api_key, None)?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(ModelsResponse {
+        models: resolved_catalog
+            .models
+            .into_iter()
+            .map(|item| codexmanager_core::rpc::types::ModelInfo {
+                slug: item.model_slug.clone(),
+                display_name: item
+                    .display_name
+                    .unwrap_or_else(|| item.model_slug.clone()),
+                supported_in_api: true,
+                visibility: Some("list".to_string()),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }))
 }
 
 /// 函数 `maybe_respond_local_models`
@@ -99,6 +194,18 @@ pub(super) fn maybe_respond_local_models(
     };
     let hide_descriptions = should_hide_model_descriptions_for_request(&request);
 
+    let aggregate_models = match aggregate_models_response_for_key(storage, key_id) {
+        Ok(models) => models,
+        Err(err) => {
+            let message = crate::gateway::bilingual_error(
+                "读取聚合模型失败",
+                format!("aggregate model catalog read failed: {err}"),
+            );
+            super::local_response::respond_local_terminal_error(request, &context, 503, message)?;
+            return Ok(None);
+        }
+    };
+
     let cached = match read_cached_models_response(storage) {
         Ok(models) => models,
         Err(err) => {
@@ -111,7 +218,9 @@ pub(super) fn maybe_respond_local_models(
         }
     };
 
-    let models = if !cached.is_empty() {
+    let models = if let Some(aggregate_models) = aggregate_models {
+        aggregate_models
+    } else if !cached.is_empty() {
         cached
     } else {
         match super::fetch_models_for_picker() {

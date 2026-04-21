@@ -1,6 +1,6 @@
 {
   "name": "codexmanager-frontend",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "packageManager": "pnpm@10.30.3",
   "private": true,
   "scripts": {
@@ -34,6 +34,7 @@
   "devDependencies": {
     "@playwright/test": "1.58.0",
     "@tailwindcss/postcss": "^4",
+    "@tauri-apps/cli": "2.10.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

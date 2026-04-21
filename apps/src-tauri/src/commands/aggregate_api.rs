@@ -47,6 +47,10 @@ pub async fn service_aggregate_api_create(
     auth_params: Option<serde_json::Value>,
     action_custom_enabled: Option<bool>,
     action: Option<String>,
+    upstream_format: Option<String>,
+    models_path: Option<String>,
+    responses_path: Option<String>,
+    chat_completions_path: Option<String>,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<serde_json::Value, String> {
@@ -61,6 +65,10 @@ pub async fn service_aggregate_api_create(
         "authParams": auth_params,
         "actionCustomEnabled": action_custom_enabled,
         "action": action,
+        "upstreamFormat": upstream_format,
+        "modelsPath": models_path,
+        "responsesPath": responses_path,
+        "chatCompletionsPath": chat_completions_path,
         "username": username,
         "password": password,
     });
@@ -99,6 +107,10 @@ pub async fn service_aggregate_api_update(
     auth_params: Option<serde_json::Value>,
     action_custom_enabled: Option<bool>,
     action: Option<String>,
+    upstream_format: Option<String>,
+    models_path: Option<String>,
+    responses_path: Option<String>,
+    chat_completions_path: Option<String>,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<serde_json::Value, String> {
@@ -115,6 +127,10 @@ pub async fn service_aggregate_api_update(
         "authParams": auth_params,
         "actionCustomEnabled": action_custom_enabled,
         "action": action,
+        "upstreamFormat": upstream_format,
+        "modelsPath": models_path,
+        "responsesPath": responses_path,
+        "chatCompletionsPath": chat_completions_path,
         "username": username,
         "password": password,
     });
@@ -182,4 +198,41 @@ pub async fn service_aggregate_api_test_connection(
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({ "id": id });
     rpc_call_in_background("aggregateApi/testConnection", addr, Some(params)).await
+}
+
+#[tauri::command]
+pub async fn service_aggregate_api_fetch_models(
+    addr: Option<String>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({ "id": id });
+    rpc_call_in_background("aggregateApi/fetchModels", addr, Some(params)).await
+}
+
+#[tauri::command]
+pub async fn service_aggregate_api_preview_models(
+    addr: Option<String>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({ "id": id });
+    rpc_call_in_background("aggregateApi/previewModels", addr, Some(params)).await
+}
+
+#[tauri::command]
+pub async fn service_aggregate_api_save_models(
+    addr: Option<String>,
+    id: String,
+    items: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({ "id": id, "items": items });
+    rpc_call_in_background("aggregateApi/saveModels", addr, Some(params)).await
+}
+
+#[tauri::command]
+pub async fn service_aggregate_api_list_models(
+    addr: Option<String>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({ "id": id });
+    rpc_call_in_background("aggregateApi/listModels", addr, Some(params)).await
 }

@@ -270,12 +270,29 @@ pub struct AggregateApi {
     pub auth_type: String,
     pub auth_params_json: Option<String>,
     pub action: Option<String>,
+    pub upstream_format: String,
+    pub models_path: Option<String>,
+    pub responses_path: Option<String>,
+    pub chat_completions_path: Option<String>,
     pub status: String,
     pub created_at: i64,
     pub updated_at: i64,
     pub last_test_at: Option<i64>,
     pub last_test_status: Option<String>,
     pub last_test_error: Option<String>,
+    pub models_last_synced_at: Option<i64>,
+    pub models_last_sync_status: Option<String>,
+    pub models_last_sync_error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AggregateApiModel {
+    pub aggregate_api_id: String,
+    pub model_slug: String,
+    pub display_name: Option<String>,
+    pub raw_json: String,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -705,10 +722,28 @@ impl Storage {
             include_str!("../../migrations/054_account_subscriptions.sql"),
             |s| s.ensure_account_subscriptions_table(),
         )?;
+        self.apply_sql_migration(
+            "053_api_key_quota_limits",
+            include_str!("../../migrations/053_api_key_quota_limits.sql"),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "054_aggregate_api_upstream_models",
+            include_str!("../../migrations/054_aggregate_api_upstream_models.sql"),
+            |s| {
+                s.ensure_aggregate_apis_table()?;
+                s.ensure_aggregate_api_models_table()
+            },
+        )?;
+        self.apply_sql_or_compat_migration(
+            "055_aggregate_api_endpoint_paths",
+            include_str!("../../migrations/055_aggregate_api_endpoint_paths.sql"),
+            |s| s.ensure_aggregate_apis_table(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_api_key_quota_limits_table()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
+        self.ensure_aggregate_api_models_table()?;
         self.ensure_request_token_stats_table()?;
         self.ensure_gateway_error_logs_table()?;
         self.ensure_request_log_request_type_and_service_tier_columns()?;

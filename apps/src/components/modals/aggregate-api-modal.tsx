@@ -36,6 +36,11 @@ const AGGREGATE_API_PROVIDER_LABELS: Record<string, string> = {
   claude: "Claude",
 };
 
+const AGGREGATE_API_UPSTREAM_FORMAT_LABELS: Record<string, string> = {
+  responses: "Responses API",
+  chat_completions: "Chat Completions API",
+};
+
 const AGGREGATE_API_URL_PLACEHOLDERS: Record<string, string> = {
   codex: "例如：https://api.openai.com/v1",
   claude: "例如：https://api.anthropic.com/v1",
@@ -74,6 +79,12 @@ export function AggregateApiModal({
   const [supplierName, setSupplierName] = useState("");
   const [sortDraft, setSortDraft] = useState("0");
   const [url, setUrl] = useState("");
+  const [upstreamFormat, setUpstreamFormat] = useState<
+    "responses" | "chat_completions"
+  >("responses");
+  const [modelsPath, setModelsPath] = useState("/models");
+  const [responsesPath, setResponsesPath] = useState("");
+  const [chatCompletionsPath, setChatCompletionsPath] = useState("");
   const [authType, setAuthType] = useState<"apikey" | "userpass">("apikey");
   const [authCustomEnabled, setAuthCustomEnabled] = useState(false);
   const [apiKeyLocation, setApiKeyLocation] = useState<"header" | "query">(
@@ -108,6 +119,14 @@ export function AggregateApiModal({
     setSupplierName(aggregateApi?.supplierName || "");
     setSortDraft(String(aggregateApi?.sort ?? defaultSort));
     setUrl(aggregateApi?.url || "");
+    setUpstreamFormat(
+      aggregateApi?.upstreamFormat === "chat_completions"
+        ? "chat_completions"
+        : "responses"
+    );
+    setModelsPath(aggregateApi?.modelsPath || "/models");
+    setResponsesPath(aggregateApi?.responsesPath || "");
+    setChatCompletionsPath(aggregateApi?.chatCompletionsPath || "");
     const nextAuthType =
       aggregateApi?.authType === "userpass" ? "userpass" : "apikey";
     setAuthType(nextAuthType);
@@ -277,6 +296,10 @@ export function AggregateApiModal({
           authParams,
           actionCustomEnabled,
           action: actionCustomEnabled ? action.trim() : null,
+          upstreamFormat,
+          modelsPath: modelsPath.trim() || "/models",
+          responsesPath: responsesPath.trim(),
+          chatCompletionsPath: chatCompletionsPath.trim(),
           username: authType === "userpass" ? username.trim() || null : null,
           password: authType === "userpass" ? password.trim() || null : null,
         });
@@ -301,6 +324,10 @@ export function AggregateApiModal({
         authParams,
         actionCustomEnabled,
         action: actionCustomEnabled ? action.trim() : null,
+        upstreamFormat,
+        modelsPath: modelsPath.trim() || "/models",
+        responsesPath: responsesPath.trim(),
+        chatCompletionsPath: chatCompletionsPath.trim(),
         username: authType === "userpass" ? username.trim() : null,
         password: authType === "userpass" ? password.trim() : null,
       });
@@ -469,6 +496,64 @@ export function AggregateApiModal({
                   disabled={!isServiceReady}
                   onChange={(event) => setUrl(event.target.value)}
                 />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="aggregate-api-upstream-format">
+                    {t("上游格式")}
+                  </Label>
+                  <Select
+                    value={upstreamFormat}
+                    disabled={!isServiceReady}
+                    onValueChange={(value) => {
+                      if (!value) return;
+                      setUpstreamFormat(
+                        value === "chat_completions"
+                          ? "chat_completions"
+                          : "responses"
+                      );
+                    }}
+                  >
+                    <SelectTrigger
+                      id="aggregate-api-upstream-format"
+                      className="w-full"
+                    >
+                      <SelectValue>
+                        {(value) =>
+                          AGGREGATE_API_UPSTREAM_FORMAT_LABELS[
+                            String(value || "")
+                          ] || "Responses API"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="responses">Responses API</SelectItem>
+                      <SelectItem value="chat_completions">
+                        Chat Completions API
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    {t("选择第三方站点真实接受的 OpenAI 兼容格式。")}
+                  </p>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="aggregate-api-models-path">
+                    {t("模型路径")}
+                  </Label>
+                  <Input
+                    id="aggregate-api-models-path"
+                    placeholder="/models"
+                    value={modelsPath}
+                    disabled={!isServiceReady}
+                    onChange={(event) => setModelsPath(event.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    {t("默认 `/models`，仅在对方站点使用自定义模型路径时修改。")}
+                  </p>
+                </div>
               </div>
 
               {authType === "apikey" ? (
@@ -664,9 +749,9 @@ export function AggregateApiModal({
                 <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <Label className="text-sm">{t("自定义 action")}</Label>
+                      <Label className="text-sm">{t("高级路径配置")}</Label>
                       <p className="text-[11px] text-muted-foreground">
-                        {t("开启后将用该 path 覆盖转发 action（例如 GLM 前缀路径）。")}
+                        {t("默认留空自动推断；只有对方站点路径不标准时才需要填写。")}
                       </p>
                     </div>
                     <Switch
@@ -683,11 +768,47 @@ export function AggregateApiModal({
                       <Input
                         value={action}
                         disabled={!isServiceReady}
-                        placeholder={t("例如：/api/paas/v4/chat/completions")}
+                        placeholder={t("例如：/api/paas/v4/responses")}
                         onChange={(e) => setAction(e.target.value)}
                       />
                     </div>
                   ) : null}
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label
+                        htmlFor="aggregate-api-responses-path"
+                        className="text-xs"
+                      >
+                        {t("Responses 路径")}
+                      </Label>
+                      <Input
+                        id="aggregate-api-responses-path"
+                        placeholder="/responses"
+                        value={responsesPath}
+                        disabled={!isServiceReady}
+                        onChange={(event) => setResponsesPath(event.target.value)}
+                      />
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label
+                        htmlFor="aggregate-api-chat-completions-path"
+                        className="text-xs"
+                      >
+                        {t("Chat 路径")}
+                      </Label>
+                      <Input
+                        id="aggregate-api-chat-completions-path"
+                        placeholder="/chat/completions"
+                        value={chatCompletionsPath}
+                        disabled={!isServiceReady}
+                        onChange={(event) =>
+                          setChatCompletionsPath(event.target.value)
+                        }
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 

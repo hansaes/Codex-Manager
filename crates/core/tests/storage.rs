@@ -1,6 +1,6 @@
 use codexmanager_core::storage::{
-    now_ts, Account, ApiKey, Event, RequestLog, RequestTokenStat, Storage, Token,
-    UsageSnapshotRecord,
+    now_ts, Account, AggregateApi, AggregateApiModel, ApiKey, Event, RequestLog,
+    RequestTokenStat, Storage, Token, UsageSnapshotRecord,
 };
 
 /// 函数 `storage_can_insert_account_and_token`
@@ -291,6 +291,163 @@ fn storage_login_session_roundtrip() {
     assert_eq!(loaded.workspace_id.as_deref(), Some("org_123"));
 }
 
+#[test]
+fn aggregate_api_roundtrip_persists_endpoint_overrides_and_model_sync_metadata() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let now = now_ts();
+
+    storage
+        .insert_aggregate_api(&AggregateApi {
+            id: "agg-upstream-format".to_string(),
+            provider_type: "codex".to_string(),
+            supplier_name: Some("demo".to_string()),
+            sort: 10,
+            url: "https://example.com/v1".to_string(),
+            auth_type: "apikey".to_string(),
+            auth_params_json: None,
+            action: None,
+            upstream_format: "chat_completions".to_string(),
+            models_path: Some("/models".to_string()),
+            responses_path: Some("/responses".to_string()),
+            chat_completions_path: Some("/chat/completions".to_string()),
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+            last_test_at: None,
+            last_test_status: None,
+            last_test_error: None,
+            models_last_synced_at: Some(now),
+            models_last_sync_status: Some("success".to_string()),
+            models_last_sync_error: None,
+        })
+        .expect("insert aggregate api");
+
+    let saved = storage
+        .find_aggregate_api_by_id("agg-upstream-format")
+        .expect("find aggregate api")
+        .expect("aggregate api exists");
+    assert_eq!(saved.upstream_format, "chat_completions");
+    assert_eq!(saved.models_path.as_deref(), Some("/models"));
+    assert_eq!(saved.responses_path.as_deref(), Some("/responses"));
+    assert_eq!(
+        saved.chat_completions_path.as_deref(),
+        Some("/chat/completions")
+    );
+    assert_eq!(saved.models_last_synced_at, Some(now));
+    assert_eq!(saved.models_last_sync_status.as_deref(), Some("success"));
+}
+
+#[test]
+fn aggregate_api_model_cache_replace_is_scoped_per_aggregate() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let now = now_ts();
+
+    for id in ["agg-a", "agg-b"] {
+        storage
+            .insert_aggregate_api(&AggregateApi {
+                id: id.to_string(),
+                provider_type: "codex".to_string(),
+                supplier_name: Some(id.to_string()),
+                sort: 0,
+                url: format!("https://{id}.example.com/v1"),
+                auth_type: "apikey".to_string(),
+                auth_params_json: None,
+                action: None,
+                upstream_format: "responses".to_string(),
+                models_path: Some("/models".to_string()),
+                responses_path: None,
+                chat_completions_path: None,
+                status: "active".to_string(),
+                created_at: now,
+                updated_at: now,
+                last_test_at: None,
+                last_test_status: None,
+                last_test_error: None,
+                models_last_synced_at: None,
+                models_last_sync_status: None,
+                models_last_sync_error: None,
+            })
+            .expect("insert aggregate api");
+    }
+
+    storage
+        .replace_aggregate_api_models(
+            "agg-a",
+            &[
+                AggregateApiModel {
+                    aggregate_api_id: "agg-a".to_string(),
+                    model_slug: "gpt-4.1".to_string(),
+                    display_name: Some("GPT-4.1".to_string()),
+                    raw_json: "{\"id\":\"gpt-4.1\"}".to_string(),
+                    created_at: now,
+                    updated_at: now,
+                },
+                AggregateApiModel {
+                    aggregate_api_id: "agg-a".to_string(),
+                    model_slug: "gpt-4.1-mini".to_string(),
+                    display_name: Some("GPT-4.1 Mini".to_string()),
+                    raw_json: "{\"id\":\"gpt-4.1-mini\"}".to_string(),
+                    created_at: now,
+                    updated_at: now,
+                },
+            ],
+        )
+        .expect("replace models for agg-a");
+    storage
+        .replace_aggregate_api_models(
+            "agg-b",
+            &[AggregateApiModel {
+                aggregate_api_id: "agg-b".to_string(),
+                model_slug: "claude-sonnet".to_string(),
+                display_name: Some("Claude Sonnet".to_string()),
+                raw_json: "{\"id\":\"claude-sonnet\"}".to_string(),
+                created_at: now,
+                updated_at: now,
+            }],
+        )
+        .expect("replace models for agg-b");
+
+    let agg_a = storage
+        .list_aggregate_api_models("agg-a")
+        .expect("list agg-a models");
+    let agg_b = storage
+        .list_aggregate_api_models("agg-b")
+        .expect("list agg-b models");
+
+    assert_eq!(agg_a.len(), 2);
+    assert_eq!(agg_b.len(), 1);
+    assert_eq!(agg_b[0].model_slug, "claude-sonnet");
+
+    storage
+        .replace_aggregate_api_models(
+            "agg-a",
+            &[AggregateApiModel {
+                aggregate_api_id: "agg-a".to_string(),
+                model_slug: "gpt-5".to_string(),
+                display_name: Some("GPT-5".to_string()),
+                raw_json: "{\"id\":\"gpt-5\"}".to_string(),
+                created_at: now,
+                updated_at: now + 1,
+            }],
+        )
+        .expect("replace agg-a again");
+
+    let replaced = storage
+        .list_aggregate_api_models("agg-a")
+        .expect("list replaced agg-a models");
+    assert_eq!(replaced.len(), 1);
+    assert_eq!(replaced[0].model_slug, "gpt-5");
+    assert_eq!(
+        storage
+            .list_aggregate_api_models("agg-b")
+            .expect("list agg-b after agg-a replace")
+            .len(),
+        1
+    );
+}
+
 /// 函数 `storage_account_metadata_roundtrip_and_delete_cleanup`
 ///
 /// 作者: gaohongshun
@@ -388,9 +545,7 @@ fn storage_account_subscription_roundtrip_and_delete_cleanup() {
     assert_eq!(subscription.expires_at, Some(1_746_501_889));
     assert_eq!(subscription.renews_at, Some(1_746_501_889));
 
-    storage
-        .delete_account("acc-sub-1")
-        .expect("delete account");
+    storage.delete_account("acc-sub-1").expect("delete account");
     assert!(storage
         .find_account_subscription("acc-sub-1")
         .expect("find subscription after delete")
@@ -511,6 +666,7 @@ fn storage_account_usage_filters_support_sql_pagination() {
         ("acc-inactive-low", "inactive", Some(90.0), Some(90.0)),
         ("acc-healthy-1", "healthy", Some(30.0), Some(30.0)),
         ("acc-no-snapshot", "active", None, None),
+        ("acc-limited", "limited", None, None),
     ];
 
     for (idx, (id, status, primary_used, low_used)) in accounts.iter().enumerate() {
@@ -611,6 +767,7 @@ fn storage_gateway_candidates_exclude_unavailable_or_missing_token_accounts() {
         ("acc-partial", "active", 3_i64),
         ("acc-inactive", "inactive", 4_i64),
         ("acc-no-token", "active", 5_i64),
+        ("acc-limited", "limited", 6_i64),
     ];
     for (id, status, sort) in accounts {
         storage
@@ -635,6 +792,7 @@ fn storage_gateway_candidates_exclude_unavailable_or_missing_token_accounts() {
         "acc-exhausted",
         "acc-partial",
         "acc-inactive",
+        "acc-limited",
     ] {
         storage
             .insert_token(&Token {

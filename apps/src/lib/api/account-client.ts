@@ -2,7 +2,10 @@ import { invoke, withAddr } from "./transport";
 import {
   normalizeAccountList,
   normalizeAggregateApiCreateResult,
+  normalizeAggregateApiFetchModelsResult,
   normalizeAggregateApiList,
+  normalizeAggregateApiModelList,
+  normalizeAggregateApiSaveModelsResult,
   normalizeAggregateApiSecretResult,
   normalizeAggregateApiTestResult,
   normalizeApiKeyCreateResult,
@@ -39,7 +42,11 @@ import {
   AccountListResult,
   AccountUsage,
   AggregateApi,
+  AggregateApiFetchedModel,
   AggregateApiCreateResult,
+  AggregateApiFetchModelsResult,
+  AggregateApiModel,
+  AggregateApiSaveModelsResult,
   AggregateApiSecretResult,
   AggregateApiTestResult,
   ApiKey,
@@ -128,6 +135,10 @@ interface AggregateApiPayload {
   authParams?: Record<string, unknown> | null;
   actionCustomEnabled?: boolean | null;
   action?: string | null;
+  upstreamFormat?: string | null;
+  modelsPath?: string | null;
+  responsesPath?: string | null;
+  chatCompletionsPath?: string | null;
   username?: string | null;
   password?: string | null;
 }
@@ -476,6 +487,10 @@ export const accountClient = {
             ? params.actionCustomEnabled
             : null,
         action: params.action || null,
+        upstreamFormat: params.upstreamFormat || null,
+        modelsPath: params.modelsPath || null,
+        responsesPath: params.responsesPath ?? null,
+        chatCompletionsPath: params.chatCompletionsPath ?? null,
         username: params.username || null,
         password: params.password || null,
       })
@@ -504,6 +519,10 @@ export const accountClient = {
             ? params.actionCustomEnabled
             : null,
         action: params.action || null,
+        upstreamFormat: params.upstreamFormat || null,
+        modelsPath: params.modelsPath || null,
+        responsesPath: params.responsesPath ?? null,
+        chatCompletionsPath: params.chatCompletionsPath ?? null,
         username: params.username || null,
         password: params.password || null,
       })
@@ -523,6 +542,41 @@ export const accountClient = {
       withAddr({ id: apiId })
     );
     return normalizeAggregateApiTestResult(result);
+  },
+  async fetchAggregateApiModels(
+    apiId: string
+  ): Promise<AggregateApiFetchModelsResult> {
+    const result = await invoke<unknown>(
+      "service_aggregate_api_fetch_models",
+      withAddr({ id: apiId })
+    );
+    return normalizeAggregateApiFetchModelsResult(result);
+  },
+  async previewAggregateApiModels(
+    apiId: string
+  ): Promise<AggregateApiFetchModelsResult> {
+    const result = await invoke<unknown>(
+      "service_aggregate_api_preview_models",
+      withAddr({ id: apiId })
+    );
+    return normalizeAggregateApiFetchModelsResult(result);
+  },
+  async saveAggregateApiModels(
+    apiId: string,
+    items: AggregateApiFetchedModel[]
+  ): Promise<AggregateApiSaveModelsResult> {
+    const result = await invoke<unknown>(
+      "service_aggregate_api_save_models",
+      withAddr({ id: apiId, items })
+    );
+    return normalizeAggregateApiSaveModelsResult(result);
+  },
+  async listAggregateApiModels(apiId: string): Promise<AggregateApiModel[]> {
+    const result = await invoke<unknown>(
+      "service_aggregate_api_list_models",
+      withAddr({ id: apiId })
+    );
+    return normalizeAggregateApiModelList(result);
   },
 
   async listApiKeys(): Promise<ApiKey[]> {

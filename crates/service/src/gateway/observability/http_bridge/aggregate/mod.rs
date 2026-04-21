@@ -1,3 +1,4 @@
+pub(super) mod openai_responses_event;
 mod output_text;
 mod sse_aggregate;
 mod sse_frame;

@@ -860,7 +860,8 @@ async fn official_responses_websocket_proxies_frames_and_headers() {
 }
 
 #[tokio::test]
-async fn official_responses_websocket_clears_explicit_prompt_cache_key_when_session_anchor_exists() {
+async fn official_responses_websocket_clears_explicit_prompt_cache_key_when_session_anchor_exists()
+{
     let _guard = crate::test_env_guard();
     let db_path = new_test_db_path("codexmanager-proxy-runtime-ws-explicit-prompt-cache-key");
     let _db_guard = EnvGuard::set("CODEXMANAGER_DB_PATH", db_path.to_string_lossy().as_ref());
