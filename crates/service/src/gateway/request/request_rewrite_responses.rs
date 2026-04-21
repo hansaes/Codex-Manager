@@ -52,30 +52,6 @@ pub(super) fn is_responses_path(path: &str) -> bool {
     is_standard_responses_path(path) || is_compact_path(path)
 }
 
-/// 函数 `ensure_instructions`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// - super: 参数 super
-///
-/// # 返回
-/// 返回函数执行结果
-pub(super) fn ensure_instructions(path: &str, obj: &mut serde_json::Map<String, Value>) -> bool {
-    if !is_responses_path(path) {
-        return false;
-    }
-    if obj.contains_key("instructions") {
-        return false;
-    }
-    // 中文注释：对齐 Codex 请求构造：缺失 instructions 时补空字符串，
-    // 避免部分上游对字段存在性更严格导致的 400。
-    obj.insert("instructions".to_string(), Value::String(String::new()));
-    true
-}
-
 /// 函数 `ensure_input_list`
 ///
 /// 作者: gaohongshun
@@ -332,14 +308,6 @@ pub(super) fn ensure_parallel_tool_calls_bool(
         None => {}
     }
 
-    let has_non_empty_tools = obj
-        .get("tools")
-        .and_then(Value::as_array)
-        .is_some_and(|items| !items.is_empty());
-    if has_non_empty_tools {
-        return false;
-    }
-
     obj.insert("parallel_tool_calls".to_string(), Value::Bool(false));
     true
 }
@@ -359,7 +327,17 @@ pub(super) fn ensure_include_list(path: &str, obj: &mut serde_json::Map<String, 
     if !is_standard_responses_path(path) {
         return false;
     }
-    obj.contains_key("include")
+    match obj.get("include") {
+        Some(Value::Array(_)) => false,
+        Some(_) => {
+            obj.insert("include".to_string(), Value::Array(Vec::new()));
+            true
+        }
+        None => {
+            obj.insert("include".to_string(), Value::Array(Vec::new()));
+            true
+        }
+    }
 }
 
 /// 函数 `ensure_reasoning_include`
@@ -601,7 +579,6 @@ fn is_supported_openai_responses_key(key: &str) -> bool {
             | "top_p"
             | "truncation"
             | "user"
-            | "stream_passthrough"
     )
 }
 

@@ -150,7 +150,8 @@ pub(crate) fn derive_account_meta(token: &Token) -> (Option<String>, Option<Stri
     if let Ok(claims) = parse_id_token_claims(&token.id_token) {
         if let Some(auth) = claims.auth {
             if chatgpt_account_id.is_none() {
-                chatgpt_account_id = normalize_chatgpt_account_id(auth.chatgpt_account_id.as_deref());
+                chatgpt_account_id =
+                    normalize_chatgpt_account_id(auth.chatgpt_account_id.as_deref());
             }
         }
         if workspace_id.is_none() {

@@ -2,7 +2,6 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 const DEFAULT_COMPLETIONS_PROMPT: &str = "Complete this:";
-const DEFAULT_OPENAI_REASONING: &str = "medium";
 pub(super) const MAX_OPENAI_TOOL_NAME_LEN: usize = 64;
 
 fn sanitize_openai_tool_name(name: &str) -> String {
@@ -625,10 +624,12 @@ pub(crate) fn convert_openai_chat_completions_request(
     if let Some(model) = obj.get("model") {
         out.insert("model".to_string(), model.clone());
     }
-    out.insert(
-        "instructions".to_string(),
-        Value::String(instructions.unwrap_or_default()),
-    );
+    if let Some(instructions) = instructions
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        out.insert("instructions".to_string(), Value::String(instructions));
+    }
     out.insert("input".to_string(), Value::Array(input_items));
     out.insert("stream".to_string(), Value::Bool(stream));
     out.insert("store".to_string(), Value::Bool(false));
@@ -636,10 +637,12 @@ pub(crate) fn convert_openai_chat_completions_request(
         .get("stream_passthrough")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    out.insert(
-        "stream_passthrough".to_string(),
-        Value::Bool(stream_passthrough),
-    );
+    if stream_passthrough {
+        out.insert(
+            "stream_passthrough".to_string(),
+            Value::Bool(stream_passthrough),
+        );
+    }
 
     let reasoning_effort = obj
         .get("reasoning_effort")
@@ -650,45 +653,49 @@ pub(crate) fn convert_openai_chat_completions_request(
                 .and_then(|reasoning| reasoning.get("effort"))
                 .and_then(Value::as_str)
                 .and_then(crate::reasoning_effort::normalize_reasoning_effort)
-        })
-        .unwrap_or(DEFAULT_OPENAI_REASONING)
-        .to_string();
-    out.insert(
-        "reasoning".to_string(),
-        json!({
-            "effort": reasoning_effort
-        }),
-    );
-
-    let parallel_tool_calls = obj
-        .get("parallel_tool_calls")
-        .and_then(Value::as_bool)
-        .unwrap_or(true);
-    out.insert(
-        "parallel_tool_calls".to_string(),
-        Value::Bool(parallel_tool_calls),
-    );
-    out.insert(
-        "include".to_string(),
-        Value::Array(vec![Value::String(
-            "reasoning.encrypted_content".to_string(),
-        )]),
-    );
+        });
+    if let Some(reasoning_effort) = reasoning_effort {
+        out.insert(
+            "reasoning".to_string(),
+            json!({
+                "effort": reasoning_effort
+            }),
+        );
+        out.insert(
+            "include".to_string(),
+            Value::Array(vec![Value::String(
+                "reasoning.encrypted_content".to_string(),
+            )]),
+        );
+    }
     if let Some(service_tier) = obj.get("service_tier") {
         out.insert("service_tier".to_string(), service_tier.clone());
     }
 
-    if let Some(tools) = map_openai_chat_tools_to_responses(obj, &tool_name_map) {
+    let mapped_tools = map_openai_chat_tools_to_responses(obj, &tool_name_map);
+    let has_tools = mapped_tools
+        .as_ref()
+        .map(|tools| !tools.is_empty())
+        .unwrap_or(false);
+    if let Some(tools) = mapped_tools {
         if !tools.is_empty() {
             out.insert("tools".to_string(), Value::Array(tools));
         }
+    }
+    if let Some(parallel_tool_calls) = obj.get("parallel_tool_calls").and_then(Value::as_bool) {
+        out.insert(
+            "parallel_tool_calls".to_string(),
+            Value::Bool(parallel_tool_calls),
+        );
+    } else if has_tools {
+        out.insert("parallel_tool_calls".to_string(), Value::Bool(true));
     }
     if let Some(tool_choice) = obj
         .get("tool_choice")
         .and_then(|value| map_openai_chat_tool_choice_to_responses(value, &tool_name_map))
     {
         out.insert("tool_choice".to_string(), tool_choice);
-    } else {
+    } else if has_tools {
         out.insert("tool_choice".to_string(), Value::String("auto".to_string()));
     }
     if let Some(text) = map_openai_chat_text_controls_to_responses(obj) {

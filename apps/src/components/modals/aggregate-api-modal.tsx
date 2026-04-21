@@ -683,7 +683,7 @@ export function AggregateApiModal({
                       <Input
                         value={action}
                         disabled={!isServiceReady}
-                        placeholder={t("例如：/api/paas/v4/chat/completions")}
+                        placeholder={t("例如：/api/paas/v4/responses")}
                         onChange={(e) => setAction(e.target.value)}
                       />
                     </div>

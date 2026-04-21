@@ -409,7 +409,7 @@ fn gateway_openai_responses_does_not_invent_prompt_cache_key_without_anchor() {
 }
 
 #[test]
-fn gateway_openai_chat_completions_keeps_conversation_anchor_over_conflicting_prompt_cache_key() {
+fn gateway_openai_responses_keeps_conversation_anchor_over_conflicting_prompt_cache_key() {
     let _lock = test_env_guard();
     let dir = new_test_dir("codexmanager-gateway-openai-chat-explicit-prompt-cache-key");
     let db_path: PathBuf = dir.join("codexmanager.db");
@@ -493,14 +493,14 @@ fn gateway_openai_chat_completions_keeps_conversation_anchor_over_conflicting_pr
     let server = codexmanager_service::start_one_shot_server().expect("start server");
     let request_body = serde_json::json!({
         "model": "gpt-5.4-mini",
-        "messages": [{ "role": "user", "content": "hello" }],
+        "input": "hello",
         "prompt_cache_key": "client_thread_123",
         "stream": false
     });
     let request_body = serde_json::to_string(&request_body).expect("serialize request");
     let (status, gateway_body) = post_http_raw(
         &server.addr,
-        "/v1/chat/completions",
+        "/v1/responses",
         &request_body,
         &[
             ("Content-Type", "application/json"),
@@ -2817,7 +2817,7 @@ fn gateway_chatgpt_primary_preserves_turn_state_headers_without_openai_fallback(
 /// # 返回
 /// 无
 #[test]
-fn gateway_openai_chat_completions_stay_on_chatgpt_codex_base() {
+fn gateway_openai_responses_stay_on_chatgpt_codex_base() {
     let _lock = test_env_guard();
     let dir = new_test_dir("codexmanager-gateway-openai-chat-chatgpt-base");
     let db_path: PathBuf = dir.join("codexmanager.db");
@@ -2899,13 +2899,13 @@ fn gateway_openai_chat_completions_stay_on_chatgpt_codex_base() {
     let server = codexmanager_service::start_one_shot_server().expect("start server");
     let request_body = serde_json::json!({
         "model": "gpt-5.4-mini",
-        "messages": [{ "role": "user", "content": "hello" }],
+        "input": "hello",
         "stream": false
     });
     let request_body = serde_json::to_string(&request_body).expect("serialize request");
     let (status, gateway_body) = post_http_raw(
         &server.addr,
-        "/v1/chat/completions",
+        "/v1/responses",
         &request_body,
         &[
             ("Content-Type", "application/json"),

@@ -9,9 +9,33 @@ fn anchor_fingerprint_or_dash(value: Option<&str>) -> String {
         .unwrap_or_else(|| "-".to_string())
 }
 
+fn normalize_non_empty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn looks_like_codex_identity(value: &str) -> bool {
+    value.to_ascii_lowercase().contains("codex")
+}
+
+fn resolve_originator_header(incoming_originator: Option<&str>) -> String {
+    normalize_non_empty(incoming_originator)
+        .filter(|value| looks_like_codex_identity(value))
+        .map(str::to_string)
+        .unwrap_or_else(crate::gateway::current_wire_originator)
+}
+
+fn resolve_user_agent_header(incoming_user_agent: Option<&str>) -> String {
+    normalize_non_empty(incoming_user_agent)
+        .filter(|value| looks_like_codex_identity(value))
+        .map(str::to_string)
+        .unwrap_or_else(crate::gateway::current_codex_user_agent)
+}
+
 pub(crate) struct CodexUpstreamHeaderInput<'a> {
     pub(crate) auth_token: &'a str,
     pub(crate) chatgpt_account_id: Option<&'a str>,
+    pub(crate) incoming_user_agent: Option<&'a str>,
+    pub(crate) incoming_originator: Option<&'a str>,
     pub(crate) incoming_session_id: Option<&'a str>,
     pub(crate) incoming_window_id: Option<&'a str>,
     pub(crate) incoming_client_request_id: Option<&'a str>,
@@ -30,6 +54,8 @@ pub(crate) struct CodexUpstreamHeaderInput<'a> {
 pub(crate) struct CodexCompactUpstreamHeaderInput<'a> {
     pub(crate) auth_token: &'a str,
     pub(crate) chatgpt_account_id: Option<&'a str>,
+    pub(crate) incoming_user_agent: Option<&'a str>,
+    pub(crate) incoming_originator: Option<&'a str>,
     pub(crate) incoming_session_id: Option<&'a str>,
     pub(crate) incoming_window_id: Option<&'a str>,
     pub(crate) incoming_subagent: Option<&'a str>,
@@ -54,6 +80,8 @@ pub(crate) struct CodexCompactUpstreamHeaderInput<'a> {
 pub(crate) fn build_codex_upstream_headers(
     input: CodexUpstreamHeaderInput<'_>,
 ) -> Vec<(String, String)> {
+    let user_agent = resolve_user_agent_header(input.incoming_user_agent);
+    let originator = resolve_originator_header(input.incoming_originator);
     let mut headers = Vec::with_capacity(16);
     headers.push((
         "Authorization".to_string(),
@@ -70,14 +98,8 @@ pub(crate) fn build_codex_upstream_headers(
         headers.push(("Content-Type".to_string(), "application/json".to_string()));
     }
     headers.push(("Accept".to_string(), "text/event-stream".to_string()));
-    headers.push((
-        "User-Agent".to_string(),
-        crate::gateway::current_codex_user_agent(),
-    ));
-    headers.push((
-        "originator".to_string(),
-        crate::gateway::current_wire_originator(),
-    ));
+    headers.push(("User-Agent".to_string(), user_agent));
+    headers.push(("originator".to_string(), originator));
     if let Some(residency_requirement) = crate::gateway::current_residency_requirement() {
         headers.push((
             crate::gateway::runtime_config::RESIDENCY_HEADER_NAME.to_string(),
@@ -170,6 +192,8 @@ pub(crate) fn build_codex_upstream_headers(
 pub(crate) fn build_codex_compact_upstream_headers(
     input: CodexCompactUpstreamHeaderInput<'_>,
 ) -> Vec<(String, String)> {
+    let user_agent = resolve_user_agent_header(input.incoming_user_agent);
+    let originator = resolve_originator_header(input.incoming_originator);
     let mut headers = Vec::with_capacity(12);
     headers.push((
         "Authorization".to_string(),
@@ -186,14 +210,8 @@ pub(crate) fn build_codex_compact_upstream_headers(
         headers.push(("Content-Type".to_string(), "application/json".to_string()));
     }
     headers.push(("Accept".to_string(), "application/json".to_string()));
-    headers.push((
-        "User-Agent".to_string(),
-        crate::gateway::current_codex_user_agent(),
-    ));
-    headers.push((
-        "originator".to_string(),
-        crate::gateway::current_wire_originator(),
-    ));
+    headers.push(("User-Agent".to_string(), user_agent));
+    headers.push(("originator".to_string(), originator));
     if let Some(residency_requirement) = crate::gateway::current_residency_requirement() {
         headers.push((
             crate::gateway::runtime_config::RESIDENCY_HEADER_NAME.to_string(),
@@ -393,6 +411,8 @@ mod tests {
         let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
             auth_token: "token-123",
             chatgpt_account_id: Some("account-123"),
+            incoming_user_agent: None,
+            incoming_originator: None,
             incoming_session_id: Some("conversation-anchor"),
             incoming_window_id: Some("conversation-anchor:7"),
             incoming_client_request_id: Some("conversation-anchor"),
@@ -487,6 +507,8 @@ mod tests {
         let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
             auth_token: "token-456",
             chatgpt_account_id: None,
+            incoming_user_agent: None,
+            incoming_originator: None,
             incoming_session_id: Some("conversation-anchor"),
             incoming_window_id: Some("conversation-anchor:9"),
             incoming_client_request_id: Some("conversation-anchor"),
@@ -547,6 +569,8 @@ mod tests {
         let headers = build_codex_compact_upstream_headers(CodexCompactUpstreamHeaderInput {
             auth_token: "token-789",
             chatgpt_account_id: Some("account-compact"),
+            incoming_user_agent: None,
+            incoming_originator: None,
             incoming_session_id: None,
             incoming_window_id: Some("conversation-anchor:11"),
             incoming_subagent: Some("subagent-b"),
@@ -598,6 +622,8 @@ mod tests {
         let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
             auth_token: "token-window-fix",
             chatgpt_account_id: None,
+            incoming_user_agent: None,
+            incoming_originator: None,
             incoming_session_id: Some("session-anchor"),
             incoming_window_id: Some("stale-window-anchor:9"),
             incoming_client_request_id: Some("request-anchor"),
@@ -617,6 +643,39 @@ mod tests {
         assert_eq!(
             header_value(&headers, "x-codex-window-id"),
             Some("session-anchor:0")
+        );
+    }
+
+    #[test]
+    fn build_codex_upstream_headers_prefers_incoming_codex_identity() {
+        let _guard = crate::test_env_guard();
+        let _ = set_originator("codex_cli_rs_tests").expect("set originator");
+        let _ = set_codex_user_agent_version("0.999.4").expect("set ua version");
+
+        let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
+            auth_token: "token-ident",
+            chatgpt_account_id: None,
+            incoming_user_agent: Some("codex_sdk_ts/1.2.3 (Windows 11; x86_64) node"),
+            incoming_originator: Some("codex_sdk_ts"),
+            incoming_session_id: Some("thread-ident"),
+            incoming_window_id: Some("thread-ident:0"),
+            incoming_client_request_id: Some("thread-ident"),
+            incoming_subagent: None,
+            incoming_beta_features: None,
+            incoming_turn_metadata: None,
+            incoming_parent_thread_id: None,
+            passthrough_codex_headers: &[],
+            fallback_session_id: Some("thread-ident"),
+            incoming_turn_state: None,
+            include_turn_state: true,
+            strip_session_affinity: false,
+            has_body: true,
+        });
+
+        assert_eq!(header_value(&headers, "originator"), Some("codex_sdk_ts"));
+        assert_eq!(
+            header_value(&headers, "User-Agent"),
+            Some("codex_sdk_ts/1.2.3 (Windows 11; x86_64) node")
         );
     }
 }

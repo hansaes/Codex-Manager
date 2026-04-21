@@ -265,6 +265,8 @@ pub(super) fn try_openai_fallback(
         let header_input = super::upstream::header_profile::CodexCompactUpstreamHeaderInput {
             auth_token: bearer.as_str(),
             chatgpt_account_id: resolve_chatgpt_account_header(account, upstream_base),
+            incoming_user_agent: incoming_headers.user_agent(),
+            incoming_originator: incoming_headers.originator(),
             incoming_session_id: request_affinity.incoming_session_id,
             incoming_window_id: incoming_headers.window_id(),
             incoming_subagent: incoming_headers.subagent(),
@@ -279,6 +281,8 @@ pub(super) fn try_openai_fallback(
         let header_input = super::upstream::header_profile::CodexUpstreamHeaderInput {
             auth_token: bearer.as_str(),
             chatgpt_account_id: resolve_chatgpt_account_header(account, upstream_base),
+            incoming_user_agent: incoming_headers.user_agent(),
+            incoming_originator: incoming_headers.originator(),
             incoming_session_id: request_affinity.incoming_session_id,
             incoming_window_id: incoming_headers.window_id(),
             incoming_client_request_id: request_affinity.incoming_client_request_id,

@@ -357,12 +357,7 @@ fn responses_overrides_model_and_reasoning_effort() {
             .and_then(serde_json::Value::as_str),
         Some("medium")
     );
-    assert_eq!(
-        value
-            .get("instructions")
-            .and_then(serde_json::Value::as_str),
-        Some("")
-    );
+    assert!(value.get("instructions").is_none());
 }
 
 /// 函数 `responses_input_string_normalized_to_list`
@@ -684,6 +679,28 @@ fn responses_stream_passthrough_keeps_client_stream_flag_when_enabled() {
     assert!(value.get("stream_passthrough").is_none());
 }
 
+#[test]
+fn responses_official_allowlist_drops_stream_passthrough() {
+    let _guard = crate::test_env_guard();
+    let _strict_guard = RuntimeEnvGuard::set(STRICT_REQUEST_PARAM_ALLOWLIST_ENV, "true");
+    let body = json!({
+        "model": "gpt-4.1",
+        "input": "hello",
+        "stream_passthrough": true,
+        "unknown_field": "drop-me"
+    });
+    let out = apply_request_overrides(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        None,
+        None,
+        Some("https://api.openai.com/v1"),
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
+    assert!(value.get("stream_passthrough").is_none());
+    assert!(value.get("unknown_field").is_none());
+}
+
 /// 函数 `responses_dynamic_tools_are_mapped_to_tools_for_codex_backend`
 ///
 /// 作者: gaohongshun
@@ -977,7 +994,13 @@ fn responses_defaults_empty_include_without_reasoning_for_codex_backend() {
         .get("tools")
         .and_then(serde_json::Value::as_array)
         .is_some());
-    assert!(value.get("include").is_none());
+    assert_eq!(
+        value
+            .get("include")
+            .and_then(serde_json::Value::as_array)
+            .map(Vec::len),
+        Some(0)
+    );
 }
 
 /// 函数 `responses_normalizes_fast_service_tier_to_priority_for_codex_backend`
@@ -1138,12 +1161,7 @@ fn responses_compact_uses_codex_compat_rewrite() {
         Some("https://chatgpt.com/backend-api/codex"),
     );
     let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
-    assert_eq!(
-        value
-            .get("instructions")
-            .and_then(serde_json::Value::as_str),
-        Some("")
-    );
+    assert!(value.get("instructions").is_none());
     assert!(value.get("tools").is_some());
     assert_eq!(
         value
@@ -1256,7 +1274,7 @@ fn responses_omits_include_when_reasoning_missing_for_codex_backend() {
     assert!(value.get("include").is_none());
 }
 
-/// 函数 `responses_keeps_parallel_tool_calls_missing_when_tools_are_present`
+/// 函数 `responses_codex_compat_defaults_parallel_tool_calls_false_when_tools_are_present`
 ///
 /// 作者: gaohongshun
 ///
@@ -1268,14 +1286,14 @@ fn responses_omits_include_when_reasoning_missing_for_codex_backend() {
 /// # 返回
 /// 无
 #[test]
-fn responses_keeps_parallel_tool_calls_missing_when_tools_are_present() {
+fn responses_codex_compat_defaults_parallel_tool_calls_false_when_tools_are_present() {
     let _guard = crate::test_env_guard();
     let body = json!({
         "model": "gpt-5.3-codex",
         "input": "hello",
         "tools": [{ "type": "function", "name": "ping", "parameters": { "type": "object", "properties": {} } }]
     });
-    let out = apply_request_overrides(
+    let out = apply_codex_compat_request_overrides(
         "/v1/responses",
         serde_json::to_vec(&body).expect("serialize request body"),
         None,
@@ -1283,7 +1301,12 @@ fn responses_keeps_parallel_tool_calls_missing_when_tools_are_present() {
         Some("https://chatgpt.com/backend-api/codex"),
     );
     let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
-    assert!(value.get("parallel_tool_calls").is_none());
+    assert_eq!(
+        value
+            .get("parallel_tool_calls")
+            .and_then(serde_json::Value::as_bool),
+        Some(false)
+    );
 }
 
 /// 函数 `responses_passthrough_for_non_codex_upstream`

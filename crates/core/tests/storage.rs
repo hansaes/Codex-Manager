@@ -388,9 +388,7 @@ fn storage_account_subscription_roundtrip_and_delete_cleanup() {
     assert_eq!(subscription.expires_at, Some(1_746_501_889));
     assert_eq!(subscription.renews_at, Some(1_746_501_889));
 
-    storage
-        .delete_account("acc-sub-1")
-        .expect("delete account");
+    storage.delete_account("acc-sub-1").expect("delete account");
     assert!(storage
         .find_account_subscription("acc-sub-1")
         .expect("find subscription after delete")
@@ -511,6 +509,7 @@ fn storage_account_usage_filters_support_sql_pagination() {
         ("acc-inactive-low", "inactive", Some(90.0), Some(90.0)),
         ("acc-healthy-1", "healthy", Some(30.0), Some(30.0)),
         ("acc-no-snapshot", "active", None, None),
+        ("acc-limited", "limited", None, None),
     ];
 
     for (idx, (id, status, primary_used, low_used)) in accounts.iter().enumerate() {
@@ -611,6 +610,7 @@ fn storage_gateway_candidates_exclude_unavailable_or_missing_token_accounts() {
         ("acc-partial", "active", 3_i64),
         ("acc-inactive", "inactive", 4_i64),
         ("acc-no-token", "active", 5_i64),
+        ("acc-limited", "limited", 6_i64),
     ];
     for (id, status, sort) in accounts {
         storage
@@ -635,6 +635,7 @@ fn storage_gateway_candidates_exclude_unavailable_or_missing_token_accounts() {
         "acc-exhausted",
         "acc-partial",
         "acc-inactive",
+        "acc-limited",
     ] {
         storage
             .insert_token(&Token {

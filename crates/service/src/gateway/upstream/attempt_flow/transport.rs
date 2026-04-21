@@ -1,7 +1,13 @@
 use bytes::Bytes;
 use codexmanager_core::storage::Account;
+use futures_util::StreamExt;
+use std::sync::mpsc;
+use std::thread;
 use std::time::Instant;
 use tiny_http::Request;
+use tokio::runtime::Builder;
+
+use super::super::GatewayUpstreamResponse;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RequestCompression {
@@ -228,6 +234,91 @@ fn should_retry_transport_without_compression(
         && super::super::config::is_chatgpt_backend_base(target_url)
 }
 
+fn should_wrap_upstream_as_stream_response(request_path: &str, is_stream: bool) -> bool {
+    is_stream && request_path.starts_with("/v1/responses") && !is_compact_request_path(request_path)
+}
+
+fn send_async_stream_request(
+    client: &reqwest::Client,
+    method: &reqwest::Method,
+    target_url: &str,
+    request_deadline: Option<Instant>,
+    request_headers: &[(String, String)],
+    request_body: &Bytes,
+    is_stream: bool,
+) -> Result<super::super::GatewayStreamResponse, reqwest::Error> {
+    let client = client.clone();
+    let method = method.clone();
+    let target_url = target_url.to_string();
+    let request_headers = request_headers.to_vec();
+    let request_body = request_body.clone();
+    let (meta_tx, meta_rx) = mpsc::sync_channel::<
+        Result<(reqwest::StatusCode, reqwest::header::HeaderMap), reqwest::Error>,
+    >(1);
+    let (body_tx, body_rx) = mpsc::sync_channel::<super::super::GatewayByteStreamItem>(128);
+    thread::spawn(move || {
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap_or_else(|err| panic!("build gateway upstream runtime failed: {err}"));
+        runtime.block_on(async move {
+            let mut builder = client.request(method, target_url);
+            if let Some(timeout) =
+                super::super::support::deadline::send_timeout(request_deadline, is_stream)
+            {
+                builder = builder.timeout(timeout);
+            }
+            for (name, value) in request_headers.iter() {
+                builder = builder.header(name, value);
+            }
+            if !request_body.is_empty() {
+                builder = builder.body(request_body);
+            }
+            match builder.send().await {
+                Ok(response) => {
+                    let status = response.status();
+                    let headers = response.headers().clone();
+                    if meta_tx.send(Ok((status, headers))).is_err() {
+                        return;
+                    }
+                    let mut stream = response.bytes_stream();
+                    while let Some(item) = stream.next().await {
+                        match item {
+                            Ok(bytes) => {
+                                if body_tx
+                                    .send(super::super::GatewayByteStreamItem::Chunk(bytes))
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                            }
+                            Err(err) => {
+                                let _ = body_tx.send(super::super::GatewayByteStreamItem::Error(
+                                    err.to_string(),
+                                ));
+                                return;
+                            }
+                        }
+                    }
+                    let _ = body_tx.send(super::super::GatewayByteStreamItem::Eof);
+                }
+                Err(err) => {
+                    let _ = meta_tx.send(Err(err));
+                }
+            }
+        });
+    });
+    match meta_rx.recv() {
+        Ok(Ok((status, headers))) => Ok(super::super::GatewayStreamResponse::new(
+            status,
+            headers,
+            super::super::GatewayByteStream::from_receiver(body_rx),
+        )),
+        Ok(Err(err)) => Err(err),
+        Err(_) => panic!("receive gateway async upstream response metadata failed"),
+    }
+}
+
 /// 函数 `encode_request_body`
 ///
 /// 作者: gaohongshun
@@ -309,7 +400,7 @@ pub(in super::super) fn send_upstream_request(
     auth_token: &str,
     account: &Account,
     strip_session_affinity: bool,
-) -> Result<reqwest::blocking::Response, reqwest::Error> {
+) -> Result<GatewayUpstreamResponse, reqwest::Error> {
     send_upstream_request_with_compression_override(
         client,
         method,
@@ -349,7 +440,7 @@ pub(in super::super) fn send_upstream_request_without_compression(
     auth_token: &str,
     account: &Account,
     strip_session_affinity: bool,
-) -> Result<reqwest::blocking::Response, reqwest::Error> {
+) -> Result<GatewayUpstreamResponse, reqwest::Error> {
     send_upstream_request_with_compression_override(
         client,
         method,
@@ -390,7 +481,7 @@ fn send_upstream_request_with_compression_override(
     account: &Account,
     strip_session_affinity: bool,
     compression_override: Option<RequestCompression>,
-) -> Result<reqwest::blocking::Response, reqwest::Error> {
+) -> Result<GatewayUpstreamResponse, reqwest::Error> {
     let attempt_started_at = Instant::now();
     let prompt_cache_key = extract_prompt_cache_key(body.as_ref());
     let is_compact_request = is_compact_request_path(request_ctx.request_path);
@@ -426,6 +517,8 @@ fn send_upstream_request_with_compression_override(
         let header_input = super::super::header_profile::CodexCompactUpstreamHeaderInput {
             auth_token,
             chatgpt_account_id: resolve_chatgpt_account_header(account, target_url),
+            incoming_user_agent: incoming_headers.user_agent(),
+            incoming_originator: incoming_headers.originator(),
             incoming_session_id: request_affinity.incoming_session_id,
             incoming_window_id: incoming_headers.window_id(),
             incoming_subagent: incoming_headers.subagent(),
@@ -440,6 +533,8 @@ fn send_upstream_request_with_compression_override(
         let header_input = super::super::header_profile::CodexUpstreamHeaderInput {
             auth_token,
             chatgpt_account_id: resolve_chatgpt_account_header(account, target_url),
+            incoming_user_agent: incoming_headers.user_agent(),
+            incoming_originator: incoming_headers.originator(),
             incoming_session_id: request_affinity.incoming_session_id,
             incoming_window_id: incoming_headers.window_id(),
             incoming_client_request_id: request_affinity.incoming_client_request_id,
@@ -489,69 +584,169 @@ fn send_upstream_request_with_compression_override(
         builder
     };
 
-    let result = match build_request(client, upstream_headers.as_slice(), &body_for_request).send()
-    {
-        Ok(resp) => Ok(resp),
-        Err(first_err) => {
-            let fresh = super::super::super::fresh_upstream_client_for_account(account.id.as_str());
-            if should_retry_transport_without_compression(
-                target_url,
-                request_ctx.request_path,
-                is_stream,
-                request_compression,
-            ) {
-                log::warn!(
-                    "event=gateway_transport_retry_without_compression path={} account_id={} target_url={} first_err={}",
-                    request_ctx.request_path,
-                    account.id,
-                    target_url,
-                    first_err
+    let use_async_stream_transport =
+        should_wrap_upstream_as_stream_response(request_ctx.request_path, is_stream);
+    let result = if use_async_stream_transport {
+        let async_client =
+            super::super::super::async_upstream_client_for_account(account.id.as_str());
+        match send_async_stream_request(
+            &async_client,
+            method,
+            target_url,
+            request_deadline,
+            upstream_headers.as_slice(),
+            &body_for_request,
+            is_stream,
+        ) {
+            Ok(resp) => Ok(GatewayUpstreamResponse::Stream(resp)),
+            Err(first_err) => {
+                let fresh_async = super::super::super::fresh_async_upstream_client_for_account(
+                    account.id.as_str(),
                 );
-                match build_request(&fresh, upstream_headers_uncompressed.as_slice(), body).send() {
-                    Ok(resp) => {
-                        log::warn!(
-                            "event=gateway_transport_retry_without_compression_succeeded path={} account_id={} target_url={}",
-                            request_ctx.request_path,
-                            account.id,
-                            target_url
-                        );
-                        Ok(resp)
+                if should_retry_transport_without_compression(
+                    target_url,
+                    request_ctx.request_path,
+                    is_stream,
+                    request_compression,
+                ) {
+                    log::warn!(
+                        "event=gateway_transport_retry_without_compression path={} account_id={} target_url={} first_err={}",
+                        request_ctx.request_path,
+                        account.id,
+                        target_url,
+                        first_err
+                    );
+                    match send_async_stream_request(
+                        &fresh_async,
+                        method,
+                        target_url,
+                        request_deadline,
+                        upstream_headers_uncompressed.as_slice(),
+                        body,
+                        is_stream,
+                    ) {
+                        Ok(resp) => {
+                            log::warn!(
+                                "event=gateway_transport_retry_without_compression_succeeded path={} account_id={} target_url={}",
+                                request_ctx.request_path,
+                                account.id,
+                                target_url
+                            );
+                            Ok(GatewayUpstreamResponse::Stream(resp))
+                        }
+                        Err(second_err) => {
+                            log::warn!(
+                                "event=gateway_transport_retry_without_compression_failed path={} account_id={} target_url={} first_err={} retry_err={}",
+                                request_ctx.request_path,
+                                account.id,
+                                target_url,
+                                first_err,
+                                second_err
+                            );
+                            Err(second_err)
+                        }
                     }
-                    Err(second_err) => {
-                        log::warn!(
-                            "event=gateway_transport_retry_without_compression_failed path={} account_id={} target_url={} first_err={} retry_err={}",
-                            request_ctx.request_path,
-                            account.id,
-                            target_url,
-                            first_err,
-                            second_err
-                        );
-                        Err(second_err)
+                } else {
+                    match send_async_stream_request(
+                        &fresh_async,
+                        method,
+                        target_url,
+                        request_deadline,
+                        upstream_headers.as_slice(),
+                        &body_for_request,
+                        is_stream,
+                    ) {
+                        Ok(resp) => {
+                            log::info!(
+                                "event=gateway_transport_retry_with_fresh_client_succeeded path={} account_id={} target_url={}",
+                                request_ctx.request_path,
+                                account.id,
+                                target_url
+                            );
+                            Ok(GatewayUpstreamResponse::Stream(resp))
+                        }
+                        Err(second_err) => {
+                            log::warn!(
+                                "event=gateway_transport_retry_with_fresh_client_failed path={} account_id={} target_url={} first_err={} retry_err={}",
+                                request_ctx.request_path,
+                                account.id,
+                                target_url,
+                                first_err,
+                                second_err
+                            );
+                            Err(second_err)
+                        }
                     }
                 }
-            } else {
-                // 中文注释：进程启动后才开启系统代理时，旧单例 client 可能仍走旧网络路径；
-                // 这里用 fresh client 立刻重试一次，避免必须手动重连服务。
-                match build_request(&fresh, upstream_headers.as_slice(), &body_for_request).send() {
-                    Ok(resp) => {
-                        log::info!(
-                            "event=gateway_transport_retry_with_fresh_client_succeeded path={} account_id={} target_url={}",
-                            request_ctx.request_path,
-                            account.id,
-                            target_url
-                        );
-                        Ok(resp)
+            }
+        }
+    } else {
+        match build_request(client, upstream_headers.as_slice(), &body_for_request).send() {
+            Ok(resp) => Ok(resp.into()),
+            Err(first_err) => {
+                let fresh =
+                    super::super::super::fresh_upstream_client_for_account(account.id.as_str());
+                if should_retry_transport_without_compression(
+                    target_url,
+                    request_ctx.request_path,
+                    is_stream,
+                    request_compression,
+                ) {
+                    log::warn!(
+                        "event=gateway_transport_retry_without_compression path={} account_id={} target_url={} first_err={}",
+                        request_ctx.request_path,
+                        account.id,
+                        target_url,
+                        first_err
+                    );
+                    match build_request(&fresh, upstream_headers_uncompressed.as_slice(), body)
+                        .send()
+                    {
+                        Ok(resp) => {
+                            log::warn!(
+                                "event=gateway_transport_retry_without_compression_succeeded path={} account_id={} target_url={}",
+                                request_ctx.request_path,
+                                account.id,
+                                target_url
+                            );
+                            Ok(resp.into())
+                        }
+                        Err(second_err) => {
+                            log::warn!(
+                                "event=gateway_transport_retry_without_compression_failed path={} account_id={} target_url={} first_err={} retry_err={}",
+                                request_ctx.request_path,
+                                account.id,
+                                target_url,
+                                first_err,
+                                second_err
+                            );
+                            Err(second_err)
+                        }
                     }
-                    Err(second_err) => {
-                        log::warn!(
-                            "event=gateway_transport_retry_with_fresh_client_failed path={} account_id={} target_url={} first_err={} retry_err={}",
-                            request_ctx.request_path,
-                            account.id,
-                            target_url,
-                            first_err,
-                            second_err
-                        );
-                        Err(second_err)
+                } else {
+                    match build_request(&fresh, upstream_headers.as_slice(), &body_for_request)
+                        .send()
+                    {
+                        Ok(resp) => {
+                            log::info!(
+                                "event=gateway_transport_retry_with_fresh_client_succeeded path={} account_id={} target_url={}",
+                                request_ctx.request_path,
+                                account.id,
+                                target_url
+                            );
+                            Ok(resp.into())
+                        }
+                        Err(second_err) => {
+                            log::warn!(
+                                "event=gateway_transport_retry_with_fresh_client_failed path={} account_id={} target_url={} first_err={} retry_err={}",
+                                request_ctx.request_path,
+                                account.id,
+                                target_url,
+                                first_err,
+                                second_err
+                            );
+                            Err(second_err)
+                        }
                     }
                 }
             }
@@ -566,7 +761,8 @@ fn send_upstream_request_with_compression_override(
 mod tests {
     use super::{
         encode_request_body, resolve_request_compression_with_flag,
-        should_retry_transport_without_compression, RequestCompression,
+        should_retry_transport_without_compression, should_wrap_upstream_as_stream_response,
+        RequestCompression,
     };
     use bytes::Bytes;
 
@@ -697,6 +893,30 @@ mod tests {
             "/v1/responses",
             true,
             RequestCompression::None
+        ));
+    }
+
+    #[test]
+    fn transport_wraps_non_compact_responses_streams_into_stream_variant() {
+        assert!(should_wrap_upstream_as_stream_response(
+            "/v1/responses",
+            true
+        ));
+        assert!(should_wrap_upstream_as_stream_response(
+            "/v1/responses?stream=false",
+            true
+        ));
+        assert!(!should_wrap_upstream_as_stream_response(
+            "/v1/responses/compact",
+            true
+        ));
+        assert!(!should_wrap_upstream_as_stream_response(
+            "/v1/chat/completions",
+            true
+        ));
+        assert!(!should_wrap_upstream_as_stream_response(
+            "/v1/responses",
+            false
         ));
     }
 }

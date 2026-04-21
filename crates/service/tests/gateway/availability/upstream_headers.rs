@@ -123,6 +123,8 @@ fn codex_header_profile_sets_required_headers_for_stream() {
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-123",
         chatgpt_account_id: Some("workspace-1"),
+        incoming_user_agent: None,
+        incoming_originator: None,
         incoming_session_id: None,
         incoming_window_id: None,
         incoming_client_request_id: Some("client-req-1"),
@@ -213,6 +215,8 @@ fn codex_header_profile_uses_json_accept_for_non_stream() {
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-456",
         chatgpt_account_id: None,
+        incoming_user_agent: None,
+        incoming_originator: None,
         incoming_session_id: None,
         incoming_window_id: None,
         incoming_client_request_id: None,
@@ -263,6 +267,8 @@ fn codex_compact_header_profile_matches_remote_compact_shape() {
     let headers = build_codex_compact_upstream_headers(CodexCompactUpstreamHeaderInput {
         auth_token: "token-compact",
         chatgpt_account_id: Some("workspace-compact"),
+        incoming_user_agent: None,
+        incoming_originator: None,
         incoming_session_id: Some("session-compact"),
         incoming_window_id: Some("session-compact:7"),
         incoming_subagent: Some("compact"),
@@ -337,6 +343,8 @@ fn codex_compact_header_profile_omits_subagent_without_explicit_source() {
     let headers = build_codex_compact_upstream_headers(CodexCompactUpstreamHeaderInput {
         auth_token: "token-compact-default",
         chatgpt_account_id: None,
+        incoming_user_agent: None,
+        incoming_originator: None,
         incoming_session_id: Some("session-compact-default"),
         incoming_window_id: None,
         incoming_subagent: None,
@@ -367,6 +375,8 @@ fn codex_compact_header_profile_omits_session_without_thread_anchor() {
     let headers = build_codex_compact_upstream_headers(CodexCompactUpstreamHeaderInput {
         auth_token: "token-compact-no-session",
         chatgpt_account_id: None,
+        incoming_user_agent: None,
+        incoming_originator: None,
         incoming_session_id: None,
         incoming_window_id: None,
         incoming_subagent: None,
@@ -404,6 +414,8 @@ fn codex_header_profile_uses_dynamic_originator_and_residency_requirement() {
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-dynamic",
         chatgpt_account_id: Some("workspace-dynamic"),
+        incoming_user_agent: None,
+        incoming_originator: None,
         incoming_session_id: None,
         incoming_window_id: None,
         incoming_client_request_id: None,
@@ -460,6 +472,8 @@ fn codex_header_profile_regenerates_session_on_failover() {
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-789",
         chatgpt_account_id: None,
+        incoming_user_agent: None,
+        incoming_originator: None,
         incoming_session_id: Some("sticky-session"),
         incoming_window_id: Some("sticky-session:7"),
         incoming_client_request_id: None,
@@ -509,6 +523,8 @@ fn codex_header_profile_uses_fallback_session_when_incoming_missing() {
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-fallback",
         chatgpt_account_id: None,
+        incoming_user_agent: None,
+        incoming_originator: None,
         incoming_session_id: None,
         incoming_window_id: None,
         incoming_client_request_id: None,
@@ -552,6 +568,8 @@ fn codex_header_profile_does_not_forward_conversation_header_even_with_fallback(
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-fallback-conv",
         chatgpt_account_id: None,
+        incoming_user_agent: None,
+        incoming_originator: None,
         incoming_session_id: None,
         incoming_window_id: None,
         incoming_client_request_id: None,
@@ -587,6 +605,8 @@ fn codex_header_profile_skips_account_header_when_disabled() {
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-no-acc",
         chatgpt_account_id: None,
+        incoming_user_agent: None,
+        incoming_originator: None,
         incoming_session_id: None,
         incoming_window_id: None,
         incoming_client_request_id: None,
@@ -622,6 +642,8 @@ fn codex_header_profile_can_disable_affinity_headers() {
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-no-affinity",
         chatgpt_account_id: None,
+        incoming_user_agent: None,
+        incoming_originator: None,
         incoming_session_id: Some("sticky-session"),
         incoming_window_id: None,
         incoming_client_request_id: None,
@@ -668,6 +690,8 @@ fn codex_header_profile_does_not_invent_client_request_id_on_failover() {
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-failover-stable",
         chatgpt_account_id: None,
+        incoming_user_agent: None,
+        incoming_originator: None,
         incoming_session_id: Some("sticky-session"),
         incoming_window_id: None,
         incoming_client_request_id: None,

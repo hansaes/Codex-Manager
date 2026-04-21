@@ -122,6 +122,7 @@ export const KO_MESSAGES: MessageCatalog = {
   删除密钥: "키 삭제",
   全部: "전체",
   低配额: "낮은 할당량",
+  限流: "한도 소진",
   封禁: "차단됨",
   未知: "알 수 없음",
   重置: "재설정",
@@ -908,7 +909,7 @@ export const KO_MESSAGES: MessageCatalog = {
   "开启后将用该 path 覆盖转发 action（例如 GLM 前缀路径）。":
     "활성화하면 이 path로 전송 action을 덮어씁니다(예: GLM 접두 경로).",
   控制应用启动和窗口行为: "앱 시작 및 창 동작 제어",
-  "例如：/api/paas/v4/chat/completions": "예: /api/paas/v4/chat/completions",
+  "例如：/api/paas/v4/responses": "예: /api/paas/v4/responses",
   "例如：官方中转、XX 供应商": "예: 공식 중계, XX 공급자",
   "例如：主机房 / 测试": "예: 메인 / 테스트",
   模型转发规则: "모델 전달 규칙",

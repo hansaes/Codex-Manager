@@ -1481,7 +1481,10 @@ fn ensure_workspace_allowed(
     let expected = expected_workspace
         .clone()
         .or(expected_chatgpt.clone())
-        .ok_or_else(|| "Login is restricted to a specific workspace, but the workspace id was invalid.".to_string())?;
+        .ok_or_else(|| {
+            "Login is restricted to a specific workspace, but the workspace id was invalid."
+                .to_string()
+        })?;
 
     let actual_workspace = normalize_workspace_id(claims.workspace_id.as_deref())
         .or_else(|| extract_workspace_id(id_token))

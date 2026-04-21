@@ -99,20 +99,31 @@ test("postJsonRpc 统一通过 fetcher 发送并解包结果", async () => {
   assert.equal(calls[0].init.headers["Content-Type"], "application/json");
 });
 
-test("postJsonRpc 对非 2xx 响应抛出统一错误", async () => {
+test("postJsonRpc 对非 2xx 响应会带出服务端错误详情与链路标识", async () => {
   await assert.rejects(
     () =>
       rpcHttp.postJsonRpc(
         async () => ({
           ok: false,
           status: 503,
-          async json() {
-            return {};
+          headers: {
+            get(name) {
+              if (name === "X-CodexManager-Error-Code") return "upstream_timeout";
+              if (name === "X-CodexManager-Trace-Id") return "trace-rpc-503";
+              return null;
+            },
+          },
+          async text() {
+            return JSON.stringify({
+              error: {
+                message: "上游请求超时",
+              },
+            });
           },
         }),
         "/api/rpc",
         "demo/method"
       ),
-    /HTTP 503/
+    /HTTP 503.*上游请求超时.*upstream_timeout.*trace-rpc-503/
   );
 });

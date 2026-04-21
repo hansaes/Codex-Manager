@@ -791,9 +791,6 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
                         );
                     }
                 }
-                if use_codex_compat_rewrite && responses::ensure_instructions(path, obj) {
-                    changed = true;
-                }
                 dropped_keys.extend(responses::retain_codex_fields(path, obj));
             }
 

@@ -1,5 +1,5 @@
 import type { RequestOptions } from "../utils/request";
-import { unwrapRpcPayload } from "./transport-errors";
+import { getAppErrorMessage, unwrapRpcPayload } from "./transport-errors";
 
 export type JsonRpcFetcher = (
   url: string,
@@ -17,6 +17,66 @@ export function buildJsonRpcRequestBody(
     method,
     params,
   });
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+async function readRpcHttpErrorPayload(response: Response): Promise<unknown> {
+  if (typeof response.text === "function") {
+    try {
+      const raw = await response.text();
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        return null;
+      }
+      try {
+        return JSON.parse(trimmed) as unknown;
+      } catch {
+        return trimmed;
+      }
+    } catch {
+      // Ignore text parsing failure and fall through to json().
+    }
+  }
+
+  if (typeof response.json === "function") {
+    try {
+      return (await response.json()) as unknown;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function buildRpcHttpErrorMessage(
+  status: number,
+  payload: unknown,
+  headers?: Pick<Headers, "get">
+): string {
+  const detail = getAppErrorMessage(payload, "").trim();
+  const errorCode =
+    headers?.get("X-CodexManager-Error-Code")?.trim() ||
+    asRecord(payload)?.errorCode?.toString().trim() ||
+    "";
+  const traceId = headers?.get("X-CodexManager-Trace-Id")?.trim() || "";
+
+  let message = detail
+    ? `RPC 请求失败（HTTP ${status}）：${detail}`
+    : `RPC 请求失败（HTTP ${status}）`;
+  const meta = [
+    errorCode ? `code=${errorCode}` : "",
+    traceId ? `trace=${traceId}` : "",
+  ].filter(Boolean);
+  if (meta.length) {
+    message += ` [${meta.join(" ")}]`;
+  }
+  return message;
 }
 
 export async function postJsonRpc<T>(
@@ -37,7 +97,10 @@ export async function postJsonRpc<T>(
   );
 
   if (!response.ok) {
-    throw new Error(`RPC 请求失败（HTTP ${response.status}）`);
+    const payload = await readRpcHttpErrorPayload(response);
+    throw new Error(
+      buildRpcHttpErrorMessage(response.status, payload, response.headers)
+    );
   }
 
   return unwrapRpcPayload<T>((await response.json()) as unknown);
