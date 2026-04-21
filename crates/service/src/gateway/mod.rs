@@ -77,6 +77,8 @@ mod failover;
 mod http_bridge;
 #[path = "request/incoming_headers.rs"]
 mod incoming_headers;
+#[path = "request/aggregate_catalog.rs"]
+pub(super) mod aggregate_catalog;
 #[path = "request/local_count_tokens.rs"]
 mod local_count_tokens;
 #[path = "request/local_models.rs"]

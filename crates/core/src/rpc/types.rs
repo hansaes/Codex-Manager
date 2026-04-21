@@ -422,12 +422,19 @@ pub struct AggregateApiSummary {
     pub auth_type: String,
     pub auth_params: Option<serde_json::Value>,
     pub action: Option<String>,
+    pub upstream_format: String,
+    pub models_path: Option<String>,
+    pub responses_path: Option<String>,
+    pub chat_completions_path: Option<String>,
     pub status: String,
     pub created_at: i64,
     pub updated_at: i64,
     pub last_test_at: Option<i64>,
     pub last_test_status: Option<String>,
     pub last_test_error: Option<String>,
+    pub models_last_synced_at: Option<i64>,
+    pub models_last_sync_status: Option<String>,
+    pub models_last_sync_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -532,6 +539,47 @@ pub struct AggregateApiListResult {
 pub struct AggregateApiCreateResult {
     pub id: String,
     pub key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateApiModelSummary {
+    pub aggregate_api_id: String,
+    pub model_slug: String,
+    pub display_name: Option<String>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AggregateApiModelListResult {
+    pub items: Vec<AggregateApiModelSummary>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateApiFetchedModelSummary {
+    pub aggregate_api_id: String,
+    pub model_slug: String,
+    pub display_name: Option<String>,
+    pub raw_json: Option<String>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateApiFetchModelsResult {
+    pub id: String,
+    pub count: i64,
+    pub fetched_at: i64,
+    pub items: Vec<AggregateApiFetchedModelSummary>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateApiSaveModelsResult {
+    pub id: String,
+    pub count: i64,
+    pub synced_at: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -9,7 +9,7 @@ use tiny_http::Request;
 use super::super::GatewayUpstreamResponse;
 use crate::aggregate_api::{
     AGGREGATE_API_AUTH_APIKEY, AGGREGATE_API_AUTH_USERPASS, AGGREGATE_API_PROVIDER_CLAUDE,
-    AGGREGATE_API_PROVIDER_CODEX,
+    AGGREGATE_API_PROVIDER_CODEX, resolve_aggregate_api_request_path,
 };
 use crate::gateway::request_log::RequestLogUsage;
 
@@ -66,6 +66,7 @@ fn normalize_header_key(name: &str) -> String {
     name.trim().to_ascii_lowercase()
 }
 
+#[cfg(test)]
 fn normalize_action_path(action: &str) -> String {
     let action_trimmed = action.trim();
     if action_trimmed.is_empty() {
@@ -78,6 +79,7 @@ fn normalize_action_path(action: &str) -> String {
     }
 }
 
+#[cfg(test)]
 fn effective_action_path(candidate: &AggregateApi, path: &str) -> String {
     match candidate.action.as_deref().map(str::trim) {
         Some("") => path.to_string(),
@@ -86,25 +88,17 @@ fn effective_action_path(candidate: &AggregateApi, path: &str) -> String {
     }
 }
 
-fn build_upstream_url(base_url: &str, effective_path: &str) -> Result<reqwest::Url, ()> {
-    let mut url = reqwest::Url::parse(base_url).map_err(|_| ())?;
-    let trimmed_path = effective_path.trim();
+fn build_upstream_url(candidate: &AggregateApi, request_path: &str) -> Result<reqwest::Url, ()> {
+    let mut url = reqwest::Url::parse(candidate.url.as_str()).map_err(|_| ())?;
+    let resolved_path = resolve_aggregate_api_request_path(candidate, request_path);
+    let trimmed_path = resolved_path.trim();
     if trimmed_path.is_empty() {
         return Ok(url);
     }
     let (path_part, query_part) = trimmed_path
         .split_once('?')
         .map_or((trimmed_path, None), |(path, query)| (path, Some(query)));
-    let suffix = path_part.trim_start_matches('/');
-    let base_path = url.path().trim_end_matches('/').to_string();
-    let combined_path = if base_path.is_empty() || base_path == "/" {
-        format!("/{}", suffix)
-    } else if suffix.is_empty() {
-        base_path
-    } else {
-        format!("{}/{}", base_path, suffix)
-    };
-    url.set_path(combined_path.as_str());
+    url.set_path(path_part);
     url.set_query(query_part.filter(|query| !query.trim().is_empty()));
     Ok(url)
 }
@@ -745,7 +739,6 @@ pub(in super::super) fn proxy_aggregate_request(
             continue;
         };
 
-        let effective_path = effective_action_path(&candidate, path);
         let (auth_config, injected_headers) = match parse_auth_config(&candidate) {
             Ok(value) => value,
             Err(err) => {
@@ -806,8 +799,7 @@ pub(in super::super) fn proxy_aggregate_request(
                 return Ok(());
             }
 
-            let mut url = match build_upstream_url(candidate_url.as_str(), effective_path.as_str())
-            {
+            let mut url = match build_upstream_url(&candidate, path) {
                 Ok(url) => url,
                 Err(_) => {
                     last_attempt_url = Some(candidate_url.clone());
@@ -1106,12 +1098,19 @@ mod bridge_tests {
             auth_type: AGGREGATE_API_AUTH_APIKEY.to_string(),
             auth_params_json: None,
             action: None,
+            upstream_format: "responses".to_string(),
+            models_path: Some("/models".to_string()),
+            responses_path: None,
+            chat_completions_path: None,
             status: "active".to_string(),
             created_at: sort,
             updated_at: sort,
             last_test_at: None,
             last_test_status: None,
             last_test_error: None,
+            models_last_synced_at: None,
+            models_last_sync_status: None,
+            models_last_sync_error: None,
         }
     }
 
@@ -1252,12 +1251,19 @@ mod tests {
             auth_type: "apikey".to_string(),
             auth_params_json: None,
             action: action.map(str::to_string),
+            upstream_format: "responses".to_string(),
+            models_path: Some("/models".to_string()),
+            responses_path: None,
+            chat_completions_path: None,
             status: "active".to_string(),
             created_at: 0,
             updated_at: 0,
             last_test_at: None,
             last_test_status: None,
             last_test_error: None,
+            models_last_synced_at: None,
+            models_last_sync_status: None,
+            models_last_sync_error: None,
         }
     }
 
@@ -1293,7 +1299,7 @@ mod tests {
     #[test]
     fn build_upstream_url_preserves_base_path_prefix() {
         let url = build_upstream_url(
-            "https://open.bigmodel.cn/api/anthropic",
+            &aggregate_api_with_action(None),
             "/v1/messages?beta=true",
         )
         .expect("build upstream url");
@@ -1305,12 +1311,74 @@ mod tests {
 
     #[test]
     fn build_upstream_url_keeps_root_base_behavior() {
-        let url = build_upstream_url("https://api.example.com", "/v1/messages?beta=true")
-            .expect("build upstream url");
+        let mut api = aggregate_api_with_action(None);
+        api.url = "https://api.example.com".to_string();
+        let url = build_upstream_url(&api, "/v1/messages?beta=true").expect("build upstream url");
         assert_eq!(
             url.as_str(),
             "https://api.example.com/v1/messages?beta=true"
         );
+    }
+
+    #[test]
+    fn build_upstream_url_dedupes_v1_for_v1_base() {
+        let mut api = aggregate_api_with_action(None);
+        api.url = "https://api.1l1l1l1.xyz/v1".to_string();
+        let url = build_upstream_url(&api, "/v1/chat/completions").expect("build upstream url");
+        assert_eq!(
+            url.as_str(),
+            "https://api.1l1l1l1.xyz/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn build_upstream_url_maps_codex_prefix_to_responses_endpoint() {
+        let mut api = aggregate_api_with_action(None);
+        api.url = "https://gpt.mirbuds.com/codex".to_string();
+        let url = build_upstream_url(&api, "/v1/responses").expect("build upstream url");
+        assert_eq!(url.as_str(), "https://gpt.mirbuds.com/codex/responses");
+    }
+
+    #[test]
+    fn build_upstream_url_infers_sibling_paths_from_fixed_responses_endpoint() {
+        let mut api = aggregate_api_with_action(None);
+        api.url = "https://api.1l1l1l1.xyz/v1/responses".to_string();
+        api.models_path = None;
+
+        let responses_url = build_upstream_url(&api, "/v1/responses").expect("responses url");
+        assert_eq!(responses_url.as_str(), "https://api.1l1l1l1.xyz/v1/responses");
+
+        let chat_url =
+            build_upstream_url(&api, "/v1/chat/completions").expect("chat completions url");
+        assert_eq!(
+            chat_url.as_str(),
+            "https://api.1l1l1l1.xyz/v1/chat/completions"
+        );
+
+        let models_url = build_upstream_url(&api, "/v1/models").expect("models url");
+        assert_eq!(models_url.as_str(), "https://api.1l1l1l1.xyz/v1/models");
+    }
+
+    #[test]
+    fn build_upstream_url_prefers_explicit_endpoint_overrides() {
+        let mut api = aggregate_api_with_action(None);
+        api.url = "https://api.example.com/proxy".to_string();
+        api.responses_path = Some("/custom/responses".to_string());
+        api.chat_completions_path = Some("/custom/chat/completions".to_string());
+        api.models_path = Some("/custom/models".to_string());
+
+        let responses_url = build_upstream_url(&api, "/v1/responses").expect("responses url");
+        assert_eq!(responses_url.as_str(), "https://api.example.com/custom/responses");
+
+        let chat_url =
+            build_upstream_url(&api, "/v1/chat/completions").expect("chat completions url");
+        assert_eq!(
+            chat_url.as_str(),
+            "https://api.example.com/custom/chat/completions"
+        );
+
+        let models_url = build_upstream_url(&api, "/v1/models").expect("models url");
+        assert_eq!(models_url.as_str(), "https://api.example.com/custom/models");
     }
 
     /// 函数 `final_error_promotes_success_status_to_bad_gateway`

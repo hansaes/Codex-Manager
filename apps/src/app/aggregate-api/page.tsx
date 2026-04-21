@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AggregateApiModal } from "@/components/modals/aggregate-api-modal";
+import { AggregateApiModelPickerModal } from "@/components/modals/aggregate-api-model-picker-modal";
 import { ConfirmDialog } from "@/components/modals/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,7 +58,11 @@ import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivati
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
-import { AggregateApi, AggregateApiSecretResult } from "@/types";
+import {
+  AggregateApi,
+  AggregateApiFetchedModel,
+  AggregateApiSecretResult,
+} from "@/types";
 
 type TranslateFn = (key: string, values?: Record<string, string | number>) => string;
 
@@ -114,7 +119,12 @@ export default function AggregateApiPage() {
     isServiceReady && isPageActive,
   );
   const [modalOpen, setModalOpen] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [modelPickerApi, setModelPickerApi] = useState<AggregateApi | null>(null);
+  const [previewModels, setPreviewModels] = useState<AggregateApiFetchedModel[]>([]);
+  const [alreadyImportedModelSlugs, setAlreadyImportedModelSlugs] = useState<Set<string>>(new Set());
+  const [selectedModelSlugs, setSelectedModelSlugs] = useState<Set<string>>(new Set());
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [providerFilter, setProviderFilter] = useState("all");
   const [revealedSecrets, setRevealedSecrets] = useState<
@@ -122,6 +132,8 @@ export default function AggregateApiPage() {
   >({});
   const [loadingSecretId, setLoadingSecretId] = useState<string | null>(null);
   const [testingApiId, setTestingApiId] = useState<string | null>(null);
+  const [fetchingModelsApiId, setFetchingModelsApiId] = useState<string | null>(null);
+  const [savingModelsApiId, setSavingModelsApiId] = useState<string | null>(null);
   const [testingAll, setTestingAll] = useState(false);
   const [togglingApiId, setTogglingApiId] = useState<string | null>(null);
   const [statusOverrides, setStatusOverrides] = useState<Record<string, boolean>>(
@@ -140,6 +152,7 @@ export default function AggregateApiPage() {
   useEffect(() => {
     if (isPageActive) return;
     setModalOpen(false);
+    resetModelPicker();
     setEditingId(null);
     setDeleteId(null);
   }, [isPageActive]);
@@ -191,6 +204,26 @@ export default function AggregateApiPage() {
     );
     return maxSort + 5;
   }, [aggregateApis]);
+
+  function resetModelPicker() {
+    setModelPickerOpen(false);
+    setModelPickerApi(null);
+    setPreviewModels([]);
+    setAlreadyImportedModelSlugs(new Set());
+    setSelectedModelSlugs(new Set());
+  }
+
+  const openModelPicker = (
+    api: AggregateApi,
+    models: AggregateApiFetchedModel[],
+    importedSlugs: Set<string>
+  ) => {
+    setModelPickerApi(api);
+    setPreviewModels(models);
+    setAlreadyImportedModelSlugs(importedSlugs);
+    setSelectedModelSlugs(new Set(importedSlugs));
+    setModelPickerOpen(true);
+  };
 
   /**
    * 函数 `renderTestStatus`
@@ -295,6 +328,166 @@ export default function AggregateApiPage() {
     },
     onError: (error: unknown) => {
       toast.error(`${t("删除")} ${t("失败")}: ${error instanceof Error ? error.message : String(error)}`);
+    },
+  });
+
+  const openModelsMutation = useMutation({
+    mutationFn: async (api: AggregateApi) => {
+      const existingModels = await accountClient.listAggregateApiModels(api.id);
+      if (existingModels.length > 0) {
+        return {
+          mode: "local" as const,
+          existingModels,
+          preview: null,
+        };
+      }
+      const preview = await accountClient.previewAggregateApiModels(api.id);
+      return {
+        mode: "preview" as const,
+        existingModels,
+        preview,
+      };
+    },
+    onMutate: async (api) => {
+      setFetchingModelsApiId(api.id);
+    },
+    onSuccess: async (result, api) => {
+      if (result.mode === "local") {
+        const importedSlugs = new Set(
+          result.existingModels.map((item) => item.modelSlug)
+        );
+        openModelPicker(
+          api,
+          result.existingModels.map((item) => ({
+            aggregateApiId: item.aggregateApiId,
+            modelSlug: item.modelSlug,
+            displayName: item.displayName,
+            updatedAt: item.updatedAt,
+            rawJson: null,
+          })),
+          importedSlugs
+        );
+        return;
+      }
+
+      openModelPicker(api, result.preview?.items || [], new Set());
+      toast.success(
+        t("首次查看已自动同步上游模型，共 {count} 个", {
+          count: result.preview?.count || 0,
+        })
+      );
+    },
+    onSettled: async (_result, _error, api) => {
+      await queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] });
+      setFetchingModelsApiId((current) => (current === api?.id ? null : current));
+    },
+    onError: (error: unknown) => {
+      toast.error(
+        `${t("同步模型失败")}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    },
+  });
+
+  const syncModelsMutation = useMutation({
+    mutationFn: async (api: AggregateApi) => {
+      const [preview, existingModels] = await Promise.all([
+        accountClient.previewAggregateApiModels(api.id),
+        accountClient.listAggregateApiModels(api.id),
+      ]);
+      return {
+        preview,
+        existingModels,
+      };
+    },
+    onMutate: async (api) => {
+      setFetchingModelsApiId(api.id);
+    },
+    onSuccess: async (result, api) => {
+      const existingModelsBySlug = new Map(
+        result.existingModels.map((item) => [item.modelSlug, item])
+      );
+      const previewItems = result.preview.items || [];
+      const previewSlugSet = new Set(previewItems.map((item) => item.modelSlug));
+      const mergedItems = [...previewItems];
+
+      for (const item of result.existingModels) {
+        if (previewSlugSet.has(item.modelSlug)) continue;
+        mergedItems.push({
+          aggregateApiId: item.aggregateApiId,
+          modelSlug: item.modelSlug,
+          displayName: item.displayName,
+          updatedAt: item.updatedAt,
+          rawJson: null,
+        });
+      }
+
+      const existingImportedModelSlugs = new Set(
+        result.existingModels.map((item) => item.modelSlug)
+      );
+      const nextSelected = new Set<string>();
+      for (const item of mergedItems) {
+        if (existingImportedModelSlugs.has(item.modelSlug)) {
+          nextSelected.add(item.modelSlug);
+        }
+      }
+
+      setModelPickerApi(api);
+      setPreviewModels(
+        mergedItems.map((item) => ({
+          ...item,
+          displayName:
+            item.displayName ||
+            existingModelsBySlug.get(item.modelSlug)?.displayName ||
+            item.modelSlug,
+        }))
+      );
+      setAlreadyImportedModelSlugs(existingImportedModelSlugs);
+      setSelectedModelSlugs(nextSelected);
+      setModelPickerOpen(true);
+      toast.success(
+        t("已同步上游模型，共 {count} 个", { count: result.preview.count })
+      );
+    },
+    onSettled: async (_result, _error, api) => {
+      await queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] });
+      setFetchingModelsApiId((current) => (current === api?.id ? null : current));
+    },
+    onError: (error: unknown) => {
+      toast.error(
+        `${t("同步模型失败")}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    },
+  });
+
+  const saveModelsMutation = useMutation({
+    mutationFn: async ({
+      apiId,
+      items,
+    }: {
+      apiId: string;
+      items: AggregateApiFetchedModel[];
+    }) => accountClient.saveAggregateApiModels(apiId, items),
+    onMutate: async ({ apiId }) => {
+      setSavingModelsApiId(apiId);
+    },
+    onSuccess: async (result) => {
+      toast.success(t("模型导入完成，共 {count} 个", { count: result.count }));
+      resetModelPicker();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] }),
+        queryClient.invalidateQueries({ queryKey: ["aggregate-api-models"] }),
+        queryClient.invalidateQueries({ queryKey: ["apikeys"] }),
+      ]);
+    },
+    onSettled: async (_result, _error, variables) => {
+      setSavingModelsApiId((current) =>
+        current === variables?.apiId ? null : current
+      );
+    },
+    onError: (error: unknown) => {
+      toast.error(
+        `${t("导入模型失败")}: ${error instanceof Error ? error.message : String(error)}`
+      );
     },
   });
 
@@ -416,6 +609,20 @@ export default function AggregateApiPage() {
       );
     },
   });
+
+  const handleImportSelectedModels = () => {
+    if (!modelPickerApi?.id) {
+      toast.error(t("未找到聚合 API"));
+      return;
+    }
+    const items = previewModels.filter((model) =>
+      selectedModelSlugs.has(model.modelSlug)
+    );
+    saveModelsMutation.mutate({
+      apiId: modelPickerApi.id,
+      items,
+    });
+  };
 
   /**
    * 函数 `openCreateModal`
@@ -759,6 +966,11 @@ export default function AggregateApiPage() {
                                 api.providerType
                               ] || api.providerType}
                             </Badge>
+                            <p className="mt-1 text-[10px] text-muted-foreground">
+                              {api.upstreamFormat === "chat_completions"
+                                ? "Chat Completions"
+                                : "Responses"}
+                            </p>
                           </div>
                         </TableCell>
                         <TableCell className="overflow-hidden">
@@ -860,6 +1072,24 @@ export default function AggregateApiPage() {
                                 />
                                 {t("测试")}
                               </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 gap-1.5 px-2 text-xs"
+                                disabled={
+                                  !isServiceReady || fetchingModelsApiId === api.id
+                                }
+                                onClick={() => openModelsMutation.mutate(api)}
+                              >
+                                <RefreshCw
+                                  className={
+                                    fetchingModelsApiId === api.id
+                                      ? "h-3.5 w-3.5 animate-spin"
+                                      : "h-3.5 w-3.5"
+                                  }
+                                />
+                                {t("查看模型")}
+                              </Button>
                             </div>
                           </div>
                           {api.lastTestAt ? (
@@ -879,6 +1109,28 @@ export default function AggregateApiPage() {
                               </TooltipTrigger>
                               <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
                                 {api.lastTestError}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : null}
+                          {api.modelsLastSyncedAt ? (
+                            <p className="mt-1 text-[10px] text-muted-foreground">
+                              {t("模型同步")}:{" "}
+                              {formatTsFromSeconds(api.modelsLastSyncedAt, t("未知时间"))}
+                            </p>
+                          ) : null}
+                          {api.modelsLastSyncStatus === "failed" &&
+                          api.modelsLastSyncError ? (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={<div />}
+                                className="mt-1 block max-w-full cursor-help text-left"
+                              >
+                                <p className="max-w-[220px] truncate text-[10px] text-red-500/90">
+                                  {api.modelsLastSyncError}
+                                </p>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
+                                {api.modelsLastSyncError}
                               </TooltipContent>
                             </Tooltip>
                           ) : null}
@@ -943,6 +1195,16 @@ export default function AggregateApiPage() {
                                   <ArrowUp className="h-4 w-4" /> {t("设为优先")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
+                                  className="gap-2"
+                                  disabled={
+                                    !isServiceReady ||
+                                    fetchingModelsApiId === api.id
+                                  }
+                                  onClick={() => openModelsMutation.mutate(api)}
+                                >
+                                  <RefreshCw className="h-4 w-4" /> {t("查看模型")}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
                                   className="gap-2 text-red-500"
                                   disabled={!isServiceReady}
                                   onClick={() => setDeleteId(api.id)}
@@ -968,6 +1230,35 @@ export default function AggregateApiPage() {
         onOpenChange={setModalOpen}
         aggregateApi={editingApi}
         defaultSort={defaultCreateSort}
+      />
+
+      <AggregateApiModelPickerModal
+        open={modelPickerOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setModelPickerOpen(true);
+            return;
+          }
+          resetModelPicker();
+        }}
+        aggregateApiName={
+          modelPickerApi?.supplierName || modelPickerApi?.url || t("聚合 API")
+        }
+        models={previewModels}
+        alreadyImportedModelSlugs={alreadyImportedModelSlugs}
+        selectedModelSlugs={selectedModelSlugs}
+        onSelectedModelSlugsChange={setSelectedModelSlugs}
+        onConfirm={handleImportSelectedModels}
+        onSyncUpstream={() => {
+          if (!modelPickerApi) return;
+          syncModelsMutation.mutate(modelPickerApi);
+        }}
+        isSyncingUpstream={
+          Boolean(modelPickerApi?.id) && fetchingModelsApiId === modelPickerApi?.id
+        }
+        isSaving={
+          Boolean(modelPickerApi?.id) && savingModelsApiId === modelPickerApi?.id
+        }
       />
 
       <ConfirmDialog

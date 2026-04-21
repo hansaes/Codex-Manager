@@ -6,6 +6,10 @@ import {
   AccountUsage,
   AggregateApi,
   AggregateApiCreateResult,
+  AggregateApiFetchedModel,
+  AggregateApiFetchModelsResult,
+  AggregateApiModel,
+  AggregateApiSaveModelsResult,
   AggregateApiSecretResult,
   AggregateApiTestResult,
   ApiKey,
@@ -772,12 +776,29 @@ export function normalizeAggregateApi(item: unknown): AggregateApi | null {
       typeof source.action === "string"
         ? source.action
         : asString(source.action) || null,
+    upstreamFormat:
+      asString(source.upstreamFormat ?? source.upstream_format) || "responses",
+    modelsPath: asString(source.modelsPath ?? source.models_path) || null,
+    responsesPath:
+      asString(source.responsesPath ?? source.responses_path) || null,
+    chatCompletionsPath:
+      asString(source.chatCompletionsPath ?? source.chat_completions_path) ||
+      null,
     status: asString(source.status) || "active",
     createdAt: toNullableNumber(source.createdAt ?? source.created_at),
     updatedAt: toNullableNumber(source.updatedAt ?? source.updated_at),
     lastTestAt: toNullableNumber(source.lastTestAt ?? source.last_test_at),
     lastTestStatus: asString(source.lastTestStatus ?? source.last_test_status) || null,
     lastTestError: asString(source.lastTestError ?? source.last_test_error) || null,
+    modelsLastSyncedAt: toNullableNumber(
+      source.modelsLastSyncedAt ?? source.models_last_synced_at
+    ),
+    modelsLastSyncStatus:
+      asString(source.modelsLastSyncStatus ?? source.models_last_sync_status) ||
+      null,
+    modelsLastSyncError:
+      asString(source.modelsLastSyncError ?? source.models_last_sync_error) ||
+      null,
   };
 }
 
@@ -856,6 +877,68 @@ export function normalizeAggregateApiTestResult(payload: unknown): AggregateApiT
     message: asString(source.message) || null,
     testedAt: asInteger(source.testedAt ?? source.tested_at, 0, 0),
     latencyMs: asInteger(source.latencyMs ?? source.latency_ms, 0, 0),
+  };
+}
+
+export function normalizeAggregateApiModel(item: unknown): AggregateApiModel | null {
+  const source = asObject(item);
+  const aggregateApiId = asString(
+    source.aggregateApiId ?? source.aggregate_api_id
+  );
+  const modelSlug = asString(source.modelSlug ?? source.model_slug);
+  if (!aggregateApiId || !modelSlug) return null;
+  return {
+    aggregateApiId,
+    modelSlug,
+    displayName: asString(source.displayName ?? source.display_name) || null,
+    updatedAt: toNullableNumber(source.updatedAt ?? source.updated_at),
+  };
+}
+
+export function normalizeAggregateApiFetchedModel(
+  item: unknown
+): AggregateApiFetchedModel | null {
+  const base = normalizeAggregateApiModel(item);
+  if (!base) return null;
+  const source = asObject(item);
+  return {
+    ...base,
+    rawJson: asString(source.rawJson ?? source.raw_json) || null,
+  };
+}
+
+export function normalizeAggregateApiModelList(
+  payload: unknown
+): AggregateApiModel[] {
+  const source = asObject(payload);
+  const items = asArray(source.items ?? payload);
+  return items
+    .map((item) => normalizeAggregateApiModel(item))
+    .filter((item): item is AggregateApiModel => Boolean(item));
+}
+
+export function normalizeAggregateApiFetchModelsResult(
+  payload: unknown
+): AggregateApiFetchModelsResult {
+  const source = asObject(payload);
+  return {
+    id: asString(source.id),
+    count: asInteger(source.count, 0, 0),
+    fetchedAt: asInteger(source.fetchedAt ?? source.fetched_at, 0, 0),
+    items: asArray(source.items)
+      .map((item) => normalizeAggregateApiFetchedModel(item))
+      .filter((item): item is AggregateApiFetchedModel => Boolean(item)),
+  };
+}
+
+export function normalizeAggregateApiSaveModelsResult(
+  payload: unknown
+): AggregateApiSaveModelsResult {
+  const source = asObject(payload);
+  return {
+    id: asString(source.id),
+    count: asInteger(source.count, 0, 0),
+    syncedAt: asInteger(source.syncedAt ?? source.synced_at, 0, 0),
   };
 }
 

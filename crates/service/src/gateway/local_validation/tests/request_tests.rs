@@ -4,7 +4,7 @@ use crate::gateway::{
 };
 use axum::http::{HeaderMap, HeaderValue};
 use codexmanager_core::rpc::types::{ModelInfo, ModelsResponse};
-use codexmanager_core::storage::Storage;
+use codexmanager_core::storage::{AggregateApi, AggregateApiModel, Storage, now_ts};
 use serde_json::Value;
 
 /// 函数 `sample_api_key`
@@ -193,6 +193,114 @@ fn openai_key_keeps_empty_overrides() {
     assert_eq!(model, None);
     assert_eq!(reasoning, None);
     assert_eq!(service_tier, None);
+}
+
+#[test]
+fn aggregate_model_validation_rejects_models_outside_selected_catalog() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    storage
+        .insert_aggregate_api(&AggregateApi {
+            id: "agg_validate".to_string(),
+            provider_type: "codex".to_string(),
+            supplier_name: Some("agg".to_string()),
+            sort: 0,
+            url: "https://example.com/v1".to_string(),
+            auth_type: "apikey".to_string(),
+            auth_params_json: None,
+            action: None,
+            upstream_format: "responses".to_string(),
+            models_path: Some("/models".to_string()),
+            responses_path: None,
+            chat_completions_path: None,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+            last_test_at: None,
+            last_test_status: None,
+            last_test_error: None,
+            models_last_synced_at: None,
+            models_last_sync_status: None,
+            models_last_sync_error: None,
+        })
+        .expect("insert aggregate api");
+    storage
+        .replace_aggregate_api_models(
+            "agg_validate",
+            &[AggregateApiModel {
+                aggregate_api_id: "agg_validate".to_string(),
+                model_slug: "deepseek-v3".to_string(),
+                display_name: Some("DeepSeek-V3".to_string()),
+                raw_json: "{\"id\":\"deepseek-v3\"}".to_string(),
+                created_at: now,
+                updated_at: now,
+            }],
+        )
+        .expect("replace aggregate models");
+
+    let mut api_key = sample_api_key(crate::apikey_profile::PROTOCOL_OPENAI_COMPAT, None, None, None);
+    api_key.rotation_strategy = crate::apikey_profile::ROTATION_AGGREGATE_API.to_string();
+    api_key.aggregate_api_id = Some("agg_validate".to_string());
+
+    let err = ensure_aggregate_model_is_allowed(&storage, &api_key, Some("gpt-4.1"))
+        .expect_err("model outside selected aggregate catalog should fail");
+    assert!(err.message.contains("aggregate model not found"));
+}
+
+#[test]
+fn aggregate_model_validation_can_infer_single_selected_catalog_when_binding_missing() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    storage
+        .insert_aggregate_api(&AggregateApi {
+            id: "agg_infer".to_string(),
+            provider_type: "codex".to_string(),
+            supplier_name: Some("agg".to_string()),
+            sort: 0,
+            url: "https://example.com/v1".to_string(),
+            auth_type: "apikey".to_string(),
+            auth_params_json: None,
+            action: None,
+            upstream_format: "responses".to_string(),
+            models_path: Some("/models".to_string()),
+            responses_path: None,
+            chat_completions_path: None,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+            last_test_at: None,
+            last_test_status: None,
+            last_test_error: None,
+            models_last_synced_at: None,
+            models_last_sync_status: None,
+            models_last_sync_error: None,
+        })
+        .expect("insert aggregate api");
+    storage
+        .replace_aggregate_api_models(
+            "agg_infer",
+            &[AggregateApiModel {
+                aggregate_api_id: "agg_infer".to_string(),
+                model_slug: "deepseek-v3".to_string(),
+                display_name: Some("DeepSeek-V3".to_string()),
+                raw_json: "{\"id\":\"deepseek-v3\"}".to_string(),
+                created_at: now,
+                updated_at: now,
+            }],
+        )
+        .expect("replace aggregate models");
+
+    let mut api_key = sample_api_key(crate::apikey_profile::PROTOCOL_OPENAI_COMPAT, None, None, None);
+    api_key.rotation_strategy = crate::apikey_profile::ROTATION_AGGREGATE_API.to_string();
+    api_key.aggregate_api_id = None;
+
+    let result = ensure_aggregate_model_is_allowed(&storage, &api_key, Some("deepseek-v3"));
+    assert!(
+        result.is_ok(),
+        "selected model should be inferred from the only aggregate catalog"
+    );
 }
 
 fn sample_request_metadata(prompt_cache_key: Option<&str>) -> ParsedRequestMetadata {

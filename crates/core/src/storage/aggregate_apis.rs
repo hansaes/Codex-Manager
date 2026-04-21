@@ -1,6 +1,6 @@
-use rusqlite::{Result, Row};
+use rusqlite::{params, Result, Row};
 
-use super::{now_ts, AggregateApi, Storage};
+use super::{now_ts, AggregateApi, AggregateApiModel, Storage};
 
 const AGGREGATE_API_SELECT_SQL: &str = "SELECT
     id,
@@ -11,12 +11,19 @@ const AGGREGATE_API_SELECT_SQL: &str = "SELECT
     auth_type,
     auth_params_json,
     action,
+    upstream_format,
+    models_path,
+    responses_path,
+    chat_completions_path,
     status,
     created_at,
     updated_at,
     last_test_at,
     last_test_status,
-    last_test_error
+    last_test_error,
+    models_last_synced_at,
+    models_last_sync_status,
+    models_last_sync_error
  FROM aggregate_apis";
 
 impl Storage {
@@ -43,14 +50,21 @@ impl Storage {
                 auth_type,
                 auth_params_json,
                 action,
+                upstream_format,
+                models_path,
+                responses_path,
+                chat_completions_path,
                 status,
                 created_at,
                 updated_at,
                 last_test_at,
                 last_test_status,
-                last_test_error
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            (
+                last_test_error,
+                models_last_synced_at,
+                models_last_sync_status,
+                models_last_sync_error
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+            params![
                 &api.id,
                 &api.provider_type,
                 &api.supplier_name,
@@ -59,13 +73,20 @@ impl Storage {
                 &api.auth_type,
                 &api.auth_params_json,
                 &api.action,
+                &api.upstream_format,
+                &api.models_path,
+                &api.responses_path,
+                &api.chat_completions_path,
                 &api.status,
                 api.created_at,
                 api.updated_at,
                 &api.last_test_at,
                 &api.last_test_status,
                 &api.last_test_error,
-            ),
+                &api.models_last_synced_at,
+                &api.models_last_sync_status,
+                &api.models_last_sync_error,
+            ],
         )?;
         Ok(())
     }
@@ -243,6 +264,133 @@ impl Storage {
         Ok(())
     }
 
+    pub fn update_aggregate_api_upstream_format(
+        &self,
+        api_id: &str,
+        upstream_format: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE aggregate_apis SET upstream_format = ?1, updated_at = ?2 WHERE id = ?3",
+            (upstream_format, now_ts(), api_id),
+        )?;
+        Ok(())
+    }
+
+    pub fn update_aggregate_api_models_path(
+        &self,
+        api_id: &str,
+        models_path: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE aggregate_apis SET models_path = ?1, updated_at = ?2 WHERE id = ?3",
+            (models_path, now_ts(), api_id),
+        )?;
+        Ok(())
+    }
+
+    pub fn update_aggregate_api_responses_path(
+        &self,
+        api_id: &str,
+        responses_path: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE aggregate_apis SET responses_path = ?1, updated_at = ?2 WHERE id = ?3",
+            (responses_path, now_ts(), api_id),
+        )?;
+        Ok(())
+    }
+
+    pub fn update_aggregate_api_chat_completions_path(
+        &self,
+        api_id: &str,
+        chat_completions_path: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE aggregate_apis SET chat_completions_path = ?1, updated_at = ?2 WHERE id = ?3",
+            (chat_completions_path, now_ts(), api_id),
+        )?;
+        Ok(())
+    }
+
+    pub fn update_aggregate_api_models_sync_result(
+        &self,
+        api_id: &str,
+        synced_at: Option<i64>,
+        sync_status: Option<&str>,
+        sync_error: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE aggregate_apis
+             SET models_last_synced_at = ?1,
+                 models_last_sync_status = ?2,
+                 models_last_sync_error = ?3,
+                 updated_at = ?4
+             WHERE id = ?5",
+            (synced_at, sync_status, sync_error, now_ts(), api_id),
+        )?;
+        Ok(())
+    }
+
+    pub fn replace_aggregate_api_models(
+        &self,
+        aggregate_api_id: &str,
+        models: &[AggregateApiModel],
+    ) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM aggregate_api_models WHERE aggregate_api_id = ?1",
+            [aggregate_api_id],
+        )?;
+        for model in models {
+            self.conn.execute(
+                "INSERT INTO aggregate_api_models (
+                    aggregate_api_id,
+                    model_slug,
+                    display_name,
+                    raw_json,
+                    created_at,
+                    updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    model.aggregate_api_id,
+                    model.model_slug,
+                    model.display_name,
+                    model.raw_json,
+                    model.created_at,
+                    model.updated_at
+                ],
+        )?;
+        }
+        Ok(())
+    }
+
+    pub fn list_aggregate_api_models(&self, aggregate_api_id: &str) -> Result<Vec<AggregateApiModel>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT
+                aggregate_api_id,
+                model_slug,
+                display_name,
+                raw_json,
+                created_at,
+                updated_at
+             FROM aggregate_api_models
+             WHERE aggregate_api_id = ?1
+             ORDER BY model_slug ASC",
+        )?;
+        let mut rows = stmt.query([aggregate_api_id])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(AggregateApiModel {
+                aggregate_api_id: row.get(0)?,
+                model_slug: row.get(1)?,
+                display_name: row.get(2)?,
+                raw_json: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            });
+        }
+        Ok(out)
+    }
+
     /// 函数 `delete_aggregate_api`
     ///
     /// 作者: gaohongshun
@@ -256,6 +404,10 @@ impl Storage {
     /// # 返回
     /// 返回函数执行结果
     pub fn delete_aggregate_api(&self, api_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM aggregate_api_models WHERE aggregate_api_id = ?1",
+            [api_id],
+        )?;
         self.conn.execute(
             "DELETE FROM aggregate_api_secrets WHERE aggregate_api_id = ?1",
             [api_id],
@@ -382,12 +534,19 @@ impl Storage {
                 auth_type TEXT NOT NULL DEFAULT 'apikey',
                 auth_params_json TEXT,
                 action TEXT,
+                upstream_format TEXT NOT NULL DEFAULT 'responses',
+                models_path TEXT,
+                responses_path TEXT,
+                chat_completions_path TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 last_test_at INTEGER,
                 last_test_status TEXT,
-                last_test_error TEXT
+                last_test_error TEXT,
+                models_last_synced_at INTEGER,
+                models_last_sync_status TEXT,
+                models_last_sync_error TEXT
             )",
             [],
         )?;
@@ -405,6 +564,17 @@ impl Storage {
         )?;
         self.ensure_column("aggregate_apis", "auth_params_json", "TEXT")?;
         self.ensure_column("aggregate_apis", "action", "TEXT")?;
+        self.ensure_column(
+            "aggregate_apis",
+            "upstream_format",
+            "TEXT NOT NULL DEFAULT 'responses'",
+        )?;
+        self.ensure_column("aggregate_apis", "models_path", "TEXT")?;
+        self.ensure_column("aggregate_apis", "responses_path", "TEXT")?;
+        self.ensure_column("aggregate_apis", "chat_completions_path", "TEXT")?;
+        self.ensure_column("aggregate_apis", "models_last_synced_at", "INTEGER")?;
+        self.ensure_column("aggregate_apis", "models_last_sync_status", "TEXT")?;
+        self.ensure_column("aggregate_apis", "models_last_sync_error", "TEXT")?;
         self.conn.execute(
             "UPDATE aggregate_apis
              SET provider_type = COALESCE(NULLIF(TRIM(provider_type), ''), 'codex')
@@ -421,6 +591,12 @@ impl Storage {
             "UPDATE aggregate_apis
              SET sort = COALESCE(sort, 0)
              WHERE sort IS NULL",
+            [],
+        )?;
+        self.conn.execute(
+            "UPDATE aggregate_apis
+             SET upstream_format = COALESCE(NULLIF(TRIM(upstream_format), ''), 'responses')
+             WHERE upstream_format IS NULL OR TRIM(upstream_format) = ''",
             [],
         )?;
         Ok(())
@@ -453,6 +629,27 @@ impl Storage {
         )?;
         Ok(())
     }
+
+    pub(super) fn ensure_aggregate_api_models_table(&self) -> Result<()> {
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS aggregate_api_models (
+                aggregate_api_id TEXT NOT NULL REFERENCES aggregate_apis(id) ON DELETE CASCADE,
+                model_slug TEXT NOT NULL,
+                display_name TEXT,
+                raw_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (aggregate_api_id, model_slug)
+            )",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_aggregate_api_models_updated_at
+             ON aggregate_api_models(aggregate_api_id, updated_at DESC)",
+            [],
+        )?;
+        Ok(())
+    }
 }
 
 /// 函数 `map_aggregate_api_row`
@@ -476,11 +673,18 @@ fn map_aggregate_api_row(row: &Row<'_>) -> Result<AggregateApi> {
         auth_type: row.get(5)?,
         auth_params_json: row.get(6)?,
         action: row.get(7)?,
-        status: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-        last_test_at: row.get(11)?,
-        last_test_status: row.get(12)?,
-        last_test_error: row.get(13)?,
+        upstream_format: row.get(8)?,
+        models_path: row.get(9)?,
+        responses_path: row.get(10)?,
+        chat_completions_path: row.get(11)?,
+        status: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
+        last_test_at: row.get(15)?,
+        last_test_status: row.get(16)?,
+        last_test_error: row.get(17)?,
+        models_last_synced_at: row.get(18)?,
+        models_last_sync_status: row.get(19)?,
+        models_last_sync_error: row.get(20)?,
     })
 }

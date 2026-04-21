@@ -2283,6 +2283,109 @@ fn gateway_models_hides_descriptions_for_codex_cli_only() {
     );
 }
 
+#[test]
+fn gateway_models_for_aggregate_key_only_returns_selected_aggregate_models() {
+    let _lock = test_env_guard();
+    let dir = new_test_dir("codexmanager-gateway-models-aggregate-filter");
+    let db_path: PathBuf = dir.join("codexmanager.db");
+
+    let _db_guard = EnvGuard::set("CODEXMANAGER_DB_PATH", db_path.to_string_lossy().as_ref());
+    let _upstream_guard = EnvGuard::set(
+        "CODEXMANAGER_UPSTREAM_BASE_URL",
+        "http://127.0.0.1:1/backend-api/codex",
+    );
+
+    let storage = Storage::open(&db_path).expect("open db");
+    storage.init().expect("init db");
+    let now = now_ts();
+
+    storage
+        .insert_aggregate_api(&codexmanager_core::storage::AggregateApi {
+            id: "agg_models".to_string(),
+            provider_type: "codex".to_string(),
+            supplier_name: Some("agg".to_string()),
+            sort: 0,
+            url: "https://example.com/v1".to_string(),
+            auth_type: "apikey".to_string(),
+            auth_params_json: None,
+            action: None,
+            upstream_format: "responses".to_string(),
+            models_path: Some("/models".to_string()),
+            responses_path: None,
+            chat_completions_path: None,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+            last_test_at: None,
+            last_test_status: None,
+            last_test_error: None,
+            models_last_synced_at: None,
+            models_last_sync_status: None,
+            models_last_sync_error: None,
+        })
+        .expect("insert aggregate api");
+    storage
+        .replace_aggregate_api_models(
+            "agg_models",
+            &[codexmanager_core::storage::AggregateApiModel {
+                aggregate_api_id: "agg_models".to_string(),
+                model_slug: "deepseek-v3".to_string(),
+                display_name: Some("DeepSeek-V3".to_string()),
+                raw_json: "{\"id\":\"deepseek-v3\"}".to_string(),
+                created_at: now,
+                updated_at: now,
+            }],
+        )
+        .expect("replace aggregate models");
+
+    let platform_key = "pk_aggregate_models";
+    storage
+        .insert_api_key(&ApiKey {
+            id: "gk_aggregate_models".to_string(),
+            name: Some("aggregate-models".to_string()),
+            model_slug: None,
+            reasoning_effort: None,
+            service_tier: None,
+            rotation_strategy: "aggregate_api_rotation".to_string(),
+            aggregate_api_id: Some("agg_models".to_string()),
+            account_plan_filter: None,
+            aggregate_api_url: Some("https://example.com/v1".to_string()),
+            client_type: "codex".to_string(),
+            protocol_type: "openai_compat".to_string(),
+            auth_scheme: "authorization_bearer".to_string(),
+            upstream_base_url: None,
+            static_headers_json: None,
+            key_hash: hash_platform_key_for_test(platform_key),
+            status: "active".to_string(),
+            created_at: now,
+            last_used_at: None,
+        })
+        .expect("insert api key");
+
+    seed_model_catalog_models(&storage, &["gpt-5.3-codex", "deepseek-v3", "gpt-4.1"]);
+
+    let server = codexmanager_service::start_one_shot_server().expect("start server");
+    let (status, response_body) = get_http_raw(
+        &server.addr,
+        "/v1/models",
+        &[("Authorization", &format!("Bearer {platform_key}"))],
+    );
+    server.join();
+    assert_eq!(status, 200, "gateway response: {response_body}");
+
+    let value: serde_json::Value =
+        serde_json::from_str(&response_body).expect("parse models list response");
+    let data = value
+        .get("models")
+        .and_then(|v| v.as_array())
+        .expect("models list data array");
+    assert_eq!(data.len(), 1, "aggregate key should expose selected models only");
+    assert_eq!(
+        data[0].get("slug").and_then(|v| v.as_str()),
+        Some("deepseek-v3")
+    );
+}
+
 /// 函数 `apikey_models_refresh_includes_client_version_query`
 ///
 /// 作者: gaohongshun

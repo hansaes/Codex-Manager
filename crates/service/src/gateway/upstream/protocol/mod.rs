@@ -1,1 +1,1 @@
-pub(super) mod aggregate_api;
+pub(crate) mod aggregate_api;
