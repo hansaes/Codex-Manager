@@ -78,3 +78,18 @@ test("createWebCommandMap 为团队成员与邀请操作提供 RPC 映射", () =
     rpcMethod: "team/revokeInvite",
   });
 });
+
+test("createWebCommandMap 为 Docker/Web 聚合 API 模型同步提供 RPC 映射", () => {
+  assert.deepEqual(commandMap.service_aggregate_api_fetch_models, {
+    rpcMethod: "aggregateApi/fetchModels",
+  });
+  assert.deepEqual(commandMap.service_aggregate_api_preview_models, {
+    rpcMethod: "aggregateApi/previewModels",
+  });
+  assert.deepEqual(commandMap.service_aggregate_api_save_models, {
+    rpcMethod: "aggregateApi/saveModels",
+  });
+  assert.deepEqual(commandMap.service_aggregate_api_list_models, {
+    rpcMethod: "aggregateApi/listModels",
+  });
+});

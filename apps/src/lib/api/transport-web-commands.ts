@@ -270,6 +270,18 @@ export function createWebCommandMap(
     service_aggregate_api_test_connection: {
       rpcMethod: "aggregateApi/testConnection",
     },
+    service_aggregate_api_fetch_models: {
+      rpcMethod: "aggregateApi/fetchModels",
+    },
+    service_aggregate_api_preview_models: {
+      rpcMethod: "aggregateApi/previewModels",
+    },
+    service_aggregate_api_save_models: {
+      rpcMethod: "aggregateApi/saveModels",
+    },
+    service_aggregate_api_list_models: {
+      rpcMethod: "aggregateApi/listModels",
+    },
     service_login_start: {
       rpcMethod: "account/login/start",
       mapParams: (params) => ({
