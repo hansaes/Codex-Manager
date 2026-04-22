@@ -236,3 +236,13 @@ pub async fn service_aggregate_api_list_models(
     let params = serde_json::json!({ "id": id });
     rpc_call_in_background("aggregateApi/listModels", addr, Some(params)).await
 }
+
+#[tauri::command]
+pub async fn service_aggregate_api_test_model(
+    addr: Option<String>,
+    id: String,
+    model: String,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({ "id": id, "model": model });
+    rpc_call_in_background("aggregateApi/testModel", addr, Some(params)).await
+}

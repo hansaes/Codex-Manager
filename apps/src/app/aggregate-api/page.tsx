@@ -134,6 +134,7 @@ export default function AggregateApiPage() {
   const [testingApiId, setTestingApiId] = useState<string | null>(null);
   const [fetchingModelsApiId, setFetchingModelsApiId] = useState<string | null>(null);
   const [savingModelsApiId, setSavingModelsApiId] = useState<string | null>(null);
+  const [testingModelSlug, setTestingModelSlug] = useState<string | null>(null);
   const [testingAll, setTestingAll] = useState(false);
   const [togglingApiId, setTogglingApiId] = useState<string | null>(null);
   const [statusOverrides, setStatusOverrides] = useState<Record<string, boolean>>(
@@ -491,6 +492,46 @@ export default function AggregateApiPage() {
     },
   });
 
+  const testModelMutation = useMutation({
+    mutationFn: async ({
+      apiId,
+      modelSlug,
+    }: {
+      apiId: string;
+      modelSlug: string;
+    }) => accountClient.testAggregateApiModel(apiId, modelSlug),
+    onMutate: async ({ modelSlug }) => {
+      setTestingModelSlug(modelSlug);
+    },
+    onSuccess: async (result, variables) => {
+      if (result.ok) {
+        toast.success(
+          t("模型 {model} 连通正常", { model: variables.modelSlug })
+        );
+        return;
+      }
+      toast.error(
+        t("模型 {model} 测试失败: {reason}", {
+          model: variables.modelSlug,
+          reason: result.message || result.statusCode || t("未返回具体错误信息"),
+        })
+      );
+    },
+    onSettled: async (_result, _error, variables) => {
+      setTestingModelSlug((current) =>
+        current === variables?.modelSlug ? null : current
+      );
+    },
+    onError: (error: unknown, variables) => {
+      toast.error(
+        t("模型 {model} 测试失败: {reason}", {
+          model: variables?.modelSlug || "",
+          reason: error instanceof Error ? error.message : String(error),
+        })
+      );
+    },
+  });
+
   const prioritizeMutation = useMutation({
     mutationFn: async (api: AggregateApi) => {
       const currentMinSort = aggregateApis.reduce(
@@ -621,6 +662,59 @@ export default function AggregateApiPage() {
     saveModelsMutation.mutate({
       apiId: modelPickerApi.id,
       items,
+    });
+  };
+
+  const handleAddManualModel = (modelSlug: string, displayName?: string) => {
+    if (!modelPickerApi?.id) {
+      toast.error(t("未找到聚合 API"));
+      return;
+    }
+    const slug = modelSlug.trim();
+    if (!slug) return;
+    const normalizedSlug = slug.toLowerCase();
+    setPreviewModels((current) => {
+      if (
+        current.some(
+          (item) => item.modelSlug.trim().toLowerCase() === normalizedSlug
+        )
+      ) {
+        return current.map((item) =>
+          item.modelSlug.trim().toLowerCase() === normalizedSlug
+            ? {
+                ...item,
+                displayName: displayName?.trim() || item.displayName || slug,
+              }
+            : item
+        );
+      }
+      return [
+        ...current,
+        {
+          aggregateApiId: modelPickerApi.id,
+          modelSlug: slug,
+          displayName: displayName?.trim() || slug,
+          rawJson: JSON.stringify({
+            id: slug,
+            object: "model",
+            owned_by: "manual",
+          }),
+          updatedAt: Math.floor(Date.now() / 1000),
+        },
+      ];
+    });
+    setSelectedModelSlugs((current) => new Set([...current, slug]));
+    toast.success(t("已添加模型 {model}", { model: slug }));
+  };
+
+  const handleTestModel = (modelSlug: string) => {
+    if (!modelPickerApi?.id) {
+      toast.error(t("未找到聚合 API"));
+      return;
+    }
+    testModelMutation.mutate({
+      apiId: modelPickerApi.id,
+      modelSlug,
     });
   };
 
@@ -1253,6 +1347,9 @@ export default function AggregateApiPage() {
           if (!modelPickerApi) return;
           syncModelsMutation.mutate(modelPickerApi);
         }}
+        onAddManualModel={handleAddManualModel}
+        onTestModel={handleTestModel}
+        testingModelSlug={testingModelSlug}
         isSyncingUpstream={
           Boolean(modelPickerApi?.id) && fetchingModelsApiId === modelPickerApi?.id
         }

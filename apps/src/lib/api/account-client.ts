@@ -543,6 +543,16 @@ export const accountClient = {
     );
     return normalizeAggregateApiTestResult(result);
   },
+  async testAggregateApiModel(
+    apiId: string,
+    model: string
+  ): Promise<AggregateApiTestResult> {
+    const result = await invoke<unknown>(
+      "service_aggregate_api_test_model",
+      withAddr({ id: apiId, model })
+    );
+    return normalizeAggregateApiTestResult(result);
+  },
   async fetchAggregateApiModels(
     apiId: string
   ): Promise<AggregateApiFetchModelsResult> {

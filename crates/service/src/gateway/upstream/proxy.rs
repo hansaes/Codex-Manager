@@ -209,6 +209,45 @@ pub(in super::super) fn proxy_validated_request(
                 }
             };
 
+        aggregate_api_candidates =
+            super::protocol::aggregate_api::filter_aggregate_api_candidates_by_model(
+                &storage,
+                aggregate_api_candidates,
+                model_for_log.as_deref(),
+            )?;
+
+        if aggregate_api_candidates.is_empty() {
+            let message = match model_for_log
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                Some(model) => {
+                    format!("aggregate api model not found in selected catalog: {model}")
+                }
+                None => "aggregate api not found".to_string(),
+            };
+            super::super::record_gateway_request_outcome(path.as_str(), 404, Some("aggregate_api"));
+            super::super::trace_log::log_request_final(
+                trace_id.as_str(),
+                404,
+                Some(key_id.as_str()),
+                None,
+                Some(message.as_str()),
+                started_at.elapsed().as_millis(),
+            );
+            let response = super::super::error_response::terminal_text_response(
+                404,
+                super::super::error_message_for_client(
+                    super::super::prefers_raw_errors_for_tiny_http_request(&request),
+                    message,
+                ),
+                Some(trace_id.as_str()),
+            );
+            let _ = request.respond(response);
+            return Ok(());
+        }
+
         super::protocol::aggregate_api::apply_gateway_route_strategy_to_aggregate_candidates(
             &mut aggregate_api_candidates,
             key_id.as_str(),

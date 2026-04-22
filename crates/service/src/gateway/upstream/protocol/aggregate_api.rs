@@ -8,8 +8,8 @@ use tiny_http::Request;
 
 use super::super::GatewayUpstreamResponse;
 use crate::aggregate_api::{
-    AGGREGATE_API_AUTH_APIKEY, AGGREGATE_API_AUTH_USERPASS, AGGREGATE_API_PROVIDER_CLAUDE,
-    AGGREGATE_API_PROVIDER_CODEX, resolve_aggregate_api_request_path,
+    resolve_aggregate_api_request_path, AGGREGATE_API_AUTH_APIKEY, AGGREGATE_API_AUTH_USERPASS,
+    AGGREGATE_API_PROVIDER_CLAUDE, AGGREGATE_API_PROVIDER_CODEX,
 };
 use crate::gateway::request_log::RequestLogUsage;
 
@@ -381,6 +381,35 @@ pub(crate) fn apply_gateway_route_strategy_to_aggregate_candidates(
     } else {
         super::super::super::route_hint::apply_balanced_round_robin(candidates, key_id, model);
     }
+}
+
+pub(crate) fn filter_aggregate_api_candidates_by_model(
+    storage: &Storage,
+    candidates: Vec<AggregateApi>,
+    model: Option<&str>,
+) -> Result<Vec<AggregateApi>, String> {
+    let Some(requested_model) = model
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+    else {
+        return Ok(candidates);
+    };
+
+    let mut filtered = Vec::new();
+    for candidate in candidates {
+        let models = storage
+            .list_aggregate_api_models(candidate.id.as_str())
+            .map_err(|err| err.to_string())?;
+        if models.iter().any(|item| {
+            item.model_slug
+                .trim()
+                .eq_ignore_ascii_case(requested_model.as_str())
+        }) {
+            filtered.push(candidate);
+        }
+    }
+    Ok(filtered)
 }
 
 /// 函数 `normalize_provider_type_value`
@@ -1129,6 +1158,52 @@ mod bridge_tests {
         items.iter().map(|item| item.id.clone()).collect()
     }
 
+    #[test]
+    fn aggregate_candidates_are_filtered_by_requested_model_and_keep_priority_order() {
+        let storage = Storage::open_in_memory().expect("open in memory");
+        storage.init().expect("init schema");
+        let now = codexmanager_core::storage::now_ts();
+        for candidate in [
+            candidate("agg-low", 0),
+            candidate("agg-other", 5),
+            candidate("agg-high", 10),
+        ] {
+            storage
+                .insert_aggregate_api(&candidate)
+                .expect("insert aggregate api");
+            storage
+                .replace_aggregate_api_models(
+                    candidate.id.as_str(),
+                    &[codexmanager_core::storage::AggregateApiModel {
+                        aggregate_api_id: candidate.id.clone(),
+                        model_slug: if candidate.id == "agg-other" {
+                            "deepseek-v3".to_string()
+                        } else {
+                            "gpt-5.4".to_string()
+                        },
+                        display_name: None,
+                        raw_json: "{}".to_string(),
+                        created_at: now,
+                        updated_at: now,
+                    }],
+                )
+                .expect("replace models");
+        }
+
+        let filtered = filter_aggregate_api_candidates_by_model(
+            &storage,
+            vec![
+                candidate("agg-low", 0),
+                candidate("agg-other", 5),
+                candidate("agg-high", 10),
+            ],
+            Some("gpt-5.4"),
+        )
+        .expect("filter candidates");
+
+        assert_eq!(ids(&filtered), vec!["agg-low", "agg-high"]);
+    }
+
     /// 函数 `balanced_route_strategy_rotates_aggregate_candidates`
     ///
     /// 作者: gaohongshun
@@ -1298,11 +1373,8 @@ mod tests {
 
     #[test]
     fn build_upstream_url_preserves_base_path_prefix() {
-        let url = build_upstream_url(
-            &aggregate_api_with_action(None),
-            "/v1/messages?beta=true",
-        )
-        .expect("build upstream url");
+        let url = build_upstream_url(&aggregate_api_with_action(None), "/v1/messages?beta=true")
+            .expect("build upstream url");
         assert_eq!(
             url.as_str(),
             "https://open.bigmodel.cn/api/anthropic/v1/messages?beta=true"
@@ -1325,10 +1397,7 @@ mod tests {
         let mut api = aggregate_api_with_action(None);
         api.url = "https://api.1l1l1l1.xyz/v1".to_string();
         let url = build_upstream_url(&api, "/v1/chat/completions").expect("build upstream url");
-        assert_eq!(
-            url.as_str(),
-            "https://api.1l1l1l1.xyz/v1/chat/completions"
-        );
+        assert_eq!(url.as_str(), "https://api.1l1l1l1.xyz/v1/chat/completions");
     }
 
     #[test]
@@ -1346,7 +1415,10 @@ mod tests {
         api.models_path = None;
 
         let responses_url = build_upstream_url(&api, "/v1/responses").expect("responses url");
-        assert_eq!(responses_url.as_str(), "https://api.1l1l1l1.xyz/v1/responses");
+        assert_eq!(
+            responses_url.as_str(),
+            "https://api.1l1l1l1.xyz/v1/responses"
+        );
 
         let chat_url =
             build_upstream_url(&api, "/v1/chat/completions").expect("chat completions url");
@@ -1368,7 +1440,10 @@ mod tests {
         api.models_path = Some("/custom/models".to_string());
 
         let responses_url = build_upstream_url(&api, "/v1/responses").expect("responses url");
-        assert_eq!(responses_url.as_str(), "https://api.example.com/custom/responses");
+        assert_eq!(
+            responses_url.as_str(),
+            "https://api.example.com/custom/responses"
+        );
 
         let chat_url =
             build_upstream_url(&api, "/v1/chat/completions").expect("chat completions url");

@@ -21,8 +21,7 @@ pub(crate) const AGGREGATE_API_AUTH_APIKEY: &str = "apikey";
 pub(crate) const AGGREGATE_API_AUTH_USERPASS: &str = "userpass";
 pub(crate) const AGGREGATE_API_REQUEST_MODELS_PATH: &str = "/v1/models";
 pub(crate) const AGGREGATE_API_REQUEST_RESPONSES_PATH: &str = "/v1/responses";
-pub(crate) const AGGREGATE_API_REQUEST_CHAT_COMPLETIONS_PATH: &str =
-    "/v1/chat/completions";
+pub(crate) const AGGREGATE_API_REQUEST_CHAT_COMPLETIONS_PATH: &str = "/v1/chat/completions";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AggregateApiEndpointKind {
@@ -186,7 +185,9 @@ fn normalize_upstream_format(value: Option<String>) -> Result<String, String> {
                 "chat_completions" | "chat/completions" | "chat_completion" => {
                     Ok("chat_completions".to_string())
                 }
-                other => Err(format!("unsupported aggregate api upstream format: {other}")),
+                other => Err(format!(
+                    "unsupported aggregate api upstream format: {other}"
+                )),
             }
         }
         None => Ok("responses".to_string()),
@@ -322,8 +323,7 @@ mod tests {
 
     use super::{
         action_path_or_default, normalize_action_override, normalize_aggregate_api_models_payload,
-        normalize_models_path, normalize_selected_aggregate_api_models,
-        normalize_upstream_format,
+        normalize_models_path, normalize_selected_aggregate_api_models, normalize_upstream_format,
     };
 
     fn aggregate_api_with_action(action: Option<&str>) -> AggregateApi {
@@ -511,9 +511,7 @@ fn aggregate_api_endpoint_kind(path: &str) -> AggregateApiEndpointKind {
     match normalize_path_part(path).to_ascii_lowercase().as_str() {
         "/v1/models" | "/models" => AggregateApiEndpointKind::Models,
         "/v1/responses" | "/responses" => AggregateApiEndpointKind::Responses,
-        "/v1/chat/completions" | "/chat/completions" => {
-            AggregateApiEndpointKind::ChatCompletions
-        }
+        "/v1/chat/completions" | "/chat/completions" => AggregateApiEndpointKind::ChatCompletions,
         _ => AggregateApiEndpointKind::Other,
     }
 }
@@ -558,10 +556,7 @@ fn normalized_legacy_action_path(api: &AggregateApi) -> Option<String> {
         })
 }
 
-fn configured_endpoint_path(
-    api: &AggregateApi,
-    kind: AggregateApiEndpointKind,
-) -> Option<String> {
+fn configured_endpoint_path(api: &AggregateApi, kind: AggregateApiEndpointKind) -> Option<String> {
     match kind {
         AggregateApiEndpointKind::Models => api
             .models_path
@@ -637,9 +632,12 @@ pub(crate) fn resolve_aggregate_api_request_path(api: &AggregateApi, request_pat
     auto_resolve_aggregate_api_path(api.url.as_str(), request_path, kind)
 }
 
-fn build_aggregate_api_request_url(api: &AggregateApi, request_path: &str) -> Result<String, String> {
-    let mut url =
-        reqwest::Url::parse(api.url.as_str()).map_err(|_| "invalid aggregate api url".to_string())?;
+fn build_aggregate_api_request_url(
+    api: &AggregateApi,
+    request_path: &str,
+) -> Result<String, String> {
+    let mut url = reqwest::Url::parse(api.url.as_str())
+        .map_err(|_| "invalid aggregate api url".to_string())?;
     let resolved_path = resolve_aggregate_api_request_path(api, request_path);
     let (path_part, query_part) = split_request_path(resolved_path.as_str());
     url.set_path(path_part);
@@ -993,6 +991,18 @@ fn build_claude_probe_body() -> serde_json::Value {
     })
 }
 
+fn build_claude_model_test_body(model: &str) -> serde_json::Value {
+    json!({
+        "model": model,
+        "max_tokens": 1,
+        "messages": [{
+            "role": "user",
+            "content": "hi"
+        }],
+        "stream": false
+    })
+}
+
 /// 函数 `build_codex_probe_body`
 ///
 /// 作者: gaohongshun
@@ -1016,6 +1026,31 @@ fn build_codex_probe_body() -> serde_json::Value {
         }],
         "stream": true
     })
+}
+
+fn build_codex_model_test_body(
+    endpoint_kind: AggregateApiEndpointKind,
+    model: &str,
+) -> serde_json::Value {
+    if endpoint_kind == AggregateApiEndpointKind::ChatCompletions {
+        json!({
+            "model": model,
+            "messages": [{"role":"user","content":"hi"}],
+            "stream": false
+        })
+    } else {
+        json!({
+            "model": model,
+            "input": [{
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "hi"
+                }]
+            }],
+            "stream": false
+        })
+    }
 }
 
 /// 函数 `append_client_version_query`
@@ -1182,6 +1217,50 @@ fn probe_codex_responses_endpoint(
     Ok(status_code)
 }
 
+fn probe_codex_model_endpoint(
+    client: &reqwest::blocking::Client,
+    api: &AggregateApi,
+    secret: &str,
+    model: &str,
+) -> Result<i64, String> {
+    let endpoint_kind = if api
+        .chat_completions_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+        || api.upstream_format == "chat_completions"
+    {
+        AggregateApiEndpointKind::ChatCompletions
+    } else {
+        AggregateApiEndpointKind::Responses
+    };
+    let url = build_aggregate_api_endpoint_url(api, endpoint_kind)?;
+    let builder = client.post(url.as_str());
+    let (builder, updated_url) = apply_probe_auth(builder, url.clone(), api, secret)?;
+    let builder = if updated_url != url {
+        let rebuilt = client.post(updated_url.as_str());
+        let (rebuilt, _) = apply_probe_auth(rebuilt, updated_url, api, secret)?;
+        rebuilt
+    } else {
+        builder
+    };
+    let request_body = build_codex_model_test_body(endpoint_kind, model);
+    let response = add_codex_probe_headers(builder)?
+        .header("content-type", "application/json")
+        .header("accept", "application/json")
+        .json(&request_body)
+        .send()
+        .map_err(|err| err.to_string())?;
+
+    let status_code = response.status().as_u16() as i64;
+    if !response.status().is_success() {
+        return Err(format!("codex model test http_status={status_code}"));
+    }
+    read_first_chunk(response)?;
+    Ok(status_code)
+}
+
 /// 函数 `probe_codex_endpoint`
 ///
 /// 作者: gaohongshun
@@ -1240,7 +1319,9 @@ fn fetch_aggregate_models_from_upstream(
         .map_err(|err| err.to_string())?;
     let status_code = response.status().as_u16() as i64;
     if !response.status().is_success() {
-        return Err(format!("aggregate api models fetch http_status={status_code}"));
+        return Err(format!(
+            "aggregate api models fetch http_status={status_code}"
+        ));
     }
     let payload = response
         .json::<serde_json::Value>()
@@ -1299,6 +1380,46 @@ fn probe_claude_endpoint(
     let status_code = response.status().as_u16() as i64;
     if !response.status().is_success() {
         return Err(format!("claude probe http_status={status_code}"));
+    }
+    read_first_chunk(response)?;
+    Ok(status_code)
+}
+
+fn probe_claude_model_endpoint(
+    client: &reqwest::blocking::Client,
+    api: &AggregateApi,
+    secret: &str,
+    model: &str,
+) -> Result<i64, String> {
+    let probe_path = action_path_or_default(api, "/messages?beta=true");
+    let url = normalize_probe_url(api.url.as_str(), probe_path.as_str());
+    let builder = client.post(url.as_str());
+    let (builder, updated_url) = apply_probe_auth(builder, url.clone(), api, secret)?;
+    let builder = if updated_url != url {
+        let rebuilt = client.post(updated_url.as_str());
+        let (rebuilt, _) = apply_probe_auth(rebuilt, updated_url, api, secret)?;
+        rebuilt
+    } else {
+        builder
+    };
+    let response = builder
+        .header("anthropic-version", "2023-06-01")
+        .header(
+            "anthropic-beta",
+            "claude-code-20250219,interleaved-thinking-2025-05-14",
+        )
+        .header("content-type", "application/json")
+        .header("accept", "application/json")
+        .header("accept-encoding", "identity")
+        .header("user-agent", "claude-cli/2.1.2 (external, cli)")
+        .header("x-app", "cli")
+        .json(&build_claude_model_test_body(model))
+        .send()
+        .map_err(|err| err.to_string())?;
+
+    let status_code = response.status().as_u16() as i64;
+    if !response.status().is_success() {
+        return Err(format!("claude model test http_status={status_code}"));
     }
     read_first_chunk(response)?;
     Ok(status_code)
@@ -1400,8 +1521,7 @@ pub(crate) fn create_aggregate_api(
     let normalized_models_path =
         normalize_models_path(models_path)?.or_else(|| Some("/models".to_string()));
     let normalized_responses_path = normalize_responses_path(responses_path)?;
-    let normalized_chat_completions_path =
-        normalize_chat_completions_path(chat_completions_path)?;
+    let normalized_chat_completions_path = normalize_chat_completions_path(chat_completions_path)?;
     let normalized_secret = if normalized_auth_type == AGGREGATE_API_AUTH_APIKEY {
         normalize_secret(key).ok_or_else(|| "key is required".to_string())?
     } else {
@@ -1838,6 +1958,54 @@ pub(crate) fn test_aggregate_api_connection(
     let message = last_error.map(|err| format!("provider={provider_type}; {err}"));
 
     let _ = storage.update_aggregate_api_test_result(api_id, ok, status_code, message.as_deref());
+    Ok(AggregateApiTestResult {
+        id: api_id.to_string(),
+        ok,
+        status_code,
+        message,
+        tested_at: now_ts(),
+        latency_ms: started_at.elapsed().as_millis() as i64,
+    })
+}
+
+pub(crate) fn test_aggregate_api_model(
+    api_id: &str,
+    model: &str,
+) -> Result<AggregateApiTestResult, String> {
+    if api_id.is_empty() {
+        return Err("aggregate api id required".to_string());
+    }
+    let model = model.trim();
+    if model.is_empty() {
+        return Err("aggregate api model required".to_string());
+    }
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let api = storage
+        .find_aggregate_api_by_id(api_id)
+        .map_err(|err| err.to_string())?
+        .ok_or_else(|| "aggregate api not found".to_string())?;
+    let secret = storage
+        .find_aggregate_api_secret_by_id(api_id)
+        .map_err(|err| err.to_string())?;
+    let Some(secret) = secret else {
+        return Err("aggregate api secret not found".to_string());
+    };
+    let client = gateway::fresh_upstream_client();
+    let started_at = Instant::now();
+    let provider_type = normalize_provider_type_value(api.provider_type.as_str());
+    let result = if probe_codex_only_for_provider(provider_type.as_str()) {
+        probe_codex_model_endpoint(&client, &api, &secret, model)
+    } else {
+        probe_claude_model_endpoint(&client, &api, &secret, model)
+    };
+    let (ok, status_code, message) = match result {
+        Ok(code) => (true, Some(code), Some("模型连通正常".to_string())),
+        Err(err) => (
+            false,
+            None,
+            Some(format!("provider={provider_type}; model={model}; {err}")),
+        ),
+    };
     Ok(AggregateApiTestResult {
         id: api_id.to_string(),
         ok,

@@ -6,7 +6,8 @@ use codexmanager_core::rpc::types::{
 use crate::{
     create_aggregate_api, delete_aggregate_api, fetch_aggregate_api_models,
     list_aggregate_api_models, list_aggregate_apis, read_aggregate_api_secret,
-    save_aggregate_api_models, test_aggregate_api_connection, update_aggregate_api,
+    save_aggregate_api_models, test_aggregate_api_connection, test_aggregate_api_model,
+    update_aggregate_api,
 };
 
 /// 函数 `api_id_param`
@@ -136,43 +137,53 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let api_id = api_id_param(req).unwrap_or("");
             super::value_or_error(test_aggregate_api_connection(api_id))
         }
+        "aggregateApi/testModel" => {
+            let api_id = api_id_param(req).unwrap_or("");
+            let model = super::str_param(req, "model").unwrap_or("");
+            super::value_or_error(test_aggregate_api_model(api_id, model))
+        }
         "aggregateApi/fetchModels" => {
             let api_id = api_id_param(req).unwrap_or("");
-            super::value_or_error(
-                fetch_aggregate_api_models(api_id).map(|item| AggregateApiFetchModelsResult {
+            super::value_or_error(fetch_aggregate_api_models(api_id).map(|item| {
+                AggregateApiFetchModelsResult {
                     id: item.id,
                     count: item.count,
                     fetched_at: item.fetched_at,
                     items: item.items,
-                }),
-            )
+                }
+            }))
         }
         "aggregateApi/previewModels" => {
             let api_id = api_id_param(req).unwrap_or("");
-            super::value_or_error(
-                fetch_aggregate_api_models(api_id).map(|item| AggregateApiFetchModelsResult {
+            super::value_or_error(fetch_aggregate_api_models(api_id).map(|item| {
+                AggregateApiFetchModelsResult {
                     id: item.id,
                     count: item.count,
                     fetched_at: item.fetched_at,
                     items: item.items,
-                }),
-            )
+                }
+            }))
         }
         "aggregateApi/saveModels" => {
             let api_id = api_id_param(req).unwrap_or("");
-            let items = req.params.as_ref().and_then(|value| value.get("items")).cloned();
-            super::value_or_error(
-                save_aggregate_api_models(api_id, items).map(|item| AggregateApiSaveModelsResult {
+            let items = req
+                .params
+                .as_ref()
+                .and_then(|value| value.get("items"))
+                .cloned();
+            super::value_or_error(save_aggregate_api_models(api_id, items).map(|item| {
+                AggregateApiSaveModelsResult {
                     id: item.id,
                     count: item.count,
                     synced_at: item.synced_at,
-                }),
-            )
+                }
+            }))
         }
         "aggregateApi/listModels" => {
             let api_id = api_id_param(req).unwrap_or("");
             super::value_or_error(
-                list_aggregate_api_models(api_id).map(|items| AggregateApiModelListResult { items }),
+                list_aggregate_api_models(api_id)
+                    .map(|items| AggregateApiModelListResult { items }),
             )
         }
         _ => return None,
@@ -294,6 +305,19 @@ mod tests {
         ))
         .expect("response");
         assert_ne!(error_message(&with_api_id), "aggregate api id required");
+    }
+
+    #[test]
+    fn aggregate_api_test_model_requires_model_and_accepts_id() {
+        let missing_model = try_handle(&rpc_request(
+            "aggregateApi/testModel",
+            serde_json::json!({ "id": "ag_test" }),
+        ))
+        .expect("response");
+        assert_eq!(
+            error_message(&missing_model),
+            "aggregate api model required"
+        );
     }
 
     #[test]

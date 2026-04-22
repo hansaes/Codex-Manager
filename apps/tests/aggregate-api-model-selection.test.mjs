@@ -23,8 +23,10 @@ test("account-client 暴露聚合模型预览与保存方法", async () => {
     [
       "previewAggregateApiModels",
       "saveAggregateApiModels",
+      "testAggregateApiModel",
       "\"service_aggregate_api_preview_models\"",
       "\"service_aggregate_api_save_models\"",
+      "\"service_aggregate_api_test_model\"",
     ],
     "apps/src/lib/api/account-client.ts"
   );
@@ -87,5 +89,49 @@ test("模型选择弹窗展示已导入状态并提示取消勾选可移除", as
       "同步上游",
     ],
     "apps/src/components/modals/aggregate-api-model-picker-modal.tsx"
+  );
+});
+
+test("模型选择弹窗支持手动添加与测试单个模型", async () => {
+  const source = await readAppFile(
+    "src",
+    "components",
+    "modals",
+    "aggregate-api-model-picker-modal.tsx"
+  );
+
+  assertIncludesAll(
+    source,
+    [
+      "onAddManualModel",
+      "onTestModel",
+      "手动添加模型",
+      "模型 ID，例如 gpt-5.4",
+      "测试中...",
+    ],
+    "apps/src/components/modals/aggregate-api-model-picker-modal.tsx"
+  );
+});
+
+test("平台密钥聚合 API 轮转不再绑定单个聚合 API", async () => {
+  const source = await readAppFile(
+    "src",
+    "components",
+    "modals",
+    "api-key-modal.tsx"
+  );
+
+  assertIncludesAll(
+    source,
+    [
+      "aggregateApiId: null",
+      "无需把平台密钥绑定到某一个聚合 API",
+      "listAggregateApiModels(api.id)",
+    ],
+    "apps/src/components/modals/api-key-modal.tsx"
+  );
+  assert.ok(
+    !source.includes("throw new Error(t(\"请选择聚合 API\"))"),
+    "平台密钥保存时不应要求选择聚合 API"
   );
 });

@@ -92,4 +92,7 @@ test("createWebCommandMap 为 Docker/Web 聚合 API 模型同步提供 RPC 映�
   assert.deepEqual(commandMap.service_aggregate_api_list_models, {
     rpcMethod: "aggregateApi/listModels",
   });
+  assert.deepEqual(commandMap.service_aggregate_api_test_model, {
+    rpcMethod: "aggregateApi/testModel",
+  });
 });

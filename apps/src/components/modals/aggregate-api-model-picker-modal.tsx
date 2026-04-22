@@ -27,8 +27,11 @@ interface AggregateApiModelPickerModalProps {
   onSelectedModelSlugsChange: (value: Set<string>) => void;
   onConfirm: () => void;
   onSyncUpstream: () => void;
+  onAddManualModel: (modelSlug: string, displayName?: string) => void;
+  onTestModel: (modelSlug: string) => void;
   isSyncingUpstream?: boolean;
   isSaving?: boolean;
+  testingModelSlug?: string | null;
 }
 
 export function AggregateApiModelPickerModal({
@@ -41,15 +44,22 @@ export function AggregateApiModelPickerModal({
   onSelectedModelSlugsChange,
   onConfirm,
   onSyncUpstream,
+  onAddManualModel,
+  onTestModel,
   isSyncingUpstream = false,
   isSaving = false,
+  testingModelSlug = null,
 }: AggregateApiModelPickerModalProps) {
   const { t } = useI18n();
   const [keyword, setKeyword] = useState("");
+  const [manualModelSlug, setManualModelSlug] = useState("");
+  const [manualDisplayName, setManualDisplayName] = useState("");
 
   useEffect(() => {
     if (open) return;
     setKeyword("");
+    setManualModelSlug("");
+    setManualDisplayName("");
   }, [open]);
 
   const visibleModels = useMemo(() => {
@@ -85,6 +95,14 @@ export function AggregateApiModelPickerModal({
 
   const clearSelection = () => {
     onSelectedModelSlugsChange(new Set());
+  };
+
+  const addManualModel = () => {
+    const slug = manualModelSlug.trim();
+    if (!slug) return;
+    onAddManualModel(slug, manualDisplayName.trim() || undefined);
+    setManualModelSlug("");
+    setManualDisplayName("");
   };
 
   return (
@@ -153,6 +171,33 @@ export function AggregateApiModelPickerModal({
             })}
           </div>
 
+          <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+            <div className="mb-2 text-sm font-medium">{t("手动添加模型")}</div>
+            <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+              <Input
+                value={manualModelSlug}
+                onChange={(event) => setManualModelSlug(event.target.value)}
+                placeholder={t("模型 ID，例如 gpt-5.4")}
+              />
+              <Input
+                value={manualDisplayName}
+                onChange={(event) => setManualDisplayName(event.target.value)}
+                placeholder={t("显示名，可选")}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={addManualModel}
+                disabled={!manualModelSlug.trim()}
+              >
+                {t("添加")}
+              </Button>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {t("用于无法从上游获取模型列表的网站；添加后可先测试模型，再保存。")}
+            </p>
+          </div>
+
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-lg border border-border/60 bg-background/50">
             {visibleModels.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-muted-foreground">
@@ -189,6 +234,21 @@ export function AggregateApiModelPickerModal({
                           {model.modelSlug}
                         </div>
                       </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        disabled={testingModelSlug === model.modelSlug}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          onTestModel(model.modelSlug);
+                        }}
+                      >
+                        {testingModelSlug === model.modelSlug
+                          ? t("测试中...")
+                          : t("测试")}
+                      </Button>
                     </label>
                   );
                 })}

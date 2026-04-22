@@ -27,9 +27,9 @@ import { useI18n } from "@/lib/i18n/provider";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import { findBestMatchingModel } from "@/lib/api/model-catalog";
 import { toast } from "sonner";
-import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { useQueryClient, useQuery, useQueries } from "@tanstack/react-query";
 import { Key, Clipboard, ShieldCheck } from "lucide-react";
-import { AggregateApi, ApiKey } from "@/types";
+import { ApiKey } from "@/types";
 
 const PROTOCOL_LABELS: Record<string, string> = {
   openai_compat: "通配兼容 (Codex / Claude Code / Gemini CLI)",
@@ -128,7 +128,6 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
   const [reasoningEffort, setReasoningEffort] = useState("");
   const [serviceTier, setServiceTier] = useState("");
   const [rotationStrategy, setRotationStrategy] = useState("account_rotation");
-  const [aggregateApiId, setAggregateApiId] = useState("");
   const [accountPlanFilter, setAccountPlanFilter] = useState("all");
   const [upstreamBaseUrl, setUpstreamBaseUrl] = useState("");
   const [totalTokenLimit, setTotalTokenLimit] = useState("");
@@ -165,19 +164,32 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     enabled: open && isServiceReady,
   });
 
-  const { data: aggregateModels = [] } = useQuery({
-    queryKey: ["aggregate-api-models", aggregateApiId],
-    queryFn: () => accountClient.listAggregateApiModels(aggregateApiId),
-    enabled:
-      open &&
-      isServiceReady &&
-      rotationStrategy === "aggregate_api_rotation" &&
-      Boolean(aggregateApiId),
+  const aggregateModelQueries = useQueries({
+    queries:
+      open && isServiceReady && rotationStrategy === "aggregate_api_rotation"
+        ? aggregateApis
+            .filter((api) => String(api.status || "").trim().toLowerCase() !== "disabled")
+            .map((api) => ({
+              queryKey: ["aggregate-api-models", api.id],
+              queryFn: () => accountClient.listAggregateApiModels(api.id),
+            }))
+        : [],
   });
 
-  const selectedAggregateApi = useMemo(
-    () => aggregateApis.find((item) => item.id === aggregateApiId) || null,
-    [aggregateApiId, aggregateApis]
+  const aggregateModels = useMemo(
+    () =>
+      aggregateModelQueries
+        .flatMap((query) => query.data || [])
+        .filter((model, index, items) => {
+          const slug = model.modelSlug.trim().toLowerCase();
+          return (
+            Boolean(slug) &&
+            items.findIndex(
+              (item) => item.modelSlug.trim().toLowerCase() === slug
+            ) === index
+          );
+        }),
+    [aggregateModelQueries],
   );
 
   const selectedModelInfo = useMemo(
@@ -238,7 +250,6 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
       setReasoningEffort("");
       setServiceTier("");
       setRotationStrategy("account_rotation");
-      setAggregateApiId("");
       setAccountPlanFilter("all");
       setUpstreamBaseUrl("");
       setTotalTokenLimit("");
@@ -254,7 +265,6 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     setReasoningEffort(apiKey.reasoningEffort || "");
     setServiceTier(normalizeEditableServiceTier(apiKey.serviceTier));
     setRotationStrategy(apiKey.rotationStrategy || "account_rotation");
-    setAggregateApiId(apiKey.aggregateApiId || "");
     setAccountPlanFilter(apiKey.accountPlanFilter || "all");
     setGeneratedKey("");
     setUpstreamBaseUrl(apiKey.upstreamBaseUrl || "");
@@ -287,9 +297,6 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     }
     setIsLoading(true);
     try {
-      if (rotationStrategy === "aggregate_api_rotation" && !aggregateApiId) {
-        throw new Error(t("请选择聚合 API"));
-      }
       const nextTotalTokenLimit = parseOptionalIntegerLimit(
         totalTokenLimit,
         t("Token 总量上限"),
@@ -315,10 +322,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
         upstreamBaseUrl: upstreamBaseUrl || null,
         staticHeadersJson: null,
         rotationStrategy,
-        aggregateApiId:
-          rotationStrategy === "aggregate_api_rotation" && aggregateApiId
-            ? aggregateApiId
-            : null,
+        aggregateApiId: null,
         accountPlanFilter:
           rotationStrategy === "account_rotation" && accountPlanFilter !== "all"
             ? accountPlanFilter
@@ -439,48 +443,8 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
           </div>
 
           {rotationStrategy === "aggregate_api_rotation" ? (
-            <div className="grid gap-2">
-              <Label>{t("聚合 API")}</Label>
-              <Select
-                value={aggregateApiId}
-                onValueChange={(val) => {
-                  if (!val) return;
-                  setAggregateApiId(val);
-                  setModelSlug("");
-                }}
-                disabled={!isServiceReady}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t("请选择聚合 API")}>
-                    {(value) => {
-                      const nextValue = String(value || "").trim();
-                      if (!nextValue) return t("请选择聚合 API");
-                      return (
-                        aggregateApis.find((api) => api.id === nextValue)?.supplierName ||
-                        aggregateApis.find((api) => api.id === nextValue)?.url ||
-                        nextValue
-                      );
-                    }}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent align="start">
-                  {aggregateApis.map((api: AggregateApi) => (
-                    <SelectItem key={api.id} value={api.id}>
-                      {api.supplierName || api.url}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-muted-foreground">
-                {selectedAggregateApi
-                  ? t("当前上游格式：{format}", {
-                      format:
-                        selectedAggregateApi.upstreamFormat === "chat_completions"
-                          ? "Chat Completions"
-                          : "Responses",
-                    })
-                  : t("先选择一个聚合 API，再从它同步出来的模型列表中选模型。")}
-              </p>
+            <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
+              {t("聚合 API 轮转会按请求模型在所有启用的聚合 API 中匹配，并按优先级排序尝试；无需把平台密钥绑定到某一个聚合 API。")}
             </div>
           ) : null}
 
@@ -553,10 +517,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
               <Select
                 value={modelSlug}
                 onValueChange={(val) => val && setModelSlug(val)}
-                disabled={
-                  !isServiceReady ||
-                  (rotationStrategy === "aggregate_api_rotation" && !aggregateApiId)
-                }
+                disabled={!isServiceReady}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder={t("跟随请求")}>
@@ -582,7 +543,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
               </Select>
               <p className="text-[11px] text-muted-foreground">
                 {rotationStrategy === "aggregate_api_rotation"
-                  ? t("这里展示所选聚合 API 已同步的模型。")
+                  ? t("这里展示所有启用聚合 API 已导入或手动添加的模型；选择“跟随请求”时，会按请求体模型自动路由。")
                   : t("选择“跟随请求”时，会使用请求体里的实际模型；请求日志展示的是最终生效模型。")}
               </p>
             </div>
