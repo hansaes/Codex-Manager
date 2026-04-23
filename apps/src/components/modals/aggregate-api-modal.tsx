@@ -85,6 +85,10 @@ export function AggregateApiModal({
   const [modelsPath, setModelsPath] = useState("/models");
   const [responsesPath, setResponsesPath] = useState("");
   const [chatCompletionsPath, setChatCompletionsPath] = useState("");
+  const [proxyMode, setProxyMode] = useState<
+    "follow_global" | "direct" | "custom"
+  >("follow_global");
+  const [proxyUrl, setProxyUrl] = useState("");
   const [authType, setAuthType] = useState<"apikey" | "userpass">("apikey");
   const [authCustomEnabled, setAuthCustomEnabled] = useState(false);
   const [apiKeyLocation, setApiKeyLocation] = useState<"header" | "query">(
@@ -127,6 +131,14 @@ export function AggregateApiModal({
     setModelsPath(aggregateApi?.modelsPath || "/models");
     setResponsesPath(aggregateApi?.responsesPath || "");
     setChatCompletionsPath(aggregateApi?.chatCompletionsPath || "");
+    setProxyMode(
+      aggregateApi?.proxyMode === "direct"
+        ? "direct"
+        : aggregateApi?.proxyMode === "custom"
+          ? "custom"
+          : "follow_global"
+    );
+    setProxyUrl(aggregateApi?.proxyUrl || "");
     const nextAuthType =
       aggregateApi?.authType === "userpass" ? "userpass" : "apikey";
     setAuthType(nextAuthType);
@@ -282,6 +294,10 @@ export function AggregateApiModal({
         }
       }
     }
+    if (proxyMode === "custom" && !proxyUrl.trim()) {
+      toast.error(t("自定义代理模式下必须填写代理地址"));
+      return;
+    }
     setIsLoading(true);
     try {
       if (aggregateApi?.id) {
@@ -300,6 +316,8 @@ export function AggregateApiModal({
           modelsPath: modelsPath.trim() || "/models",
           responsesPath: responsesPath.trim(),
           chatCompletionsPath: chatCompletionsPath.trim(),
+          proxyMode,
+          proxyUrl: proxyMode === "custom" ? proxyUrl.trim() : null,
           username: authType === "userpass" ? username.trim() || null : null,
           password: authType === "userpass" ? password.trim() || null : null,
         });
@@ -328,6 +346,8 @@ export function AggregateApiModal({
         modelsPath: modelsPath.trim() || "/models",
         responsesPath: responsesPath.trim(),
         chatCompletionsPath: chatCompletionsPath.trim(),
+        proxyMode,
+        proxyUrl: proxyMode === "custom" ? proxyUrl.trim() : null,
         username: authType === "userpass" ? username.trim() : null,
         password: authType === "userpass" ? password.trim() : null,
       });
@@ -552,6 +572,62 @@ export function AggregateApiModal({
                   />
                   <p className="text-[11px] text-muted-foreground">
                     {t("默认 `/models`，仅在对方站点使用自定义模型路径时修改。")}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="aggregate-api-proxy-mode">
+                    {t("代理模式")}
+                  </Label>
+                  <Select
+                    value={proxyMode}
+                    disabled={!isServiceReady}
+                    onValueChange={(value) => {
+                      if (value === "direct" || value === "custom") {
+                        setProxyMode(value);
+                        return;
+                      }
+                      setProxyMode("follow_global");
+                    }}
+                  >
+                    <SelectTrigger
+                      id="aggregate-api-proxy-mode"
+                      className="w-full"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="follow_global">
+                        {t("跟随全局代理")}
+                      </SelectItem>
+                      <SelectItem value="direct">{t("强制直连")}</SelectItem>
+                      <SelectItem value="custom">
+                        {t("单独自定义代理")}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    {t("不是所有聚合 API 都需要代理；这里可以单独覆盖全局设置。")}
+                  </p>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="aggregate-api-proxy-url">
+                    {t("代理地址")}
+                  </Label>
+                  <Input
+                    id="aggregate-api-proxy-url"
+                    placeholder="http://127.0.0.1:7890"
+                    value={proxyUrl}
+                    disabled={!isServiceReady || proxyMode !== "custom"}
+                    onChange={(event) => setProxyUrl(event.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    {proxyMode === "custom"
+                      ? t("仅当前聚合 API 使用这个代理地址。")
+                      : t("只有在“单独自定义代理”模式下才会生效。")}
                   </p>
                 </div>
               </div>

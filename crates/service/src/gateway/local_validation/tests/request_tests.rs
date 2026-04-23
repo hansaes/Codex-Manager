@@ -4,7 +4,7 @@ use crate::gateway::{
 };
 use axum::http::{HeaderMap, HeaderValue};
 use codexmanager_core::rpc::types::{ModelInfo, ModelsResponse};
-use codexmanager_core::storage::{AggregateApi, AggregateApiModel, Storage, now_ts};
+use codexmanager_core::storage::{now_ts, AggregateApi, AggregateApiModel, Storage};
 use serde_json::Value;
 
 /// 函数 `sample_api_key`
@@ -214,6 +214,8 @@ fn aggregate_model_validation_rejects_models_outside_selected_catalog() {
             models_path: Some("/models".to_string()),
             responses_path: None,
             chat_completions_path: None,
+            proxy_mode: "follow_global".to_string(),
+            proxy_url: None,
             status: "active".to_string(),
             created_at: now,
             updated_at: now,
@@ -239,7 +241,12 @@ fn aggregate_model_validation_rejects_models_outside_selected_catalog() {
         )
         .expect("replace aggregate models");
 
-    let mut api_key = sample_api_key(crate::apikey_profile::PROTOCOL_OPENAI_COMPAT, None, None, None);
+    let mut api_key = sample_api_key(
+        crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+        None,
+        None,
+        None,
+    );
     api_key.rotation_strategy = crate::apikey_profile::ROTATION_AGGREGATE_API.to_string();
     api_key.aggregate_api_id = Some("agg_validate".to_string());
 
@@ -267,6 +274,8 @@ fn aggregate_model_validation_can_infer_single_selected_catalog_when_binding_mis
             models_path: Some("/models".to_string()),
             responses_path: None,
             chat_completions_path: None,
+            proxy_mode: "follow_global".to_string(),
+            proxy_url: None,
             status: "active".to_string(),
             created_at: now,
             updated_at: now,
@@ -292,7 +301,12 @@ fn aggregate_model_validation_can_infer_single_selected_catalog_when_binding_mis
         )
         .expect("replace aggregate models");
 
-    let mut api_key = sample_api_key(crate::apikey_profile::PROTOCOL_OPENAI_COMPAT, None, None, None);
+    let mut api_key = sample_api_key(
+        crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+        None,
+        None,
+        None,
+    );
     api_key.rotation_strategy = crate::apikey_profile::ROTATION_AGGREGATE_API.to_string();
     api_key.aggregate_api_id = None;
 

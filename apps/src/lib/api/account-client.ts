@@ -139,6 +139,8 @@ interface AggregateApiPayload {
   modelsPath?: string | null;
   responsesPath?: string | null;
   chatCompletionsPath?: string | null;
+  proxyMode?: string | null;
+  proxyUrl?: string | null;
   username?: string | null;
   password?: string | null;
 }
@@ -491,6 +493,8 @@ export const accountClient = {
         modelsPath: params.modelsPath || null,
         responsesPath: params.responsesPath ?? null,
         chatCompletionsPath: params.chatCompletionsPath ?? null,
+        proxyMode: params.proxyMode ?? null,
+        proxyUrl: params.proxyUrl ?? null,
         username: params.username || null,
         password: params.password || null,
       })
@@ -523,6 +527,8 @@ export const accountClient = {
         modelsPath: params.modelsPath || null,
         responsesPath: params.responsesPath ?? null,
         chatCompletionsPath: params.chatCompletionsPath ?? null,
+        proxyMode: params.proxyMode ?? null,
+        proxyUrl: params.proxyUrl ?? null,
         username: params.username || null,
         password: params.password || null,
       })

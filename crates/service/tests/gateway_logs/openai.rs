@@ -2313,6 +2313,8 @@ fn gateway_models_for_aggregate_key_only_returns_selected_aggregate_models() {
             models_path: Some("/models".to_string()),
             responses_path: None,
             chat_completions_path: None,
+            proxy_mode: "follow_global".to_string(),
+            proxy_url: None,
             status: "active".to_string(),
             created_at: now,
             updated_at: now,
@@ -2379,7 +2381,11 @@ fn gateway_models_for_aggregate_key_only_returns_selected_aggregate_models() {
         .get("models")
         .and_then(|v| v.as_array())
         .expect("models list data array");
-    assert_eq!(data.len(), 1, "aggregate key should expose selected models only");
+    assert_eq!(
+        data.len(),
+        1,
+        "aggregate key should expose selected models only"
+    );
     assert_eq!(
         data[0].get("slug").and_then(|v| v.as_str()),
         Some("deepseek-v3")

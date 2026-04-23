@@ -1,6 +1,6 @@
 use codexmanager_core::storage::{
-    now_ts, Account, AggregateApi, AggregateApiModel, ApiKey, Event, RequestLog,
-    RequestTokenStat, Storage, Token, UsageSnapshotRecord,
+    now_ts, Account, AggregateApi, AggregateApiModel, ApiKey, Event, RequestLog, RequestTokenStat,
+    Storage, Token, UsageSnapshotRecord,
 };
 
 /// 函数 `storage_can_insert_account_and_token`
@@ -311,6 +311,8 @@ fn aggregate_api_roundtrip_persists_endpoint_overrides_and_model_sync_metadata()
             models_path: Some("/models".to_string()),
             responses_path: Some("/responses".to_string()),
             chat_completions_path: Some("/chat/completions".to_string()),
+            proxy_mode: "follow_global".to_string(),
+            proxy_url: None,
             status: "active".to_string(),
             created_at: now,
             updated_at: now,
@@ -359,6 +361,8 @@ fn aggregate_api_model_cache_replace_is_scoped_per_aggregate() {
                 models_path: Some("/models".to_string()),
                 responses_path: None,
                 chat_completions_path: None,
+                proxy_mode: "follow_global".to_string(),
+                proxy_url: None,
                 status: "active".to_string(),
                 created_at: now,
                 updated_at: now,

@@ -129,6 +129,8 @@ mod tests {
                 models_path: Some("/models".to_string()),
                 responses_path: None,
                 chat_completions_path: None,
+                proxy_mode: "follow_global".to_string(),
+                proxy_url: None,
                 status: "active".to_string(),
                 created_at: now,
                 updated_at: now,

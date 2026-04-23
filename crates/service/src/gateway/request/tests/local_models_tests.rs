@@ -1,6 +1,6 @@
 use super::*;
 use codexmanager_core::rpc::types::{ModelInfo, ModelsResponse};
-use codexmanager_core::storage::{AggregateApi, AggregateApiModel, ApiKey, Storage, now_ts};
+use codexmanager_core::storage::{now_ts, AggregateApi, AggregateApiModel, ApiKey, Storage};
 use serde_json::Value;
 
 /// 函数 `serialize_models_response_outputs_official_shape`
@@ -24,10 +24,7 @@ fn serialize_models_response_outputs_official_shape() {
                 supported_in_api: true,
                 visibility: Some("list".to_string()),
                 extra: [
-                    (
-                        "owned_by".to_string(),
-                        Value::String("codex".to_string()),
-                    ),
+                    ("owned_by".to_string(), Value::String("codex".to_string())),
                     (
                         "supported_endpoint_types".to_string(),
                         Value::Array(vec![Value::String("openai".to_string())]),
@@ -77,9 +74,15 @@ fn serialize_models_response_outputs_official_shape() {
     );
     assert_eq!(value.get("object").and_then(Value::as_str), Some("list"));
     assert_eq!(value.get("success").and_then(Value::as_bool), Some(true));
-    assert_eq!(data[0].get("id").and_then(Value::as_str), Some("gpt-5.3-codex"));
+    assert_eq!(
+        data[0].get("id").and_then(Value::as_str),
+        Some("gpt-5.3-codex")
+    );
     assert_eq!(data[0].get("object").and_then(Value::as_str), Some("model"));
-    assert_eq!(data[0].get("owned_by").and_then(Value::as_str), Some("codex"));
+    assert_eq!(
+        data[0].get("owned_by").and_then(Value::as_str),
+        Some("codex")
+    );
     assert_eq!(
         data[0]
             .get("supported_endpoint_types")
@@ -138,6 +141,8 @@ fn aggregate_models_response_for_key_uses_selected_aggregate_models_only() {
             models_path: Some("/models".to_string()),
             responses_path: None,
             chat_completions_path: None,
+            proxy_mode: "follow_global".to_string(),
+            proxy_url: None,
             status: "active".to_string(),
             created_at: now,
             updated_at: now,
@@ -213,6 +218,8 @@ fn aggregate_models_response_for_key_can_infer_single_selected_catalog_when_bind
             models_path: Some("/models".to_string()),
             responses_path: None,
             chat_completions_path: None,
+            proxy_mode: "follow_global".to_string(),
+            proxy_url: None,
             status: "active".to_string(),
             created_at: now,
             updated_at: now,
@@ -291,6 +298,8 @@ fn aggregate_models_response_for_key_returns_union_of_selected_models_when_bindi
                 models_path: Some("/models".to_string()),
                 responses_path: None,
                 chat_completions_path: None,
+                proxy_mode: "follow_global".to_string(),
+                proxy_url: None,
                 status: "active".to_string(),
                 created_at: now,
                 updated_at: now,

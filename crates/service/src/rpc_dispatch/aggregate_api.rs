@@ -60,6 +60,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let models_path = super::string_param(req, "modelsPath");
             let responses_path = super::string_param(req, "responsesPath");
             let chat_completions_path = super::string_param(req, "chatCompletionsPath");
+            let proxy_mode = super::string_param(req, "proxyMode");
+            let proxy_url = super::string_param(req, "proxyUrl");
             let username = super::string_param(req, "username");
             let password = super::string_param(req, "password");
             super::value_or_error(create_aggregate_api(
@@ -77,6 +79,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 models_path,
                 responses_path,
                 chat_completions_path,
+                proxy_mode,
+                proxy_url,
                 username,
                 password,
             ))
@@ -102,6 +106,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let models_path = super::string_param(req, "modelsPath");
             let responses_path = super::string_param(req, "responsesPath");
             let chat_completions_path = super::string_param(req, "chatCompletionsPath");
+            let proxy_mode = super::string_param(req, "proxyMode");
+            let proxy_url = super::string_param(req, "proxyUrl");
             let username = super::string_param(req, "username");
             let password = super::string_param(req, "password");
             super::ok_or_error(update_aggregate_api(
@@ -121,6 +127,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 models_path,
                 responses_path,
                 chat_completions_path,
+                proxy_mode,
+                proxy_url,
                 username,
                 password,
             ))

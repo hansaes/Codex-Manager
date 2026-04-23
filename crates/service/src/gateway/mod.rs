@@ -62,6 +62,8 @@ pub(crate) fn error_message_for_client(
     message
 }
 
+#[path = "request/aggregate_catalog.rs"]
+pub(super) mod aggregate_catalog;
 mod anchor_fingerprint;
 mod concurrency;
 #[path = "routing/conversation_binding.rs"]
@@ -77,8 +79,6 @@ mod failover;
 mod http_bridge;
 #[path = "request/incoming_headers.rs"]
 mod incoming_headers;
-#[path = "request/aggregate_catalog.rs"]
-pub(super) mod aggregate_catalog;
 #[path = "request/local_count_tokens.rs"]
 mod local_count_tokens;
 #[path = "request/local_models.rs"]
@@ -388,7 +388,6 @@ use request_gate::{request_gate_lock, RequestGateAcquireError};
 pub(crate) use request_log::write_request_log;
 use route_hint::apply_route_strategy;
 use route_quality::record_route_quality;
-pub(crate) use runtime_config::fresh_upstream_client;
 pub(crate) use runtime_config::front_proxy_max_body_bytes;
 pub(crate) use runtime_config::{account_max_inflight_limit, set_account_max_inflight_limit};
 use runtime_config::{
@@ -396,6 +395,10 @@ use runtime_config::{
     fresh_upstream_client_for_account, request_gate_wait_timeout, trace_body_preview_max_bytes,
     upstream_client_for_account, upstream_stream_timeout, upstream_total_timeout,
     DEFAULT_GATEWAY_DEBUG,
+};
+pub(crate) use runtime_config::{
+    fresh_upstream_client, fresh_upstream_client_with_proxy_override,
+    fresh_upstream_client_without_proxy,
 };
 use selection::collect_gateway_candidates;
 pub(crate) use selection::invalidate_candidate_cache;

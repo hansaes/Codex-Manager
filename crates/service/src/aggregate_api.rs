@@ -22,6 +22,16 @@ pub(crate) const AGGREGATE_API_AUTH_USERPASS: &str = "userpass";
 pub(crate) const AGGREGATE_API_REQUEST_MODELS_PATH: &str = "/v1/models";
 pub(crate) const AGGREGATE_API_REQUEST_RESPONSES_PATH: &str = "/v1/responses";
 pub(crate) const AGGREGATE_API_REQUEST_CHAT_COMPLETIONS_PATH: &str = "/v1/chat/completions";
+pub(crate) const AGGREGATE_API_PROXY_MODE_FOLLOW_GLOBAL: &str = "follow_global";
+pub(crate) const AGGREGATE_API_PROXY_MODE_DIRECT: &str = "direct";
+pub(crate) const AGGREGATE_API_PROXY_MODE_CUSTOM: &str = "custom";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AggregateApiProxyStrategy {
+    FollowGlobal,
+    Direct,
+    Custom(String),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AggregateApiEndpointKind {
@@ -194,6 +204,49 @@ fn normalize_upstream_format(value: Option<String>) -> Result<String, String> {
     }
 }
 
+fn normalize_proxy_mode(value: Option<String>) -> Result<String, String> {
+    match value {
+        Some(raw) => {
+            let normalized = raw.trim().to_ascii_lowercase().replace('-', "_");
+            match normalized.as_str() {
+                "" | "follow_global" | "global" | "default" => {
+                    Ok(AGGREGATE_API_PROXY_MODE_FOLLOW_GLOBAL.to_string())
+                }
+                "direct" | "none" | "no_proxy" => Ok(AGGREGATE_API_PROXY_MODE_DIRECT.to_string()),
+                "custom" | "custom_proxy" => Ok(AGGREGATE_API_PROXY_MODE_CUSTOM.to_string()),
+                other => Err(format!("unsupported aggregate api proxy mode: {other}")),
+            }
+        }
+        None => Ok(AGGREGATE_API_PROXY_MODE_FOLLOW_GLOBAL.to_string()),
+    }
+}
+
+fn rewrite_proxy_url(proxy_url: &str) -> String {
+    let trimmed = proxy_url.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("https://socks5://") {
+        return format!("socks5://{}", &trimmed["https://socks5://".len()..]);
+    }
+    if lower.starts_with("http://socks5://") {
+        return format!("socks5://{}", &trimmed["http://socks5://".len()..]);
+    }
+    trimmed.to_string()
+}
+
+fn normalize_proxy_url(value: Option<String>) -> Result<Option<String>, String> {
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let normalized = rewrite_proxy_url(trimmed);
+    reqwest::Proxy::all(normalized.as_str())
+        .map_err(|err| format!("invalid aggregate api proxy url: {err}"))?;
+    Ok(Some(normalized))
+}
+
 fn normalize_models_path(value: Option<String>) -> Result<Option<String>, String> {
     normalize_endpoint_path(value, "models")
 }
@@ -224,6 +277,34 @@ fn normalize_endpoint_path(value: Option<String>, label: &str) -> Result<Option<
         Ok(Some(trimmed.to_string()))
     } else {
         Ok(Some(format!("/{trimmed}")))
+    }
+}
+
+fn resolve_aggregate_api_proxy_strategy(
+    api: &AggregateApi,
+) -> Result<AggregateApiProxyStrategy, String> {
+    let proxy_mode = normalize_proxy_mode(Some(api.proxy_mode.clone()))?;
+    match proxy_mode.as_str() {
+        AGGREGATE_API_PROXY_MODE_FOLLOW_GLOBAL => Ok(AggregateApiProxyStrategy::FollowGlobal),
+        AGGREGATE_API_PROXY_MODE_DIRECT => Ok(AggregateApiProxyStrategy::Direct),
+        AGGREGATE_API_PROXY_MODE_CUSTOM => {
+            let proxy_url = normalize_proxy_url(api.proxy_url.clone())?
+                .ok_or_else(|| "aggregate api custom proxy url is required".to_string())?;
+            Ok(AggregateApiProxyStrategy::Custom(proxy_url))
+        }
+        _ => Err("unsupported aggregate api proxy mode".to_string()),
+    }
+}
+
+pub(crate) fn build_aggregate_api_client(
+    api: &AggregateApi,
+) -> Result<reqwest::blocking::Client, String> {
+    match resolve_aggregate_api_proxy_strategy(api)? {
+        AggregateApiProxyStrategy::FollowGlobal => Ok(gateway::fresh_upstream_client()),
+        AggregateApiProxyStrategy::Direct => Ok(gateway::fresh_upstream_client_without_proxy()),
+        AggregateApiProxyStrategy::Custom(proxy_url) => Ok(
+            gateway::fresh_upstream_client_with_proxy_override(Some(proxy_url.as_str())),
+        ),
     }
 }
 
@@ -322,10 +403,10 @@ mod tests {
     use codexmanager_core::storage::{AggregateApi, AggregateApiModel};
 
     use super::{
-        legacy_root_models_retry_url,
-        action_path_or_default, normalize_action_override, normalize_aggregate_api_models_payload,
-        normalize_models_path, normalize_selected_aggregate_api_models,
-        normalize_upstream_format, preferred_codex_probe_model,
+        action_path_or_default, legacy_root_models_retry_url, normalize_action_override,
+        normalize_aggregate_api_models_payload, normalize_models_path, normalize_proxy_mode,
+        normalize_proxy_url, normalize_selected_aggregate_api_models, normalize_upstream_format,
+        preferred_codex_probe_model, resolve_aggregate_api_proxy_strategy,
         resolve_aggregate_api_request_path,
     };
 
@@ -343,6 +424,8 @@ mod tests {
             models_path: Some("/models".to_string()),
             responses_path: None,
             chat_completions_path: None,
+            proxy_mode: "follow_global".to_string(),
+            proxy_url: None,
             status: "active".to_string(),
             created_at: 0,
             updated_at: 0,
@@ -392,6 +475,42 @@ mod tests {
         let err = normalize_models_path(Some("https://example.com/models".to_string()))
             .expect_err("full url should be rejected");
         assert!(err.contains("path"));
+    }
+
+    #[test]
+    fn normalize_proxy_mode_defaults_to_follow_global() {
+        assert_eq!(
+            normalize_proxy_mode(None).unwrap(),
+            "follow_global".to_string()
+        );
+        assert_eq!(
+            normalize_proxy_mode(Some("global".to_string())).unwrap(),
+            "follow_global".to_string()
+        );
+    }
+
+    #[test]
+    fn normalize_proxy_url_rejects_invalid_values() {
+        let err = normalize_proxy_url(Some("not a proxy".to_string()))
+            .expect_err("invalid proxy should be rejected");
+        assert!(err.contains("proxy url"));
+    }
+
+    #[test]
+    fn resolve_proxy_strategy_prefers_api_override() {
+        let mut api = aggregate_api_with_action(None);
+        api.proxy_mode = "direct".to_string();
+        assert_eq!(
+            resolve_aggregate_api_proxy_strategy(&api).unwrap(),
+            super::AggregateApiProxyStrategy::Direct
+        );
+
+        api.proxy_mode = "custom".to_string();
+        api.proxy_url = Some("http://127.0.0.1:7890".to_string());
+        assert_eq!(
+            resolve_aggregate_api_proxy_strategy(&api).unwrap(),
+            super::AggregateApiProxyStrategy::Custom("http://127.0.0.1:7890".to_string())
+        );
     }
 
     #[test]
@@ -453,12 +572,14 @@ mod tests {
         let mut api = aggregate_api_with_action(None);
         api.url = "https://hub.oaifree.com".to_string();
         api.models_path = Some("/models".to_string());
-        let current_url =
-            "https://hub.oaifree.com/models?client_version=1.0.0".to_string();
+        let current_url = "https://hub.oaifree.com/models?client_version=1.0.0".to_string();
 
         let retry_url = legacy_root_models_retry_url(&api, current_url.as_str());
 
-        assert_eq!(retry_url.as_deref(), Some("https://hub.oaifree.com/v1/models"));
+        assert_eq!(
+            retry_url.as_deref(),
+            Some("https://hub.oaifree.com/v1/models")
+        );
     }
 
     #[test]
@@ -1594,6 +1715,8 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
             models_path: item.models_path,
             responses_path: item.responses_path,
             chat_completions_path: item.chat_completions_path,
+            proxy_mode: item.proxy_mode,
+            proxy_url: item.proxy_url,
             status: item.status,
             created_at: item.created_at,
             updated_at: item.updated_at,
@@ -1633,6 +1756,8 @@ pub(crate) fn create_aggregate_api(
     models_path: Option<String>,
     responses_path: Option<String>,
     chat_completions_path: Option<String>,
+    proxy_mode: Option<String>,
+    proxy_url: Option<String>,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<AggregateApiCreateResult, String> {
@@ -1655,6 +1780,14 @@ pub(crate) fn create_aggregate_api(
         normalize_models_path(models_path)?.or_else(|| Some("/v1/models".to_string()));
     let normalized_responses_path = normalize_responses_path(responses_path)?;
     let normalized_chat_completions_path = normalize_chat_completions_path(chat_completions_path)?;
+    let normalized_proxy_mode = normalize_proxy_mode(proxy_mode)?;
+    let normalized_proxy_url = if normalized_proxy_mode == AGGREGATE_API_PROXY_MODE_CUSTOM {
+        normalize_proxy_url(proxy_url)?
+            .ok_or_else(|| "proxyUrl is required when proxyMode=custom".to_string())
+            .map(Some)?
+    } else {
+        None
+    };
     let normalized_secret = if normalized_auth_type == AGGREGATE_API_AUTH_APIKEY {
         normalize_secret(key).ok_or_else(|| "key is required".to_string())?
     } else {
@@ -1687,6 +1820,8 @@ pub(crate) fn create_aggregate_api(
         models_path: normalized_models_path,
         responses_path: normalized_responses_path,
         chat_completions_path: normalized_chat_completions_path,
+        proxy_mode: normalized_proxy_mode,
+        proxy_url: normalized_proxy_url,
         status: "active".to_string(),
         created_at,
         updated_at: created_at,
@@ -1742,6 +1877,8 @@ pub(crate) fn update_aggregate_api(
     models_path: Option<String>,
     responses_path: Option<String>,
     chat_completions_path: Option<String>,
+    proxy_mode: Option<String>,
+    proxy_url: Option<String>,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<(), String> {
@@ -1850,6 +1987,31 @@ pub(crate) fn update_aggregate_api(
             .update_aggregate_api_chat_completions_path(api_id, normalized.as_deref())
             .map_err(|err| err.to_string())?;
     }
+    if let Some(raw_proxy_mode) = proxy_mode {
+        let normalized = normalize_proxy_mode(Some(raw_proxy_mode))?;
+        storage
+            .update_aggregate_api_proxy_mode(api_id, normalized.as_str())
+            .map_err(|err| err.to_string())?;
+        let normalized_proxy_url = if normalized == AGGREGATE_API_PROXY_MODE_CUSTOM {
+            normalize_proxy_url(proxy_url)?
+                .ok_or_else(|| "proxyUrl is required when proxyMode=custom".to_string())
+                .map(Some)?
+        } else {
+            None
+        };
+        storage
+            .update_aggregate_api_proxy_url(api_id, normalized_proxy_url.as_deref())
+            .map_err(|err| err.to_string())?;
+    } else if proxy_url.is_some() {
+        let active_proxy_mode = normalize_proxy_mode(Some(existing.proxy_mode.clone()))?;
+        if active_proxy_mode != AGGREGATE_API_PROXY_MODE_CUSTOM {
+            return Err("proxyUrl requires proxyMode=custom".to_string());
+        }
+        let normalized = normalize_proxy_url(proxy_url)?;
+        storage
+            .update_aggregate_api_proxy_url(api_id, normalized.as_deref())
+            .map_err(|err| err.to_string())?;
+    }
 
     if next_auth_type == AGGREGATE_API_AUTH_APIKEY {
         let normalized_secret = normalize_secret(key);
@@ -1922,7 +2084,7 @@ pub(crate) fn fetch_aggregate_api_models(
         .map_err(|err| err.to_string())?
         .ok_or_else(|| "aggregate api secret not found".to_string())?;
 
-    let client = gateway::fresh_upstream_client();
+    let client = build_aggregate_api_client(&api)?;
     match fetch_aggregate_models_from_upstream(&client, &api, secret.as_str()) {
         Ok(models) => {
             let fetched_at = now_ts();
@@ -2076,7 +2238,7 @@ pub(crate) fn test_aggregate_api_connection(
     let Some(secret) = secret else {
         return Err("aggregate api secret not found".to_string());
     };
-    let client = gateway::fresh_upstream_client();
+    let client = build_aggregate_api_client(&api)?;
     let started_at = Instant::now();
     let provider_type = normalize_provider_type_value(api.provider_type.as_str());
     let preferred_model = storage
@@ -2127,7 +2289,7 @@ pub(crate) fn test_aggregate_api_model(
     let Some(secret) = secret else {
         return Err("aggregate api secret not found".to_string());
     };
-    let client = gateway::fresh_upstream_client();
+    let client = build_aggregate_api_client(&api)?;
     let started_at = Instant::now();
     let provider_type = normalize_provider_type_value(api.provider_type.as_str());
     let result = if probe_codex_only_for_provider(provider_type.as_str()) {

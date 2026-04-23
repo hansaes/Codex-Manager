@@ -40,6 +40,8 @@ export interface AggregateApi {
   modelsPath: string | null;
   responsesPath: string | null;
   chatCompletionsPath: string | null;
+  proxyMode: string;
+  proxyUrl: string | null;
   status: string;
   createdAt: number | null;
   updatedAt: number | null;

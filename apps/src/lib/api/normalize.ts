@@ -880,6 +880,9 @@ export function normalizeAggregateApi(item: unknown): AggregateApi | null {
     chatCompletionsPath:
       asString(source.chatCompletionsPath ?? source.chat_completions_path) ||
       null,
+    proxyMode:
+      asString(source.proxyMode ?? source.proxy_mode) || "follow_global",
+    proxyUrl: asString(source.proxyUrl ?? source.proxy_url) || null,
     status: asString(source.status) || "active",
     createdAt: toNullableNumber(source.createdAt ?? source.created_at),
     updatedAt: toNullableNumber(source.updatedAt ?? source.updated_at),

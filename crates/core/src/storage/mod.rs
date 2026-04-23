@@ -274,6 +274,8 @@ pub struct AggregateApi {
     pub models_path: Option<String>,
     pub responses_path: Option<String>,
     pub chat_completions_path: Option<String>,
+    pub proxy_mode: String,
+    pub proxy_url: Option<String>,
     pub status: String,
     pub created_at: i64,
     pub updated_at: i64,

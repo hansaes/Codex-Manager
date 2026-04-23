@@ -146,6 +146,16 @@ pub(crate) fn fresh_upstream_client() -> Client {
     build_upstream_client()
 }
 
+pub(crate) fn fresh_upstream_client_without_proxy() -> Client {
+    ensure_runtime_config_loaded();
+    build_upstream_client_with_proxy(None)
+}
+
+pub(crate) fn fresh_upstream_client_with_proxy_override(proxy_url: Option<&str>) -> Client {
+    ensure_runtime_config_loaded();
+    build_upstream_client_with_proxy(proxy_url)
+}
+
 /// 函数 `upstream_client_for_account`
 ///
 /// 作者: gaohongshun

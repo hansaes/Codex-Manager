@@ -15,6 +15,8 @@ const AGGREGATE_API_SELECT_SQL: &str = "SELECT
     models_path,
     responses_path,
     chat_completions_path,
+    proxy_mode,
+    proxy_url,
     status,
     created_at,
     updated_at,
@@ -54,6 +56,8 @@ impl Storage {
                 models_path,
                 responses_path,
                 chat_completions_path,
+                proxy_mode,
+                proxy_url,
                 status,
                 created_at,
                 updated_at,
@@ -63,7 +67,7 @@ impl Storage {
                 models_last_synced_at,
                 models_last_sync_status,
                 models_last_sync_error
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
             params![
                 &api.id,
                 &api.provider_type,
@@ -77,6 +81,8 @@ impl Storage {
                 &api.models_path,
                 &api.responses_path,
                 &api.chat_completions_path,
+                &api.proxy_mode,
+                &api.proxy_url,
                 &api.status,
                 api.created_at,
                 api.updated_at,
@@ -312,6 +318,26 @@ impl Storage {
         Ok(())
     }
 
+    pub fn update_aggregate_api_proxy_mode(&self, api_id: &str, proxy_mode: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE aggregate_apis SET proxy_mode = ?1, updated_at = ?2 WHERE id = ?3",
+            (proxy_mode, now_ts(), api_id),
+        )?;
+        Ok(())
+    }
+
+    pub fn update_aggregate_api_proxy_url(
+        &self,
+        api_id: &str,
+        proxy_url: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE aggregate_apis SET proxy_url = ?1, updated_at = ?2 WHERE id = ?3",
+            (proxy_url, now_ts(), api_id),
+        )?;
+        Ok(())
+    }
+
     pub fn update_aggregate_api_models_sync_result(
         &self,
         api_id: &str,
@@ -358,12 +384,15 @@ impl Storage {
                     model.created_at,
                     model.updated_at
                 ],
-        )?;
+            )?;
         }
         Ok(())
     }
 
-    pub fn list_aggregate_api_models(&self, aggregate_api_id: &str) -> Result<Vec<AggregateApiModel>> {
+    pub fn list_aggregate_api_models(
+        &self,
+        aggregate_api_id: &str,
+    ) -> Result<Vec<AggregateApiModel>> {
         let mut stmt = self.conn.prepare(
             "SELECT
                 aggregate_api_id,
@@ -538,6 +567,8 @@ impl Storage {
                 models_path TEXT,
                 responses_path TEXT,
                 chat_completions_path TEXT,
+                proxy_mode TEXT NOT NULL DEFAULT 'follow_global',
+                proxy_url TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
@@ -572,6 +603,12 @@ impl Storage {
         self.ensure_column("aggregate_apis", "models_path", "TEXT")?;
         self.ensure_column("aggregate_apis", "responses_path", "TEXT")?;
         self.ensure_column("aggregate_apis", "chat_completions_path", "TEXT")?;
+        self.ensure_column(
+            "aggregate_apis",
+            "proxy_mode",
+            "TEXT NOT NULL DEFAULT 'follow_global'",
+        )?;
+        self.ensure_column("aggregate_apis", "proxy_url", "TEXT")?;
         self.ensure_column("aggregate_apis", "models_last_synced_at", "INTEGER")?;
         self.ensure_column("aggregate_apis", "models_last_sync_status", "TEXT")?;
         self.ensure_column("aggregate_apis", "models_last_sync_error", "TEXT")?;
@@ -597,6 +634,12 @@ impl Storage {
             "UPDATE aggregate_apis
              SET upstream_format = COALESCE(NULLIF(TRIM(upstream_format), ''), 'responses')
              WHERE upstream_format IS NULL OR TRIM(upstream_format) = ''",
+            [],
+        )?;
+        self.conn.execute(
+            "UPDATE aggregate_apis
+             SET proxy_mode = COALESCE(NULLIF(TRIM(proxy_mode), ''), 'follow_global')
+             WHERE proxy_mode IS NULL OR TRIM(proxy_mode) = ''",
             [],
         )?;
         Ok(())
@@ -677,14 +720,16 @@ fn map_aggregate_api_row(row: &Row<'_>) -> Result<AggregateApi> {
         models_path: row.get(9)?,
         responses_path: row.get(10)?,
         chat_completions_path: row.get(11)?,
-        status: row.get(12)?,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
-        last_test_at: row.get(15)?,
-        last_test_status: row.get(16)?,
-        last_test_error: row.get(17)?,
-        models_last_synced_at: row.get(18)?,
-        models_last_sync_status: row.get(19)?,
-        models_last_sync_error: row.get(20)?,
+        proxy_mode: row.get(12)?,
+        proxy_url: row.get(13)?,
+        status: row.get(14)?,
+        created_at: row.get(15)?,
+        updated_at: row.get(16)?,
+        last_test_at: row.get(17)?,
+        last_test_status: row.get(18)?,
+        last_test_error: row.get(19)?,
+        models_last_synced_at: row.get(20)?,
+        models_last_sync_status: row.get(21)?,
+        models_last_sync_error: row.get(22)?,
     })
 }

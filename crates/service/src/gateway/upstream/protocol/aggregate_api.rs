@@ -744,7 +744,6 @@ pub(in super::super) fn proxy_aggregate_request(
         return Ok(());
     }
 
-    let client = super::super::super::fresh_upstream_client();
     let mut request = Some(request);
     let mut attempted_aggregate_api_ids = Vec::new();
     let mut last_attempt_url: Option<String> = None;
@@ -757,6 +756,16 @@ pub(in super::super) fn proxy_aggregate_request(
         attempted_aggregate_api_ids.push(candidate.id.clone());
         let candidate_supplier_name = candidate.supplier_name.clone();
         let candidate_url = candidate.url.clone();
+        let client = match crate::aggregate_api::build_aggregate_api_client(&candidate) {
+            Ok(client) => client,
+            Err(err) => {
+                last_attempt_url = Some(candidate_url.clone());
+                last_attempt_supplier_name = candidate_supplier_name.clone();
+                last_attempt_error = Some(err);
+                last_failure_status = 502;
+                continue;
+            }
+        };
         let Some(secret) = storage
             .find_aggregate_api_secret_by_id(candidate.id.as_str())
             .map_err(|err| err.to_string())?
@@ -1131,6 +1140,8 @@ mod bridge_tests {
             models_path: Some("/models".to_string()),
             responses_path: None,
             chat_completions_path: None,
+            proxy_mode: "follow_global".to_string(),
+            proxy_url: None,
             status: "active".to_string(),
             created_at: sort,
             updated_at: sort,
@@ -1330,6 +1341,8 @@ mod tests {
             models_path: Some("/models".to_string()),
             responses_path: None,
             chat_completions_path: None,
+            proxy_mode: "follow_global".to_string(),
+            proxy_url: None,
             status: "active".to_string(),
             created_at: 0,
             updated_at: 0,
