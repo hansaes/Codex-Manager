@@ -1,8 +1,0 @@
-$env:CODEXMANAGER_WEB_ADDR='127.0.0.1:3017'
-$env:CODEXMANAGER_WEB_ROOT='D:\code\Codex-Manager\apps\out'
-$env:CODEXMANAGER_SERVICE_ADDR='127.0.0.1:48762'
-$env:CODEXMANAGER_DB_PATH='D:\code\Codex-Manager\.run-logs\limit-test-env\codexmanager.db'
-$env:CODEXMANAGER_RPC_TOKEN_FILE='D:\code\Codex-Manager\.run-logs\limit-test-env\codexmanager.rpc-token'
-$env:CODEXMANAGER_WEB_NO_SPAWN_SERVICE='1'
-$env:CODEXMANAGER_WEB_NO_OPEN='1'
-& 'D:\code\Codex-Manager\target\debug\codexmanager-web.exe'

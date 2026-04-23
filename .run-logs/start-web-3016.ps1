@@ -1,7 +1,0 @@
-$env:CODEXMANAGER_WEB_ADDR='127.0.0.1:3016'
-$env:CODEXMANAGER_WEB_ROOT='D:\code\Codex-Manager\apps\out'
-$env:CODEXMANAGER_SERVICE_ADDR='127.0.0.1:48760'
-$env:CODEXMANAGER_DB_PATH='C:\Users\fanta\AppData\Roaming\com.codexmanager.desktop\codexmanager.db'
-$env:CODEXMANAGER_RPC_TOKEN_FILE='C:\Users\fanta\AppData\Roaming\com.codexmanager.desktop\codexmanager.rpc-token'
-$env:CODEXMANAGER_WEB_NO_OPEN='1'
-& 'D:\code\Codex-Manager\target\debug\codexmanager-web.exe'
