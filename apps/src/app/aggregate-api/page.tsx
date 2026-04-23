@@ -340,14 +340,25 @@ export default function AggregateApiPage() {
           mode: "local" as const,
           existingModels,
           preview: null,
+          previewError: null,
         };
       }
-      const preview = await accountClient.previewAggregateApiModels(api.id);
-      return {
-        mode: "preview" as const,
-        existingModels,
-        preview,
-      };
+      try {
+        const preview = await accountClient.previewAggregateApiModels(api.id);
+        return {
+          mode: "preview" as const,
+          existingModels,
+          preview,
+          previewError: null,
+        };
+      } catch (error) {
+        return {
+          mode: "manual" as const,
+          existingModels,
+          preview: null,
+          previewError: error instanceof Error ? error.message : String(error),
+        };
+      }
     },
     onMutate: async (api) => {
       setFetchingModelsApiId(api.id);
@@ -367,6 +378,16 @@ export default function AggregateApiPage() {
             rawJson: null,
           })),
           importedSlugs
+        );
+        return;
+      }
+
+      if (result.mode === "manual") {
+        openModelPicker(api, [], new Set());
+        toast.warning(
+          t("同步上游失败，可先手动添加模型: {reason}", {
+            reason: result.previewError || t("未返回具体错误信息"),
+          })
         );
         return;
       }

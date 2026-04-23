@@ -113,6 +113,20 @@ test("模型选择弹窗支持手动添加与测试单个模型", async () => {
   );
 });
 
+test("首次同步失败时仍会打开模型弹窗并允许手动添加", async () => {
+  const source = await readAppFile("src", "app", "aggregate-api", "page.tsx");
+
+  assertIncludesAll(
+    source,
+    [
+      'mode: "manual"',
+      "openModelPicker(api, [], new Set())",
+      "同步上游失败，可先手动添加模型",
+    ],
+    "apps/src/app/aggregate-api/page.tsx"
+  );
+});
+
 test("平台密钥聚合 API 轮转不再绑定单个聚合 API", async () => {
   const source = await readAppFile(
     "src",

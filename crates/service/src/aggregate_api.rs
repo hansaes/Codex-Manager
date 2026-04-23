@@ -319,11 +319,14 @@ fn normalize_action_override(
 
 #[cfg(test)]
 mod tests {
-    use codexmanager_core::storage::AggregateApi;
+    use codexmanager_core::storage::{AggregateApi, AggregateApiModel};
 
     use super::{
+        legacy_root_models_retry_url,
         action_path_or_default, normalize_action_override, normalize_aggregate_api_models_payload,
-        normalize_models_path, normalize_selected_aggregate_api_models, normalize_upstream_format,
+        normalize_models_path, normalize_selected_aggregate_api_models,
+        normalize_upstream_format, preferred_codex_probe_model,
+        resolve_aggregate_api_request_path,
     };
 
     fn aggregate_api_with_action(action: Option<&str>) -> AggregateApi {
@@ -421,6 +424,68 @@ mod tests {
         assert_eq!(models[0].model_slug, "gpt-4.1");
         assert_eq!(models[1].display_name.as_deref(), Some("gpt-4.1-mini"));
         assert!(models[1].raw_json.contains("gpt-4.1-mini"));
+    }
+
+    #[test]
+    fn configured_models_path_keeps_base_v1_prefix() {
+        let mut api = aggregate_api_with_action(None);
+        api.url = "https://api.1l1l1l1.xyz/v1".to_string();
+        api.models_path = Some("/models".to_string());
+
+        let path = resolve_aggregate_api_request_path(&api, "/v1/models");
+
+        assert_eq!(path, "/v1/models");
+    }
+
+    #[test]
+    fn configured_responses_path_keeps_custom_base_prefix() {
+        let mut api = aggregate_api_with_action(None);
+        api.url = "https://gpt.mirbuds.com/codex".to_string();
+        api.responses_path = Some("/responses".to_string());
+
+        let path = resolve_aggregate_api_request_path(&api, "/v1/responses");
+
+        assert_eq!(path, "/codex/responses");
+    }
+
+    #[test]
+    fn root_base_legacy_models_path_upgrades_to_v1_models() {
+        let mut api = aggregate_api_with_action(None);
+        api.url = "https://hub.oaifree.com".to_string();
+        api.models_path = Some("/models".to_string());
+        let current_url =
+            "https://hub.oaifree.com/models?client_version=1.0.0".to_string();
+
+        let retry_url = legacy_root_models_retry_url(&api, current_url.as_str());
+
+        assert_eq!(retry_url.as_deref(), Some("https://hub.oaifree.com/v1/models"));
+    }
+
+    #[test]
+    fn preferred_codex_probe_model_uses_first_imported_model() {
+        let models = vec![
+            AggregateApiModel {
+                aggregate_api_id: "agg-test".to_string(),
+                model_slug: "   ".to_string(),
+                display_name: None,
+                raw_json: "{}".to_string(),
+                created_at: 0,
+                updated_at: 0,
+            },
+            AggregateApiModel {
+                aggregate_api_id: "agg-test".to_string(),
+                model_slug: "gpt-5.4".to_string(),
+                display_name: Some("GPT 5.4".to_string()),
+                raw_json: "{}".to_string(),
+                created_at: 0,
+                updated_at: 0,
+            },
+        ];
+
+        assert_eq!(
+            preferred_codex_probe_model(&models).as_deref(),
+            Some("gpt-5.4")
+        );
     }
 }
 
@@ -624,10 +689,58 @@ fn auto_resolve_aggregate_api_path(
     attach_query(resolved, query_part)
 }
 
+fn resolve_configured_aggregate_api_path(
+    base_url: &str,
+    configured_path: &str,
+    fallback_query: Option<&str>,
+) -> String {
+    let (configured_path_part, configured_query) = split_request_path(configured_path);
+    let normalized_configured = normalize_path_part(configured_path_part);
+    let configured_kind = aggregate_api_endpoint_kind(normalized_configured.as_str());
+    let base_path = reqwest::Url::parse(base_url)
+        .map(|url| normalize_path_part(url.path()))
+        .unwrap_or_else(|_| "/".to_string());
+
+    let resolved = if configured_kind == AggregateApiEndpointKind::Other {
+        normalized_configured
+    } else if let Some((prefix, include_v1)) = fixed_endpoint_template(base_path.as_str()) {
+        aggregate_api_endpoint_suffix(configured_kind, include_v1)
+            .map(|suffix| join_path_segments(prefix.as_str(), suffix))
+            .unwrap_or_else(|| {
+                join_path_segments(
+                    prefix.as_str(),
+                    request_path_for_prefix(normalized_configured.as_str(), include_v1).as_str(),
+                )
+            })
+    } else if base_path == "/" {
+        normalized_configured
+    } else {
+        let base_lower = base_path.to_ascii_lowercase();
+        let configured_lower = normalized_configured.to_ascii_lowercase();
+        if base_lower.ends_with("/v1")
+            && (configured_lower == "/v1" || configured_lower.starts_with("/v1/"))
+        {
+            let base_prefix = base_path
+                .strip_suffix("/v1")
+                .filter(|value| !value.is_empty())
+                .unwrap_or("/");
+            join_path_segments(base_prefix, normalized_configured.as_str())
+        } else {
+            join_path_segments(base_path.as_str(), normalized_configured.as_str())
+        }
+    };
+
+    attach_query(resolved, configured_query.or(fallback_query))
+}
+
 pub(crate) fn resolve_aggregate_api_request_path(api: &AggregateApi, request_path: &str) -> String {
     let kind = aggregate_api_endpoint_kind(split_request_path(request_path).0);
     if let Some(configured_path) = configured_endpoint_path(api, kind) {
-        return attach_query(configured_path, split_request_path(request_path).1);
+        return resolve_configured_aggregate_api_path(
+            api.url.as_str(),
+            configured_path.as_str(),
+            split_request_path(request_path).1,
+        );
     }
     auto_resolve_aggregate_api_path(api.url.as_str(), request_path, kind)
 }
@@ -1003,29 +1116,19 @@ fn build_claude_model_test_body(model: &str) -> serde_json::Value {
     })
 }
 
-/// 函数 `build_codex_probe_body`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// 无
-///
-/// # 返回
-/// 返回函数执行结果
-fn build_codex_probe_body() -> serde_json::Value {
-    json!({
-        "model": "gpt-5.1-codex",
-        "input": [{
-            "role": "user",
-            "content": [{
-                "type": "text",
-                "text": "Who are you?"
-            }]
-        }],
-        "stream": true
-    })
+fn default_codex_probe_model(endpoint_kind: AggregateApiEndpointKind) -> &'static str {
+    match endpoint_kind {
+        AggregateApiEndpointKind::ChatCompletions => "gpt-4o-mini",
+        _ => "gpt-5.1-codex",
+    }
+}
+
+fn preferred_codex_probe_model(models: &[AggregateApiModel]) -> Option<String> {
+    models
+        .iter()
+        .map(|item| item.model_slug.trim())
+        .find(|model| !model.is_empty())
+        .map(str::to_string)
 }
 
 fn build_codex_model_test_body(
@@ -1112,6 +1215,49 @@ fn add_codex_probe_headers(
         .header("accept-encoding", "identity"))
 }
 
+fn send_codex_models_request(
+    client: &reqwest::blocking::Client,
+    api: &AggregateApi,
+    secret: &str,
+    url: &str,
+) -> Result<reqwest::blocking::Response, String> {
+    let builder = client.get(url);
+    let (builder, updated_url) = apply_probe_auth(builder, url.to_string(), api, secret)?;
+    let builder = if updated_url != url {
+        let rebuilt = client.get(updated_url.as_str());
+        let (rebuilt, _) = apply_probe_auth(rebuilt, updated_url, api, secret)?;
+        rebuilt
+    } else {
+        builder
+    };
+    add_codex_probe_headers(builder)?
+        .send()
+        .map_err(|err| err.to_string())
+}
+
+fn legacy_root_models_retry_url(api: &AggregateApi, current_url: &str) -> Option<String> {
+    let models_path = api.models_path.as_deref().map(str::trim)?;
+    if models_path != "/models" {
+        return None;
+    }
+    let base_path = reqwest::Url::parse(api.url.as_str())
+        .ok()
+        .map(|url| normalize_path_part(url.path()))
+        .unwrap_or_else(|| "/".to_string());
+    if base_path != "/" {
+        return None;
+    }
+    let mut retry_api = api.clone();
+    retry_api.models_path = Some(AGGREGATE_API_REQUEST_MODELS_PATH.to_string());
+    let retry_url =
+        build_aggregate_api_endpoint_url(&retry_api, AggregateApiEndpointKind::Models).ok()?;
+    if retry_url == current_url {
+        None
+    } else {
+        Some(retry_url)
+    }
+}
+
 /// 函数 `probe_codex_models_endpoint`
 ///
 /// 作者: gaohongshun
@@ -1132,18 +1278,13 @@ fn probe_codex_models_endpoint(
 ) -> Result<i64, String> {
     let base_url = build_aggregate_api_endpoint_url(api, AggregateApiEndpointKind::Models)?;
     let url = append_client_version_query(base_url.as_str());
-    let builder = client.get(url.as_str());
-    let (builder, updated_url) = apply_probe_auth(builder, url.clone(), api, secret)?;
-    let builder = if updated_url != url {
-        let rebuilt = client.get(updated_url.as_str());
-        let (rebuilt, _) = apply_probe_auth(rebuilt, updated_url, api, secret)?;
-        rebuilt
-    } else {
-        builder
-    };
-    let response = add_codex_probe_headers(builder)?
-        .send()
-        .map_err(|err| err.to_string())?;
+    let mut response = send_codex_models_request(client, api, secret, url.as_str())?;
+    if !response.status().is_success() {
+        if let Some(retry_base_url) = legacy_root_models_retry_url(api, base_url.as_str()) {
+            let retry_url = append_client_version_query(retry_base_url.as_str());
+            response = send_codex_models_request(client, api, secret, retry_url.as_str())?;
+        }
+    }
 
     let status_code = response.status().as_u16() as i64;
     if !response.status().is_success() {
@@ -1170,6 +1311,7 @@ fn probe_codex_responses_endpoint(
     client: &reqwest::blocking::Client,
     api: &AggregateApi,
     secret: &str,
+    preferred_model: Option<&str>,
 ) -> Result<i64, String> {
     let endpoint_kind = if api
         .chat_completions_path
@@ -1193,18 +1335,13 @@ fn probe_codex_responses_endpoint(
     } else {
         builder
     };
-    let request_body = if endpoint_kind == AggregateApiEndpointKind::ChatCompletions {
-        json!({
-            "model": "gpt-4o-mini",
-            "messages": [{"role":"user","content":"hi"}],
-            "stream": false
-        })
-    } else {
-        build_codex_probe_body()
-    };
+    let request_body = build_codex_model_test_body(
+        endpoint_kind,
+        preferred_model.unwrap_or(default_codex_probe_model(endpoint_kind)),
+    );
     let response = add_codex_probe_headers(builder)?
         .header("content-type", "application/json")
-        .header("accept", "text/event-stream")
+        .header("accept", "application/json")
         .json(&request_body)
         .send()
         .map_err(|err| err.to_string())?;
@@ -1278,6 +1415,7 @@ fn probe_codex_endpoint(
     client: &reqwest::blocking::Client,
     api: &AggregateApi,
     secret: &str,
+    preferred_model: Option<&str>,
 ) -> Result<i64, String> {
     let models_result = probe_codex_models_endpoint(client, api, secret);
     if let Ok(code) = models_result {
@@ -1287,7 +1425,7 @@ fn probe_codex_endpoint(
     let models_err = models_result
         .err()
         .unwrap_or_else(|| "codex models probe failed".to_string());
-    let responses_result = probe_codex_responses_endpoint(client, api, secret);
+    let responses_result = probe_codex_responses_endpoint(client, api, secret, preferred_model);
     if let Ok(code) = responses_result {
         return Ok(code);
     }
@@ -1305,18 +1443,13 @@ fn fetch_aggregate_models_from_upstream(
 ) -> Result<Vec<AggregateApiModel>, String> {
     let base_url = build_aggregate_api_endpoint_url(api, AggregateApiEndpointKind::Models)?;
     let url = append_client_version_query(base_url.as_str());
-    let builder = client.get(url.as_str());
-    let (builder, updated_url) = apply_probe_auth(builder, url.clone(), api, secret)?;
-    let builder = if updated_url != url {
-        let rebuilt = client.get(updated_url.as_str());
-        let (rebuilt, _) = apply_probe_auth(rebuilt, updated_url, api, secret)?;
-        rebuilt
-    } else {
-        builder
-    };
-    let response = add_codex_probe_headers(builder)?
-        .send()
-        .map_err(|err| err.to_string())?;
+    let mut response = send_codex_models_request(client, api, secret, url.as_str())?;
+    if !response.status().is_success() {
+        if let Some(retry_base_url) = legacy_root_models_retry_url(api, base_url.as_str()) {
+            let retry_url = append_client_version_query(retry_base_url.as_str());
+            response = send_codex_models_request(client, api, secret, retry_url.as_str())?;
+        }
+    }
     let status_code = response.status().as_u16() as i64;
     if !response.status().is_success() {
         return Err(format!(
@@ -1519,7 +1652,7 @@ pub(crate) fn create_aggregate_api(
         normalize_action_override(action_custom_enabled, action)?.unwrap_or(None);
     let normalized_upstream_format = normalize_upstream_format(upstream_format)?;
     let normalized_models_path =
-        normalize_models_path(models_path)?.or_else(|| Some("/models".to_string()));
+        normalize_models_path(models_path)?.or_else(|| Some("/v1/models".to_string()));
     let normalized_responses_path = normalize_responses_path(responses_path)?;
     let normalized_chat_completions_path = normalize_chat_completions_path(chat_completions_path)?;
     let normalized_secret = if normalized_auth_type == AGGREGATE_API_AUTH_APIKEY {
@@ -1946,8 +2079,12 @@ pub(crate) fn test_aggregate_api_connection(
     let client = gateway::fresh_upstream_client();
     let started_at = Instant::now();
     let provider_type = normalize_provider_type_value(api.provider_type.as_str());
+    let preferred_model = storage
+        .list_aggregate_api_models(api_id)
+        .ok()
+        .and_then(|items| preferred_codex_probe_model(&items));
     let result = if probe_codex_only_for_provider(provider_type.as_str()) {
-        probe_codex_endpoint(&client, &api, &secret)
+        probe_codex_endpoint(&client, &api, &secret, preferred_model.as_deref())
     } else {
         probe_claude_endpoint(&client, &api, &secret)
     };
