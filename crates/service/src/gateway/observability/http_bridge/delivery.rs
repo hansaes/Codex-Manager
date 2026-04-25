@@ -207,6 +207,9 @@ fn body_looks_like_cloudflare_challenge(status_code: u16, body: &[u8]) -> bool {
         let normalized = text.to_ascii_lowercase();
         let looks_like_challenge = normalized.contains("cloudflare")
             || normalized.contains("cf-chl")
+            || normalized.contains("_cf_chl")
+            || normalized.contains("challenge-platform")
+            || normalized.contains("enable javascript and cookies to continue")
             || normalized.contains("just a moment")
             || normalized.contains("attention required")
             || normalized.contains("captcha")
@@ -2323,7 +2326,10 @@ fn resolve_stream_keepalive_frame(
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_compact_non_success_kind, compact_non_success_body_should_be_normalized};
+    use super::{
+        build_passthrough_non_success_message, classify_compact_non_success_kind,
+        compact_non_success_body_should_be_normalized,
+    };
 
     /// 函数 `compact_header_only_identity_error_is_normalized_and_classified`
     ///
@@ -2382,5 +2388,23 @@ mod tests {
             ),
             "cloudflare_edge"
         );
+    }
+
+    #[test]
+    fn build_passthrough_non_success_message_summarizes_cloudflare_html() {
+        let body = br#"<html><body><noscript>Enable JavaScript and cookies to continue</noscript><script>window._cf_chl_opt={cRay:'9f19fb952f8affe4',cZone:'chatgpt.com'};</script></body></html>"#;
+        let message = build_passthrough_non_success_message(
+            403,
+            Some("text/html"),
+            body,
+            None,
+            Some("9f19fb952f8affe4-SIN"),
+            None,
+            None,
+        );
+
+        assert!(message.contains("Cloudflare 安全验证页"));
+        assert!(!message.contains("<html>"));
+        assert!(message.contains("cf_ray=9f19fb952f8affe4-SIN"));
     }
 }

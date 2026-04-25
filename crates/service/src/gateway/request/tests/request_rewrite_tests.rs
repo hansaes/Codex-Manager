@@ -5,8 +5,10 @@ use super::{
     apply_request_overrides_with_service_tier_and_prompt_cache_key_scope,
 };
 use serde_json::json;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const STRICT_REQUEST_PARAM_ALLOWLIST_ENV: &str = "CODEXMANAGER_STRICT_REQUEST_PARAM_ALLOWLIST";
+const CODEXMANAGER_DB_PATH_ENV: &str = "CODEXMANAGER_DB_PATH";
 
 struct RuntimeEnvGuard {
     name: &'static str,
@@ -33,6 +35,18 @@ impl Drop for RuntimeEnvGuard {
         }
         crate::gateway::reload_runtime_config_from_env();
     }
+}
+
+fn isolated_db_path(label: &str) -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time after unix epoch")
+        .as_nanos();
+    std::env::temp_dir()
+        .join(format!("codexmanager-{label}-{nanos}"))
+        .join("codexmanager.db")
+        .to_string_lossy()
+        .to_string()
 }
 
 fn apply_codex_compat_request_overrides(
@@ -357,7 +371,12 @@ fn responses_overrides_model_and_reasoning_effort() {
             .and_then(serde_json::Value::as_str),
         Some("medium")
     );
-    assert!(value.get("instructions").is_none());
+    assert_eq!(
+        value
+            .get("instructions")
+            .and_then(serde_json::Value::as_str),
+        Some("")
+    );
 }
 
 /// 函数 `responses_input_string_normalized_to_list`
@@ -566,6 +585,207 @@ fn responses_forced_prompt_cache_scope_disabled_does_not_apply_compat_body_rewri
     assert!(value.get("instructions").is_none());
     assert!(value.get("tool_choice").is_none());
     assert!(value.get("include").is_none());
+}
+
+#[test]
+fn responses_codex_backend_hoists_leading_developer_message_to_instructions() {
+    let _guard = crate::test_env_guard();
+    let body = json!({
+        "model": "gpt-5.4",
+        "input": [
+            {
+                "role": "developer",
+                "content": "You are OpenCode"
+            },
+            {
+                "role": "user",
+                "content": [
+                    { "type": "input_text", "text": "请只回复：测试" }
+                ]
+            }
+        ],
+        "stream": true
+    });
+    let out = apply_request_overrides(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        None,
+        None,
+        Some("https://chatgpt.com/backend-api/codex"),
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
+    assert_eq!(
+        value
+            .get("instructions")
+            .and_then(serde_json::Value::as_str),
+        Some("You are OpenCode")
+    );
+    let input = value
+        .get("input")
+        .and_then(serde_json::Value::as_array)
+        .expect("input array");
+    assert_eq!(input.len(), 1);
+    assert_eq!(
+        input[0].get("role").and_then(serde_json::Value::as_str),
+        Some("user")
+    );
+}
+
+#[test]
+fn responses_codex_backend_hoists_leading_system_message_to_instructions() {
+    let _guard = crate::test_env_guard();
+    let body = json!({
+        "model": "gpt-5.4",
+        "input": [
+            {
+                "role": "system",
+                "content": [
+                    { "type": "text", "text": "You are Cherry" }
+                ]
+            },
+            {
+                "role": "user",
+                "content": [
+                    { "type": "input_text", "text": "hello" }
+                ]
+            }
+        ]
+    });
+    let out = apply_request_overrides(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        None,
+        None,
+        Some("https://chatgpt.com/backend-api/codex"),
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
+    assert_eq!(
+        value
+            .get("instructions")
+            .and_then(serde_json::Value::as_str),
+        Some("You are Cherry")
+    );
+    let input = value
+        .get("input")
+        .and_then(serde_json::Value::as_array)
+        .expect("input array");
+    assert_eq!(input.len(), 1);
+    assert_eq!(
+        input[0].get("role").and_then(serde_json::Value::as_str),
+        Some("user")
+    );
+}
+
+#[test]
+fn responses_codex_backend_hoists_single_object_system_input_to_instructions() {
+    let _guard = crate::test_env_guard();
+    let body = json!({
+        "model": "gpt-5.4",
+        "input": {
+            "role": "system",
+            "content": "You are Cherry"
+        }
+    });
+    let out = apply_request_overrides(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        None,
+        None,
+        Some("https://chatgpt.com/backend-api/codex"),
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
+    assert_eq!(
+        value
+            .get("instructions")
+            .and_then(serde_json::Value::as_str),
+        Some("You are Cherry")
+    );
+    let input = value
+        .get("input")
+        .and_then(serde_json::Value::as_array)
+        .expect("input array");
+    assert!(input.is_empty());
+}
+
+#[test]
+fn responses_codex_backend_preserves_existing_instructions() {
+    let _guard = crate::test_env_guard();
+    let body = json!({
+        "model": "gpt-5.4",
+        "instructions": "Keep me",
+        "input": [
+            {
+                "role": "developer",
+                "content": "Do not override"
+            },
+            {
+                "role": "user",
+                "content": [
+                    { "type": "input_text", "text": "hello" }
+                ]
+            }
+        ]
+    });
+    let out = apply_request_overrides(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        None,
+        None,
+        Some("https://chatgpt.com/backend-api/codex"),
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
+    assert_eq!(
+        value
+            .get("instructions")
+            .and_then(serde_json::Value::as_str),
+        Some("Keep me")
+    );
+    let input = value
+        .get("input")
+        .and_then(serde_json::Value::as_array)
+        .expect("input array");
+    assert_eq!(input.len(), 2);
+    assert_eq!(
+        input[0].get("role").and_then(serde_json::Value::as_str),
+        Some("developer")
+    );
+}
+
+#[test]
+fn responses_codex_backend_omits_instructions_when_missing() {
+    let _guard = crate::test_env_guard();
+    let body = json!({
+        "model": "gpt-5.4",
+        "input": "hello"
+    });
+    let out = apply_codex_compat_request_overrides(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        None,
+        None,
+        Some("https://chatgpt.com/backend-api/codex"),
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
+    assert!(value.get("instructions").is_none());
+}
+
+#[test]
+fn responses_codex_backend_omits_empty_instructions() {
+    let _guard = crate::test_env_guard();
+    let body = json!({
+        "model": "gpt-5.4",
+        "instructions": "",
+        "input": "hello"
+    });
+    let out = apply_codex_compat_request_overrides(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        None,
+        None,
+        Some("https://chatgpt.com/backend-api/codex"),
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
+    assert!(value.get("instructions").is_none());
 }
 
 /// 函数 `responses_infers_prompt_cache_key_from_conversation_id_for_codex_backend`
@@ -847,6 +1067,10 @@ fn responses_preserves_priority_service_tier_for_codex_backend() {
 #[test]
 fn responses_preserves_client_metadata_for_codex_backend() {
     let _guard = crate::test_env_guard();
+    let _db_guard = RuntimeEnvGuard::set(
+        CODEXMANAGER_DB_PATH_ENV,
+        isolated_db_path("responses-client-metadata").as_str(),
+    );
     let body = json!({
         "model": "gpt-5.3-codex",
         "instructions": "stay",
@@ -882,6 +1106,13 @@ fn responses_preserves_client_metadata_for_codex_backend() {
             .and_then(serde_json::Value::as_str),
         Some("gaas")
     );
+    let installation_id = value
+        .get("client_metadata")
+        .and_then(|v| v.get("x-codex-installation-id"))
+        .and_then(serde_json::Value::as_str)
+        .expect("installation id metadata");
+    assert_eq!(installation_id.len(), 36);
+    assert_eq!(installation_id.as_bytes().get(14).copied(), Some(b'4'));
     assert!(value.get("metadata").is_none());
 }
 
@@ -896,6 +1127,44 @@ fn responses_preserves_client_metadata_for_codex_backend() {
 ///
 /// # 返回
 /// 无
+#[test]
+fn responses_reuses_persisted_installation_id_for_codex_backend() {
+    let _guard = crate::test_env_guard();
+    let _db_guard = RuntimeEnvGuard::set(
+        CODEXMANAGER_DB_PATH_ENV,
+        isolated_db_path("responses-installation-id").as_str(),
+    );
+    let body = json!({
+        "model": "gpt-5.3-codex",
+        "input": "hello"
+    });
+    let first = apply_request_overrides(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize first request body"),
+        None,
+        None,
+        Some("https://chatgpt.com/backend-api/codex"),
+    );
+    let second = apply_request_overrides(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize second request body"),
+        None,
+        None,
+        Some("https://chatgpt.com/backend-api/codex"),
+    );
+    let first: serde_json::Value = serde_json::from_slice(&first).expect("parse first output body");
+    let second: serde_json::Value = serde_json::from_slice(&second).expect("parse second output body");
+
+    assert_eq!(
+        first
+            .pointer("/client_metadata/x-codex-installation-id")
+            .and_then(serde_json::Value::as_str),
+        second
+            .pointer("/client_metadata/x-codex-installation-id")
+            .and_then(serde_json::Value::as_str)
+    );
+}
+
 #[test]
 fn responses_defaults_tool_choice_and_reasoning_include_for_codex_backend() {
     let _guard = crate::test_env_guard();
@@ -1161,7 +1430,12 @@ fn responses_compact_uses_codex_compat_rewrite() {
         Some("https://chatgpt.com/backend-api/codex"),
     );
     let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
-    assert!(value.get("instructions").is_none());
+    assert_eq!(
+        value
+            .get("instructions")
+            .and_then(serde_json::Value::as_str),
+        Some("")
+    );
     assert!(value.get("tools").is_some());
     assert_eq!(
         value
@@ -1416,7 +1690,7 @@ fn responses_platform_key_bound_model_overrides_global_model_forward_rules() {
 }
 
 #[test]
-fn responses_platform_key_bound_spark_model_falls_back_to_base_codex_model() {
+fn responses_platform_key_bound_spark_model_keeps_original_slug() {
     let _guard = crate::test_env_guard();
     let original_rules = crate::gateway::current_model_forward_rules();
     let _ = crate::gateway::set_model_forward_rules("");
@@ -1436,7 +1710,7 @@ fn responses_platform_key_bound_spark_model_falls_back_to_base_codex_model() {
 
     assert_eq!(
         value.get("model").and_then(serde_json::Value::as_str),
-        Some("gpt-5.3-codex")
+        Some("gpt-5.3-codex-spark")
     );
 
     let _ = crate::gateway::set_model_forward_rules(original_rules.as_str());

@@ -6,7 +6,7 @@ ARG APP_UID=10001
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates wget \
+    && apt-get install -y --no-install-recommends ca-certificates wget curl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid ${APP_UID} ${APP_USER} \
     && useradd --system --uid ${APP_UID} --gid ${APP_UID} --home-dir /app --create-home --shell /usr/sbin/nologin ${APP_USER} \

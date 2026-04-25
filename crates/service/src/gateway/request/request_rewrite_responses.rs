@@ -52,6 +52,37 @@ pub(super) fn is_responses_path(path: &str) -> bool {
     is_standard_responses_path(path) || is_compact_path(path)
 }
 
+/// 函数 `ensure_instructions`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// - super: 参数 super
+///
+/// # 返回
+/// 返回函数执行结果
+pub(super) fn omit_empty_instructions(
+    path: &str,
+    obj: &mut serde_json::Map<String, Value>,
+) -> bool {
+    if !is_responses_path(path) {
+        return false;
+    }
+    if obj
+        .get("instructions")
+        .and_then(Value::as_str)
+        .is_some_and(str::is_empty)
+    {
+        obj.remove("instructions");
+        return true;
+    }
+    // 中文注释：对齐官方 `ResponsesApiRequest` 的 `skip_serializing_if = "String::is_empty"` 语义。
+    // 空 `instructions` 不应出现在 Codex backend 出口 body 中。
+    false
+}
+
 /// 函数 `ensure_input_list`
 ///
 /// 作者: gaohongshun
@@ -63,6 +94,43 @@ pub(super) fn is_responses_path(path: &str) -> bool {
 ///
 /// # 返回
 /// 返回函数执行结果
+pub(super) fn ensure_client_metadata_installation_id(
+    path: &str,
+    obj: &mut serde_json::Map<String, Value>,
+    installation_id: Option<&str>,
+) -> bool {
+    if !is_standard_responses_path(path) {
+        return false;
+    }
+    let Some(installation_id) = installation_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    let client_metadata = obj
+        .entry("client_metadata".to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    if !client_metadata.is_object() {
+        *client_metadata = Value::Object(serde_json::Map::new());
+    }
+    let Some(client_metadata_obj) = client_metadata.as_object_mut() else {
+        return false;
+    };
+    if client_metadata_obj
+        .get("x-codex-installation-id")
+        .and_then(Value::as_str)
+        == Some(installation_id)
+    {
+        return false;
+    }
+    client_metadata_obj.insert(
+        "x-codex-installation-id".to_string(),
+        Value::String(installation_id.to_string()),
+    );
+    true
+}
+
 pub(super) fn ensure_input_list(path: &str, obj: &mut serde_json::Map<String, Value>) -> bool {
     if !is_responses_path(path) {
         return false;
@@ -92,6 +160,123 @@ pub(super) fn ensure_input_list(path: &str, obj: &mut serde_json::Map<String, Va
         }
         _ => false,
     }
+}
+
+fn extract_instruction_text_from_content(content: &Value) -> Option<String> {
+    match content {
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        Value::Array(parts) => {
+            let texts: Vec<String> = parts
+                .iter()
+                .filter_map(|part| {
+                    let part_obj = part.as_object()?;
+                    let part_type = part_obj.get("type").and_then(Value::as_str)?;
+                    if !matches!(part_type, "input_text" | "output_text" | "text") {
+                        return None;
+                    }
+                    let text = part_obj.get("text").and_then(Value::as_str)?.trim();
+                    if text.is_empty() {
+                        None
+                    } else {
+                        Some(text.to_string())
+                    }
+                })
+                .collect();
+            if texts.is_empty() {
+                None
+            } else {
+                Some(texts.join("\n\n"))
+            }
+        }
+        _ => None,
+    }
+}
+
+fn extract_instruction_text_from_message_item(item: &Value) -> Option<String> {
+    let item_obj = item.as_object()?;
+    let role = item_obj.get("role").and_then(Value::as_str)?;
+    if !role.eq_ignore_ascii_case("developer") && !role.eq_ignore_ascii_case("system") {
+        return None;
+    }
+    let content = item_obj.get("content")?;
+    extract_instruction_text_from_content(content)
+}
+
+/// 函数 `promote_leading_instruction_messages_to_instructions`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-21
+///
+/// # 参数
+/// - path: 参数 path
+/// - obj: 参数 obj
+///
+/// # 返回
+/// 返回函数执行结果
+pub(super) fn promote_leading_instruction_messages_to_instructions(
+    path: &str,
+    obj: &mut serde_json::Map<String, Value>,
+) -> bool {
+    if !is_standard_responses_path(path) {
+        return false;
+    }
+    if obj
+        .get("instructions")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+    {
+        return false;
+    }
+
+    let (instructions, consumed_items, single_object_consumed) = match obj.get("input") {
+        Some(Value::Array(items)) => {
+            let mut instruction_items = Vec::<String>::new();
+            let mut consumed = 0usize;
+            for item in items {
+                let Some(text) = extract_instruction_text_from_message_item(item) else {
+                    break;
+                };
+                instruction_items.push(text);
+                consumed += 1;
+            }
+            if instruction_items.is_empty() {
+                return false;
+            }
+            (instruction_items.join("\n\n"), consumed, false)
+        }
+        Some(Value::Object(_)) => {
+            let Some(text) = obj
+                .get("input")
+                .and_then(extract_instruction_text_from_message_item)
+            else {
+                return false;
+            };
+            (text, 1, true)
+        }
+        _ => return false,
+    };
+
+    if single_object_consumed {
+        obj.insert("input".to_string(), Value::Array(Vec::new()));
+    } else {
+        let Some(input_array) = obj.get_mut("input").and_then(Value::as_array_mut) else {
+            return false;
+        };
+        input_array.drain(0..consumed_items);
+    }
+
+    obj.insert("instructions".to_string(), Value::String(instructions));
+    true
 }
 
 /// 函数 `ensure_stream_true`

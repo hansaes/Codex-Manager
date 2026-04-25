@@ -25,6 +25,40 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function isWebAuthRequiredPayload(payload: unknown): boolean {
+  if (typeof payload === "string") {
+    return payload.trim() === "web_auth_required";
+  }
+  const source = asRecord(payload);
+  if (!source) {
+    return false;
+  }
+  if (typeof source.error === "string" && source.error.trim() === "web_auth_required") {
+    return true;
+  }
+  const error = asRecord(source.error);
+  return typeof error?.message === "string" && error.message.trim() === "web_auth_required";
+}
+
+function redirectToWebLogin(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const target = "/__login?force=1";
+  const pathname =
+    typeof window.location?.pathname === "string" ? window.location.pathname : "";
+  if (pathname === "/__login") {
+    return;
+  }
+  if (typeof window.location?.replace === "function") {
+    window.location.replace(target);
+    return;
+  }
+  if (typeof window.location !== "undefined") {
+    window.location.href = target;
+  }
+}
+
 async function readRpcHttpErrorPayload(response: Response): Promise<unknown> {
   if (typeof response.text === "function") {
     try {
@@ -98,6 +132,9 @@ export async function postJsonRpc<T>(
 
   if (!response.ok) {
     const payload = await readRpcHttpErrorPayload(response);
+    if (response.status === 401 && isWebAuthRequiredPayload(payload)) {
+      redirectToWebLogin();
+    }
     throw new Error(
       buildRpcHttpErrorMessage(response.status, payload, response.headers)
     );

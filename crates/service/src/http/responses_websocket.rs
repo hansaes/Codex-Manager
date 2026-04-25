@@ -1372,6 +1372,11 @@ fn infer_ws_terminal_status(value: &Value, error_message: Option<&str>) -> u16 {
     {
         return status_code;
     }
+    if extract_ws_error_code(value)
+        .is_some_and(|code| code.eq_ignore_ascii_case("websocket_connection_limit_reached"))
+    {
+        return 429;
+    }
     if let Some(message) = error_message {
         if crate::account_status::usage_limit_reason_from_message(message).is_some() {
             return 429;
@@ -1381,6 +1386,16 @@ fn infer_ws_terminal_status(value: &Value, error_message: Option<&str>) -> u16 {
         }
     }
     502
+}
+
+fn extract_ws_error_code(value: &Value) -> Option<&str> {
+    value
+        .get("error")
+        .and_then(|error| error.get("code"))
+        .and_then(Value::as_str)
+        .or_else(|| value.get("code").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|code| !code.is_empty())
 }
 
 fn parse_ws_usage(value: &Value) -> crate::gateway::RequestLogUsage {
@@ -1562,6 +1577,22 @@ mod tests {
                 "type":"error",
                 "error":{
                     "message":"You've hit your usage limit. Upgrade to Pro, visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 1:49 PM."
+                }
+            }"#,
+        )
+        .expect("terminal event");
+
+        assert_eq!(event.status_code, 429);
+    }
+
+    #[test]
+    fn inspect_ws_terminal_event_maps_websocket_connection_limit_to_429() {
+        let event = inspect_ws_terminal_event(
+            r#"{
+                "type":"error",
+                "error":{
+                    "code":"websocket_connection_limit_reached",
+                    "message":"Too many active websocket connections"
                 }
             }"#,
         )
