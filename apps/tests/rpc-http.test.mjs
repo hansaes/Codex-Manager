@@ -127,3 +127,44 @@ test("postJsonRpc 对非 2xx 响应会带出服务端错误详情与链路标识
     /HTTP 503.*上游请求超时.*upstream_timeout.*trace-rpc-503/
   );
 });
+
+test("postJsonRpc 在 web_auth_required 401 时跳转到登录页", async () => {
+  const originalWindow = globalThis.window;
+  const redirects = [];
+  globalThis.window = {
+    location: {
+      replace(url) {
+        redirects.push(url);
+      },
+    },
+  };
+
+  try {
+    await assert.rejects(
+      () =>
+        rpcHttp.postJsonRpc(
+          async () => ({
+            ok: false,
+            status: 401,
+            headers: {
+              get() {
+                return null;
+              },
+            },
+            async text() {
+              return JSON.stringify({
+                error: "web_auth_required",
+              });
+            },
+          }),
+          "/api/rpc",
+          "demo/method"
+        ),
+      /HTTP 401.*web_auth_required/
+    );
+
+    assert.deepEqual(redirects, ["/__login?force=1"]);
+  } finally {
+    globalThis.window = originalWindow;
+  }
+});

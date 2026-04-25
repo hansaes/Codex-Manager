@@ -779,6 +779,9 @@ fn looks_like_cloudflare_challenge(status_code: u16, raw: &str) -> bool {
     let normalized = raw.trim().to_ascii_lowercase();
     let looks_like_challenge = normalized.contains("cloudflare")
         || normalized.contains("cf-chl")
+        || normalized.contains("_cf_chl")
+        || normalized.contains("challenge-platform")
+        || normalized.contains("enable javascript and cookies to continue")
         || normalized.contains("just a moment")
         || normalized.contains("attention required")
         || normalized.contains("captcha")
@@ -921,6 +924,15 @@ mod tests {
         assert_eq!(
             summarize_upstream_error_hint(403, "<html><title>Just a moment...</title>"),
             "Cloudflare 安全验证页（title=Just a moment...）"
+        );
+    }
+
+    #[test]
+    fn summarize_upstream_error_hint_recognizes_cf_chl_script_challenge_html() {
+        let raw = "<html><body><noscript>Enable JavaScript and cookies to continue</noscript><script>window._cf_chl_opt={cRay:'9f19fb952f8affe4',cZone:'chatgpt.com'};</script></body></html>";
+        assert_eq!(
+            summarize_upstream_error_hint(403, raw),
+            "Cloudflare 安全验证页（ray=9f19fb952f8affe4, zone=chatgpt.com）"
         );
     }
 

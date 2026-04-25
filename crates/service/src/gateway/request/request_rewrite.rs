@@ -714,6 +714,27 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
                 if responses::normalize_codex_backend_service_tier(path, obj) {
                     changed = true;
                 }
+                if responses::promote_leading_instruction_messages_to_instructions(path, obj) {
+                    changed = true;
+                }
+                if use_codex_compat_rewrite && responses::omit_empty_instructions(path, obj) {
+                    changed = true;
+                }
+                let installation_id = crate::process_env::resolve_installation_id()
+                    .inspect_err(|err| {
+                        log::warn!(
+                            "event=gateway_installation_id_resolve_failed error={}",
+                            err
+                        );
+                    })
+                    .ok();
+                if responses::ensure_client_metadata_installation_id(
+                    path,
+                    obj,
+                    installation_id.as_deref(),
+                ) {
+                    changed = true;
+                }
                 if use_codex_compat_rewrite {
                     if responses::normalize_dynamic_tools_to_tools(path, obj) {
                         changed = true;
