@@ -236,6 +236,7 @@ name = "codexmanager-service"
 version = "0.2.5"
 dependencies = [
  "axum",
+ "base64",
  "bytes",
  "chrono",
  "codexmanager-core",
@@ -254,10 +255,12 @@ dependencies = [
  "sysinfo",
  "tiny_http",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "url",
  "urlencoding",
  "webbrowser",
+ "webpki-roots 0.26.11",
  "winres",
  "zstd",
 ]

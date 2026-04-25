@@ -512,6 +512,15 @@ pub(super) fn upstream_proxy_url() -> Option<String> {
     current_upstream_proxy_url()
 }
 
+pub(super) fn upstream_proxy_url_for_account(account_id: &str) -> Option<String> {
+    ensure_runtime_config_loaded();
+    if let Some(proxy_url) = current_upstream_proxy_url() {
+        return Some(proxy_url);
+    }
+    let pool = crate::lock_utils::read_recover(upstream_client_pool_lock(), "upstream_client_pool");
+    pool.proxy_for_account(account_id).map(str::to_string)
+}
+
 /// 函数 `current_free_account_max_model`
 ///
 /// 作者: gaohongshun

@@ -3,10 +3,17 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::FromRequestParts;
 use axum::http::header::{self, HeaderMap, HeaderValue};
 use axum::http::{Request as HttpRequest, Response, StatusCode};
+use base64::Engine as _;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Map, Value};
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Instant;
-use tokio_tungstenite::connect_async_tls_with_config;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::net::TcpStream;
+use tokio_rustls::TlsConnector as TokioTlsConnector;
+use tokio_tungstenite::client_async_tls_with_config;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message as UpstreamMessage;
 
@@ -15,6 +22,9 @@ use crate::storage_helpers::{hash_platform_key, open_storage};
 
 const RESPONSES_PATH: &str = "/v1/responses";
 const RESPONSES_WS_ERROR_CODE: &str = "responses_websocket_error";
+const RESPONSES_WS_OPENAI_BETA: &str = "responses_websockets=2026-02-06";
+const RESPONSES_WS_DEFAULT_ORIGINATOR: &str = "codex-tui";
+const MAX_PROXY_CONNECT_RESPONSE_BYTES: usize = 16 * 1024;
 
 #[derive(Clone)]
 struct WsRequestContext {
@@ -43,9 +53,8 @@ struct PendingWsRequestState {
 }
 
 struct ConnectedUpstreamWebsocket {
-    stream: tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
+    stream:
+        tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<WsTransportStream>>,
     account_id: String,
     upstream_url: String,
 }
@@ -60,10 +69,72 @@ struct PendingWsRequestLog {
     first_response_ms: Option<i64>,
 }
 
+#[derive(Debug)]
 struct WsSessionError {
     status: u16,
     code: String,
     message: String,
+}
+
+#[derive(Debug)]
+enum WsTransportStream {
+    Tcp(TcpStream),
+    ProxyTls(tokio_rustls::client::TlsStream<TcpStream>),
+}
+
+impl AsyncRead for WsTransportStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            WsTransportStream::Tcp(stream) => Pin::new(stream).poll_read(cx, buf),
+            WsTransportStream::ProxyTls(stream) => Pin::new(stream).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for WsTransportStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        match self.get_mut() {
+            WsTransportStream::Tcp(stream) => Pin::new(stream).poll_write(cx, buf),
+            WsTransportStream::ProxyTls(stream) => Pin::new(stream).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), std::io::Error>> {
+        match self.get_mut() {
+            WsTransportStream::Tcp(stream) => Pin::new(stream).poll_flush(cx),
+            WsTransportStream::ProxyTls(stream) => Pin::new(stream).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        match self.get_mut() {
+            WsTransportStream::Tcp(stream) => Pin::new(stream).poll_shutdown(cx),
+            WsTransportStream::ProxyTls(stream) => Pin::new(stream).poll_shutdown(cx),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WsProxyMode {
+    HttpConnect,
+    Socks5,
+}
+
+#[derive(Debug, Clone)]
+struct WsProxySettings {
+    url: url::Url,
+    mode: WsProxyMode,
 }
 
 impl WsSessionError {
@@ -619,18 +690,21 @@ fn authorize_websocket_request(headers: &HeaderMap) -> Result<WsRequestContext, 
             ),
         ));
     }
-    if let Some(limits) = storage.find_api_key_quota_limits(&api_key.id).map_err(|err| {
-        text_error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            crate::gateway::error_message_for_client(
-                prefer_raw_errors,
-                crate::gateway::bilingual_error(
-                    "读取平台密钥额度限制失败",
-                    format!("api key quota limit read failed: {err}"),
+    if let Some(limits) = storage
+        .find_api_key_quota_limits(&api_key.id)
+        .map_err(|err| {
+            text_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                crate::gateway::error_message_for_client(
+                    prefer_raw_errors,
+                    crate::gateway::bilingual_error(
+                        "读取平台密钥额度限制失败",
+                        format!("api key quota limit read failed: {err}"),
+                    ),
                 ),
-            ),
-        )
-    })? {
+            )
+        })?
+    {
         let usage = storage
             .summarize_request_token_stats_for_key(&api_key.id)
             .map_err(|err| {
@@ -889,6 +963,12 @@ async fn connect_upstream_websocket(
     }
 
     let ws_url = build_upstream_websocket_url(&context.effective_upstream_base)?;
+    let parsed_ws_url = url::Url::parse(ws_url.as_str()).map_err(|err| {
+        WsSessionError::bad_gateway_bilingual(
+            "上游 WebSocket URL 无效",
+            format!("invalid upstream websocket url: {err}"),
+        )
+    })?;
     let mut last_error = None;
     ensure_rustls_crypto_provider();
     for (account, token) in candidates {
@@ -913,7 +993,22 @@ async fn connect_upstream_websocket(
             Err(err) => return Err(err),
         };
 
-        match connect_async_tls_with_config(request, None, false, None).await {
+        let proxy_settings = match resolve_websocket_proxy_settings(
+            crate::gateway::current_upstream_proxy_url_for_account(account.id.as_str()).as_deref(),
+        ) {
+            Ok(settings) => settings,
+            Err(err) => {
+                last_error = Some(format!(
+                    "resolve websocket proxy for account {} failed: {}",
+                    account.id, err.message
+                ));
+                continue;
+            }
+        };
+
+        match connect_upstream_websocket_stream(request, &parsed_ws_url, proxy_settings.as_ref())
+            .await
+        {
             Ok((stream, _)) => {
                 return Ok(ConnectedUpstreamWebsocket {
                     stream,
@@ -923,8 +1018,8 @@ async fn connect_upstream_websocket(
             }
             Err(err) => {
                 last_error = Some(format!(
-                    "connect upstream websocket for account {} failed: {err}",
-                    account.id
+                    "connect upstream websocket for account {} failed: {}",
+                    account.id, err.message
                 ));
             }
         }
@@ -1006,15 +1101,11 @@ fn build_upstream_websocket_request(
     {
         insert_header(headers, "ChatGPT-Account-ID", account_id)?;
     }
-    insert_header(
-        headers,
-        "User-Agent",
-        &crate::gateway::current_codex_user_agent(),
-    )?;
+    insert_header(headers, "OpenAI-Beta", RESPONSES_WS_OPENAI_BETA)?;
     insert_header(
         headers,
         "originator",
-        &crate::gateway::current_wire_originator(),
+        resolve_websocket_originator(context).as_str(),
     )?;
     if let Some(residency_requirement) = crate::gateway::current_residency_requirement() {
         insert_header(
@@ -1072,6 +1163,559 @@ fn ensure_rustls_crypto_provider() {
     let _ = RUSTLS_PROVIDER_READY.get_or_init(|| {
         let _ = rustls::crypto::ring::default_provider().install_default();
     });
+}
+
+fn resolve_websocket_originator(context: &WsRequestContext) -> String {
+    if let Some(originator) = context
+        .incoming_headers
+        .originator()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return originator.to_string();
+    }
+    let configured = crate::gateway::current_wire_originator();
+    if configured.eq_ignore_ascii_case(crate::gateway::default_originator()) {
+        RESPONSES_WS_DEFAULT_ORIGINATOR.to_string()
+    } else {
+        configured
+    }
+}
+
+async fn connect_upstream_websocket_stream(
+    request: tokio_tungstenite::tungstenite::handshake::client::Request,
+    target_url: &url::Url,
+    proxy_settings: Option<&WsProxySettings>,
+) -> Result<
+    (
+        tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<WsTransportStream>>,
+        tokio_tungstenite::tungstenite::handshake::client::Response,
+    ),
+    WsSessionError,
+> {
+    let transport = open_websocket_transport_stream(target_url, proxy_settings).await?;
+    client_async_tls_with_config(request, transport, None, None)
+        .await
+        .map_err(|err| {
+            WsSessionError::bad_gateway_bilingual(
+                "连接上游 WebSocket 失败",
+                format!("connect upstream websocket failed: {err}"),
+            )
+        })
+}
+
+async fn open_websocket_transport_stream(
+    target_url: &url::Url,
+    proxy_settings: Option<&WsProxySettings>,
+) -> Result<WsTransportStream, WsSessionError> {
+    match proxy_settings {
+        Some(settings) => match settings.mode {
+            WsProxyMode::HttpConnect => connect_http_proxy_tunnel(target_url, &settings.url).await,
+            WsProxyMode::Socks5 => connect_socks5_proxy_tunnel(target_url, &settings.url).await,
+        },
+        None => connect_direct_websocket_transport(target_url).await,
+    }
+}
+
+async fn connect_direct_websocket_transport(
+    target_url: &url::Url,
+) -> Result<WsTransportStream, WsSessionError> {
+    let authority = websocket_target_authority(target_url)?;
+    let stream = TcpStream::connect(authority.as_str())
+        .await
+        .map_err(|err| {
+            WsSessionError::bad_gateway_bilingual(
+                "直连上游 WebSocket 失败",
+                format!("connect upstream websocket directly failed: {err}"),
+            )
+        })?;
+    Ok(WsTransportStream::Tcp(stream))
+}
+
+async fn connect_http_proxy_tunnel(
+    target_url: &url::Url,
+    proxy_url: &url::Url,
+) -> Result<WsTransportStream, WsSessionError> {
+    let proxy_authority = websocket_proxy_authority(proxy_url)?;
+    let proxy_host = proxy_url.host_str().ok_or_else(|| {
+        WsSessionError::bad_gateway_bilingual(
+            "WebSocket 代理地址无效",
+            "websocket proxy url missing host",
+        )
+    })?;
+    let mut stream = match proxy_url.scheme() {
+        "https" => {
+            let tcp = TcpStream::connect(proxy_authority.as_str())
+                .await
+                .map_err(|err| {
+                    WsSessionError::bad_gateway_bilingual(
+                        "连接 HTTPS 代理失败",
+                        format!("connect websocket https proxy failed: {err}"),
+                    )
+                })?;
+            WsTransportStream::ProxyTls(connect_tls_stream(tcp, proxy_host).await.map_err(
+                |err| {
+                    WsSessionError::bad_gateway_bilingual(
+                        "建立 HTTPS 代理 TLS 隧道失败",
+                        format!("tls connect websocket https proxy failed: {err}"),
+                    )
+                },
+            )?)
+        }
+        "http" => {
+            let tcp = TcpStream::connect(proxy_authority.as_str())
+                .await
+                .map_err(|err| {
+                    WsSessionError::bad_gateway_bilingual(
+                        "连接 HTTP 代理失败",
+                        format!("connect websocket http proxy failed: {err}"),
+                    )
+                })?;
+            WsTransportStream::Tcp(tcp)
+        }
+        other => {
+            return Err(WsSessionError::bad_gateway_bilingual(
+                "不支持的 WebSocket 代理协议",
+                format!("unsupported websocket proxy scheme: {other}"),
+            ));
+        }
+    };
+
+    establish_http_connect_tunnel(&mut stream, target_url, proxy_url).await?;
+    Ok(stream)
+}
+
+async fn connect_socks5_proxy_tunnel(
+    target_url: &url::Url,
+    proxy_url: &url::Url,
+) -> Result<WsTransportStream, WsSessionError> {
+    let proxy_authority = websocket_proxy_authority(proxy_url)?;
+    let mut stream = TcpStream::connect(proxy_authority.as_str())
+        .await
+        .map_err(|err| {
+            WsSessionError::bad_gateway_bilingual(
+                "连接 SOCKS5 代理失败",
+                format!("connect websocket socks5 proxy failed: {err}"),
+            )
+        })?;
+    establish_socks5_tunnel(&mut stream, target_url, proxy_url).await?;
+    Ok(WsTransportStream::Tcp(stream))
+}
+
+async fn establish_http_connect_tunnel<S>(
+    stream: &mut S,
+    target_url: &url::Url,
+    proxy_url: &url::Url,
+) -> Result<(), WsSessionError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let target_authority = websocket_target_authority(target_url)?;
+    let mut request = format!(
+        "CONNECT {target_authority} HTTP/1.1\r\nHost: {target_authority}\r\nProxy-Connection: Keep-Alive\r\n"
+    );
+    if let Some(proxy_auth) = proxy_basic_authorization(proxy_url) {
+        request.push_str(format!("Proxy-Authorization: Basic {proxy_auth}\r\n").as_str());
+    }
+    request.push_str("\r\n");
+
+    stream.write_all(request.as_bytes()).await.map_err(|err| {
+        WsSessionError::bad_gateway_bilingual(
+            "发送代理 CONNECT 请求失败",
+            format!("write websocket proxy connect request failed: {err}"),
+        )
+    })?;
+    stream.flush().await.map_err(|err| {
+        WsSessionError::bad_gateway_bilingual(
+            "刷新代理 CONNECT 请求失败",
+            format!("flush websocket proxy connect request failed: {err}"),
+        )
+    })?;
+
+    let response = read_http_connect_response(stream).await?;
+    let status_line = response
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !(status_line.starts_with("HTTP/1.1 200") || status_line.starts_with("HTTP/1.0 200")) {
+        return Err(WsSessionError::bad_gateway_bilingual(
+            "上游代理拒绝 WebSocket CONNECT",
+            format!("websocket proxy connect rejected: {status_line}"),
+        ));
+    }
+    Ok(())
+}
+
+async fn read_http_connect_response<S>(stream: &mut S) -> Result<String, WsSessionError>
+where
+    S: AsyncRead + Unpin,
+{
+    let mut buffer = Vec::with_capacity(512);
+    let mut chunk = [0_u8; 1024];
+    loop {
+        let read = stream.read(&mut chunk).await.map_err(|err| {
+            WsSessionError::bad_gateway_bilingual(
+                "读取代理 CONNECT 响应失败",
+                format!("read websocket proxy connect response failed: {err}"),
+            )
+        })?;
+        if read == 0 {
+            return Err(WsSessionError::bad_gateway_bilingual(
+                "代理 CONNECT 响应提前结束",
+                "websocket proxy connect response closed before headers completed",
+            ));
+        }
+        buffer.extend_from_slice(&chunk[..read]);
+        if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+            let response = String::from_utf8_lossy(&buffer).to_string();
+            return Ok(response);
+        }
+        if buffer.len() >= MAX_PROXY_CONNECT_RESPONSE_BYTES {
+            return Err(WsSessionError::bad_gateway_bilingual(
+                "代理 CONNECT 响应头过大",
+                "websocket proxy connect response headers too large",
+            ));
+        }
+    }
+}
+
+async fn establish_socks5_tunnel(
+    stream: &mut TcpStream,
+    target_url: &url::Url,
+    proxy_url: &url::Url,
+) -> Result<(), WsSessionError> {
+    let credentials = proxy_url.username();
+    let has_auth = !credentials.is_empty() || proxy_url.password().is_some();
+    let greeting = if has_auth {
+        [0x05_u8, 0x02, 0x00, 0x02]
+    } else {
+        [0x05_u8, 0x01, 0x00, 0x00]
+    };
+    let greeting_len = if has_auth { 4 } else { 3 };
+    stream
+        .write_all(&greeting[..greeting_len])
+        .await
+        .map_err(|err| {
+            WsSessionError::bad_gateway_bilingual(
+                "发送 SOCKS5 握手失败",
+                format!("write websocket socks5 greeting failed: {err}"),
+            )
+        })?;
+    let mut method_response = [0_u8; 2];
+    stream
+        .read_exact(&mut method_response)
+        .await
+        .map_err(|err| {
+            WsSessionError::bad_gateway_bilingual(
+                "读取 SOCKS5 握手失败",
+                format!("read websocket socks5 greeting failed: {err}"),
+            )
+        })?;
+    if method_response[0] != 0x05 {
+        return Err(WsSessionError::bad_gateway_bilingual(
+            "SOCKS5 代理版本无效",
+            format!(
+                "unexpected websocket socks5 proxy version: {}",
+                method_response[0]
+            ),
+        ));
+    }
+    match method_response[1] {
+        0x00 => {}
+        0x02 => authenticate_socks5_proxy(stream, proxy_url).await?,
+        0xFF => {
+            return Err(WsSessionError::bad_gateway_bilingual(
+                "SOCKS5 代理不接受认证方式",
+                "websocket socks5 proxy rejected all auth methods",
+            ));
+        }
+        other => {
+            return Err(WsSessionError::bad_gateway_bilingual(
+                "SOCKS5 代理返回未知认证方式",
+                format!("unexpected websocket socks5 auth method: {other}"),
+            ));
+        }
+    }
+
+    let mut request = Vec::with_capacity(32);
+    request.extend_from_slice(&[0x05, 0x01, 0x00]);
+    append_socks5_target(&mut request, target_url)?;
+    stream.write_all(request.as_slice()).await.map_err(|err| {
+        WsSessionError::bad_gateway_bilingual(
+            "发送 SOCKS5 CONNECT 失败",
+            format!("write websocket socks5 connect failed: {err}"),
+        )
+    })?;
+
+    let mut head = [0_u8; 4];
+    stream.read_exact(&mut head).await.map_err(|err| {
+        WsSessionError::bad_gateway_bilingual(
+            "读取 SOCKS5 CONNECT 响应失败",
+            format!("read websocket socks5 connect failed: {err}"),
+        )
+    })?;
+    if head[0] != 0x05 {
+        return Err(WsSessionError::bad_gateway_bilingual(
+            "SOCKS5 CONNECT 响应版本无效",
+            format!("unexpected websocket socks5 connect version: {}", head[0]),
+        ));
+    }
+    if head[1] != 0x00 {
+        return Err(WsSessionError::bad_gateway_bilingual(
+            "SOCKS5 CONNECT 被代理拒绝",
+            format!("websocket socks5 connect rejected with code {}", head[1]),
+        ));
+    }
+    consume_socks5_bound_address(stream, head[3]).await
+}
+
+async fn authenticate_socks5_proxy(
+    stream: &mut TcpStream,
+    proxy_url: &url::Url,
+) -> Result<(), WsSessionError> {
+    let username = proxy_url.username();
+    let password = proxy_url.password().unwrap_or_default();
+    if username.is_empty() {
+        return Err(WsSessionError::bad_gateway_bilingual(
+            "SOCKS5 用户名为空",
+            "websocket socks5 proxy username is empty",
+        ));
+    }
+    if username.len() > u8::MAX as usize || password.len() > u8::MAX as usize {
+        return Err(WsSessionError::bad_gateway_bilingual(
+            "SOCKS5 认证信息过长",
+            "websocket socks5 proxy credentials too long",
+        ));
+    }
+    let mut packet = Vec::with_capacity(3 + username.len() + password.len());
+    packet.push(0x01);
+    packet.push(username.len() as u8);
+    packet.extend_from_slice(username.as_bytes());
+    packet.push(password.len() as u8);
+    packet.extend_from_slice(password.as_bytes());
+    stream.write_all(packet.as_slice()).await.map_err(|err| {
+        WsSessionError::bad_gateway_bilingual(
+            "发送 SOCKS5 认证失败",
+            format!("write websocket socks5 auth failed: {err}"),
+        )
+    })?;
+    let mut reply = [0_u8; 2];
+    stream.read_exact(&mut reply).await.map_err(|err| {
+        WsSessionError::bad_gateway_bilingual(
+            "读取 SOCKS5 认证响应失败",
+            format!("read websocket socks5 auth failed: {err}"),
+        )
+    })?;
+    if reply[1] != 0x00 {
+        return Err(WsSessionError::bad_gateway_bilingual(
+            "SOCKS5 认证失败",
+            format!("websocket socks5 auth rejected with code {}", reply[1]),
+        ));
+    }
+    Ok(())
+}
+
+fn append_socks5_target(buffer: &mut Vec<u8>, target_url: &url::Url) -> Result<(), WsSessionError> {
+    match target_url.host().ok_or_else(|| {
+        WsSessionError::bad_gateway_bilingual(
+            "上游 WebSocket 地址缺少主机名",
+            "upstream websocket target url missing host",
+        )
+    })? {
+        url::Host::Domain(domain) => {
+            if domain.len() > u8::MAX as usize {
+                return Err(WsSessionError::bad_gateway_bilingual(
+                    "上游域名过长",
+                    "upstream websocket target domain too long for socks5",
+                ));
+            }
+            buffer.push(0x03);
+            buffer.push(domain.len() as u8);
+            buffer.extend_from_slice(domain.as_bytes());
+        }
+        url::Host::Ipv4(ip) => {
+            buffer.push(0x01);
+            buffer.extend_from_slice(&ip.octets());
+        }
+        url::Host::Ipv6(ip) => {
+            buffer.push(0x04);
+            buffer.extend_from_slice(&ip.octets());
+        }
+    }
+    let port = websocket_target_port(target_url)?;
+    buffer.extend_from_slice(&port.to_be_bytes());
+    Ok(())
+}
+
+async fn consume_socks5_bound_address(
+    stream: &mut TcpStream,
+    atyp: u8,
+) -> Result<(), WsSessionError> {
+    match atyp {
+        0x01 => {
+            let mut buf = [0_u8; 4 + 2];
+            stream.read_exact(&mut buf).await.map_err(|err| {
+                WsSessionError::bad_gateway_bilingual(
+                    "读取 SOCKS5 IPv4 绑定地址失败",
+                    format!("read websocket socks5 ipv4 bind addr failed: {err}"),
+                )
+            })?;
+        }
+        0x03 => {
+            let mut len = [0_u8; 1];
+            stream.read_exact(&mut len).await.map_err(|err| {
+                WsSessionError::bad_gateway_bilingual(
+                    "读取 SOCKS5 域名长度失败",
+                    format!("read websocket socks5 domain bind length failed: {err}"),
+                )
+            })?;
+            let mut buf = vec![0_u8; len[0] as usize + 2];
+            stream.read_exact(buf.as_mut_slice()).await.map_err(|err| {
+                WsSessionError::bad_gateway_bilingual(
+                    "读取 SOCKS5 域名绑定地址失败",
+                    format!("read websocket socks5 domain bind addr failed: {err}"),
+                )
+            })?;
+        }
+        0x04 => {
+            let mut buf = [0_u8; 16 + 2];
+            stream.read_exact(&mut buf).await.map_err(|err| {
+                WsSessionError::bad_gateway_bilingual(
+                    "读取 SOCKS5 IPv6 绑定地址失败",
+                    format!("read websocket socks5 ipv6 bind addr failed: {err}"),
+                )
+            })?;
+        }
+        other => {
+            return Err(WsSessionError::bad_gateway_bilingual(
+                "SOCKS5 绑定地址类型无效",
+                format!("unexpected websocket socks5 bind addr type: {other}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn connect_tls_stream(
+    stream: TcpStream,
+    server_name: &str,
+) -> Result<tokio_rustls::client::TlsStream<TcpStream>, std::io::Error> {
+    let server_name = rustls::pki_types::ServerName::try_from(server_name.to_string())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid dns name"))?;
+    TokioTlsConnector::from(websocket_proxy_tls_config())
+        .connect(server_name, stream)
+        .await
+}
+
+fn websocket_proxy_tls_config() -> Arc<rustls::ClientConfig> {
+    static CONFIG: std::sync::OnceLock<Arc<rustls::ClientConfig>> = std::sync::OnceLock::new();
+    CONFIG
+        .get_or_init(|| {
+            ensure_rustls_crypto_provider();
+            let mut root_store = rustls::RootCertStore::empty();
+            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            Arc::new(
+                rustls::ClientConfig::builder()
+                    .with_root_certificates(root_store)
+                    .with_no_client_auth(),
+            )
+        })
+        .clone()
+}
+
+fn resolve_websocket_proxy_settings(
+    proxy_url: Option<&str>,
+) -> Result<Option<WsProxySettings>, WsSessionError> {
+    let Some(proxy_url) = proxy_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(rewrite_websocket_socks_proxy_url)
+    else {
+        return Ok(None);
+    };
+    let url = url::Url::parse(proxy_url.as_str()).map_err(|err| {
+        WsSessionError::bad_gateway_bilingual(
+            "WebSocket 代理地址无效",
+            format!("invalid websocket proxy url: {err}"),
+        )
+    })?;
+    let mode = match url.scheme() {
+        "http" | "https" => WsProxyMode::HttpConnect,
+        "socks5" | "socks5h" | "socks" => WsProxyMode::Socks5,
+        other => {
+            return Err(WsSessionError::bad_gateway_bilingual(
+                "不支持的 WebSocket 代理协议",
+                format!("unsupported websocket proxy scheme: {other}"),
+            ));
+        }
+    };
+    Ok(Some(WsProxySettings { url, mode }))
+}
+
+fn rewrite_websocket_socks_proxy_url(proxy_url: &str) -> String {
+    let mut normalized = proxy_url.trim().to_string();
+    if let Some(rest) = normalized.strip_prefix("http://socks") {
+        normalized = format!("socks{rest}");
+    } else if let Some(rest) = normalized.strip_prefix("https://socks") {
+        normalized = format!("socks{rest}");
+    }
+    if normalized.starts_with("socks5://") {
+        normalized = normalized.replacen("socks5://", "socks5h://", 1);
+    } else if normalized.starts_with("socks://") {
+        normalized = normalized.replacen("socks://", "socks5h://", 1);
+    }
+    normalized
+}
+
+fn websocket_target_authority(target_url: &url::Url) -> Result<String, WsSessionError> {
+    let host = match target_url.host().ok_or_else(|| {
+        WsSessionError::bad_gateway_bilingual(
+            "上游 WebSocket 地址缺少主机名",
+            "upstream websocket target url missing host",
+        )
+    })? {
+        url::Host::Domain(domain) => domain.to_string(),
+        url::Host::Ipv4(ip) => ip.to_string(),
+        url::Host::Ipv6(ip) => format!("[{ip}]"),
+    };
+    let port = websocket_target_port(target_url)?;
+    Ok(format!("{host}:{port}"))
+}
+
+fn websocket_target_port(target_url: &url::Url) -> Result<u16, WsSessionError> {
+    target_url.port_or_known_default().ok_or_else(|| {
+        WsSessionError::bad_gateway_bilingual(
+            "上游 WebSocket 地址缺少端口",
+            "upstream websocket target url missing port",
+        )
+    })
+}
+
+fn websocket_proxy_authority(proxy_url: &url::Url) -> Result<String, WsSessionError> {
+    let host = proxy_url.host_str().ok_or_else(|| {
+        WsSessionError::bad_gateway_bilingual(
+            "WebSocket 代理地址缺少主机名",
+            "websocket proxy url missing host",
+        )
+    })?;
+    let port = proxy_url.port_or_known_default().ok_or_else(|| {
+        WsSessionError::bad_gateway_bilingual(
+            "WebSocket 代理地址缺少端口",
+            "websocket proxy url missing port",
+        )
+    })?;
+    Ok(format!("{host}:{port}"))
+}
+
+fn proxy_basic_authorization(proxy_url: &url::Url) -> Option<String> {
+    let username = proxy_url.username();
+    if username.is_empty() && proxy_url.password().is_none() {
+        return None;
+    }
+    let password = proxy_url.password().unwrap_or_default();
+    Some(base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}")))
 }
 
 fn begin_ws_request_log(
@@ -1308,22 +1952,53 @@ async fn try_rotate_ws_upstream_after_terminal(
     };
 
     ensure_rustls_crypto_provider();
-    let replacement = match connect_async_tls_with_config(request, None, false, None).await {
-        Ok((stream, _)) => ConnectedUpstreamWebsocket {
-            stream,
-            account_id: account.id,
-            upstream_url: ws_url,
-        },
+    let proxy_settings = match resolve_websocket_proxy_settings(
+        crate::gateway::current_upstream_proxy_url_for_account(account.id.as_str()).as_deref(),
+    ) {
+        Ok(settings) => settings,
         Err(err) => {
             log::warn!(
-                "event=responses_ws_failover_connect_failed account_id={} status={} err={}",
+                "event=responses_ws_failover_proxy_failed account_id={} next_account_id={} status={} err={}",
                 current_account_id,
+                account.id,
+                status_code,
+                err.message
+            );
+            return false;
+        }
+    };
+    let parsed_ws_url = match url::Url::parse(ws_url.as_str()) {
+        Ok(url) => url,
+        Err(err) => {
+            log::warn!(
+                "event=responses_ws_failover_url_failed account_id={} next_account_id={} status={} err={}",
+                current_account_id,
+                account.id,
                 status_code,
                 err
             );
             return false;
         }
     };
+    let replacement =
+        match connect_upstream_websocket_stream(request, &parsed_ws_url, proxy_settings.as_ref())
+            .await
+        {
+            Ok((stream, _)) => ConnectedUpstreamWebsocket {
+                stream,
+                account_id: account.id,
+                upstream_url: ws_url,
+            },
+            Err(err) => {
+                log::warn!(
+                    "event=responses_ws_failover_connect_failed account_id={} status={} err={}",
+                    current_account_id,
+                    status_code,
+                    err.message
+                );
+                return false;
+            }
+        };
 
     crate::gateway::gateway_record_failover_attempt();
     let _ = upstream.stream.close(None).await;
@@ -1521,10 +2196,11 @@ impl From<String> for WsSessionError {
 #[cfg(test)]
 mod tests {
     use super::{
-        infer_ws_terminal_status, inspect_ws_terminal_event, rewrite_client_frame, WsRequestContext,
+        build_upstream_websocket_request, infer_ws_terminal_status, inspect_ws_terminal_event,
+        resolve_websocket_proxy_settings, rewrite_client_frame, WsProxyMode, WsRequestContext,
     };
     use axum::http::{HeaderMap, HeaderValue};
-    use codexmanager_core::storage::ApiKey;
+    use codexmanager_core::storage::{Account, ApiKey};
     use serde_json::json;
 
     fn sample_api_key() -> ApiKey {
@@ -1547,6 +2223,21 @@ mod tests {
             aggregate_api_id: None,
             aggregate_api_url: None,
             account_plan_filter: None,
+        }
+    }
+
+    fn sample_account() -> Account {
+        Account {
+            id: "acc_test".to_string(),
+            label: "test-account".to_string(),
+            issuer: "openai".to_string(),
+            status: "active".to_string(),
+            chatgpt_account_id: Some("chatgpt-account-123".to_string()),
+            workspace_id: None,
+            group_name: None,
+            sort: 0,
+            created_at: 0,
+            updated_at: 0,
         }
     }
 
@@ -1676,5 +2367,53 @@ mod tests {
             serde_json::from_str(&prepared.text).expect("parse prepared websocket frame");
 
         assert!(value.get("prompt_cache_key").is_none());
+    }
+
+    #[test]
+    fn build_upstream_websocket_request_aligns_cli_proxyapi_headers() {
+        let _guard = crate::test_env_guard();
+        let context = WsRequestContext {
+            api_key: sample_api_key(),
+            incoming_headers: sample_incoming_headers(Some("conversation-1"), Some("turn-state-1")),
+            prompt_cache_key: Some("sticky-thread".to_string()),
+            effective_upstream_base: "https://chatgpt.com/backend-api/codex".to_string(),
+            prefer_raw_errors: false,
+        };
+
+        let request = build_upstream_websocket_request(
+            "wss://chatgpt.com/backend-api/codex/responses",
+            &sample_account(),
+            "token-123",
+            &context,
+        )
+        .unwrap_or_else(|err| panic!("build upstream websocket request failed: {}", err.message));
+
+        let headers = request.headers();
+        assert_eq!(
+            headers
+                .get("OpenAI-Beta")
+                .and_then(|value| value.to_str().ok()),
+            Some("responses_websockets=2026-02-06")
+        );
+        assert_eq!(
+            headers
+                .get("originator")
+                .and_then(|value| value.to_str().ok()),
+            Some("codex-tui")
+        );
+        assert!(
+            headers.get("User-Agent").is_none(),
+            "websocket handshake should omit user-agent to align CLIProxyAPI"
+        );
+    }
+
+    #[test]
+    fn resolve_websocket_proxy_settings_normalizes_socks_proxy() {
+        let settings = resolve_websocket_proxy_settings(Some("socks5://127.0.0.1:7890"))
+            .expect("resolve websocket proxy settings")
+            .expect("proxy settings");
+
+        assert_eq!(settings.url.as_str(), "socks5h://127.0.0.1:7890");
+        assert!(matches!(settings.mode, WsProxyMode::Socks5));
     }
 }

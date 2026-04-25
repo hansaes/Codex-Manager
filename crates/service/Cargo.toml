@@ -28,6 +28,9 @@ zstd = "0.13"
 os_info = "3.12.0"
 rhai = "1"
 sysinfo = "0.30"
+tokio-rustls = "0.26"
+webpki-roots = "0.26"
+base64 = "0.22"
 
 [dev-dependencies]
 
