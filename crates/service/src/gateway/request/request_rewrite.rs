@@ -722,10 +722,7 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
                 }
                 let installation_id = crate::process_env::resolve_installation_id()
                     .inspect_err(|err| {
-                        log::warn!(
-                            "event=gateway_installation_id_resolve_failed error={}",
-                            err
-                        );
+                        log::warn!("event=gateway_installation_id_resolve_failed error={}", err);
                     })
                     .ok();
                 if responses::ensure_client_metadata_installation_id(

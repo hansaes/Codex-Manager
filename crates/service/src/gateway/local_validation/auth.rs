@@ -75,15 +75,18 @@ pub(super) fn load_active_api_key(
         ));
     }
 
-    if let Some(limits) = storage.find_api_key_quota_limits(&api_key.id).map_err(|err| {
-        super::LocalValidationError::new(
-            500,
-            crate::gateway::bilingual_error(
-                "读取平台密钥额度限制失败",
-                format!("api key quota limit read failed: {err}"),
-            ),
-        )
-    })? {
+    if let Some(limits) = storage
+        .find_api_key_quota_limits(&api_key.id)
+        .map_err(|err| {
+            super::LocalValidationError::new(
+                500,
+                crate::gateway::bilingual_error(
+                    "读取平台密钥额度限制失败",
+                    format!("api key quota limit read failed: {err}"),
+                ),
+            )
+        })?
+    {
         let usage = storage
             .summarize_request_token_stats_for_key(&api_key.id)
             .map_err(|err| {

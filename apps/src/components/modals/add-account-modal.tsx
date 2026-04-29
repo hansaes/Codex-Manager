@@ -19,6 +19,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { accountClient } from "@/lib/api/account-client";
+import { appClient } from "@/lib/api/app-client";
+import { isTauriRuntime } from "@/lib/api/transport";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
 import { useAppStore } from "@/lib/store/useAppStore";
@@ -26,6 +28,14 @@ import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { FileUp, Info, LogIn, Clipboard, ExternalLink, Hash } from "lucide-react";
+import {
+  closePendingLoginWindow,
+  LOGIN_POLL_INTERVAL_MS,
+  LOGIN_POLL_TIMEOUT_MS,
+  navigatePendingLoginWindow,
+  openPendingLoginWindow,
+  resolveLoginLaunchUrl,
+} from "./add-account-login-helpers";
 
 interface AddAccountModalProps {
   open: boolean;
@@ -353,7 +363,7 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
     setIsPollingLogin(true);
     setLoginHint(pendingHint || t("已生成登录链接，正在等待授权完成..."));
 
-    const deadline = Date.now() + 2 * 60 * 1000;
+    const deadline = Date.now() + LOGIN_POLL_TIMEOUT_MS;
     while (pollToken === loginPollTokenRef.current && Date.now() < deadline) {
       try {
         const result = await accountClient.getLoginStatus(loginId);
@@ -379,7 +389,9 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
         }
       }
 
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 1500));
+      await new Promise<void>((resolve) =>
+        window.setTimeout(resolve, LOGIN_POLL_INTERVAL_MS)
+      );
     }
 
     if (pollToken === loginPollTokenRef.current) {
@@ -405,31 +417,60 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
     if (!ensureServiceReady("开始登录授权")) {
       return;
     }
+    const pendingWindow = isTauriRuntime() ? null : openPendingLoginWindow();
     setIsLoading(true);
     setLoginHint("");
     try {
       const result = await accountClient.startLogin({
+        openBrowser: false,
         tags: tags.split(",").map(t => t.trim()).filter(Boolean),
         note,
       });
-      setLoginUrl(result.authUrl || result.verificationUrl || "");
+      const launchUrl = resolveLoginLaunchUrl(result);
+      setLoginUrl(launchUrl);
       const pendingHint = result.userCode
         ? `${t("设备验证码")}：${result.userCode}，${t("正在等待授权完成...")}`
         : t("已生成登录链接，正在等待授权完成...");
-      if (result.userCode) {
+      let browserOpenError = "";
+      if (launchUrl) {
+        try {
+          if (!navigatePendingLoginWindow(pendingWindow, launchUrl)) {
+            await appClient.openInBrowser(launchUrl);
+          }
+        } catch (error: unknown) {
+          browserOpenError =
+            error instanceof Error ? error.message : String(error);
+          closePendingLoginWindow(pendingWindow);
+        }
+      } else {
+        closePendingLoginWindow(pendingWindow);
+      }
+      if (browserOpenError) {
+        setLoginHint(
+          `${pendingHint} ${t("浏览器未自动打开，请使用上方链接继续")}：${browserOpenError}`
+        );
+      } else if (result.userCode) {
         setLoginHint(`${t("设备验证码")}：${result.userCode}`);
       }
       toast.success(
         result.userCode
-          ? t("已生成设备登录信息，请按提示完成授权")
-          : t("已生成登录链接，请在浏览器中完成授权")
+          ? browserOpenError
+            ? t("已生成设备登录信息，请使用上方链接继续授权")
+            : t("已生成设备登录信息，并已尝试打开验证页面")
+          : browserOpenError
+            ? t("已生成登录链接，请使用上方链接继续授权")
+            : t("已生成登录链接，并已尝试打开浏览器")
       );
       if (result.loginId) {
-        void waitForLogin(result.loginId, pendingHint);
+        const waitHint = browserOpenError
+          ? `${pendingHint} ${t("浏览器未自动打开，请使用上方链接继续")}`
+          : pendingHint;
+        void waitForLogin(result.loginId, waitHint);
       } else {
         setLoginHint(t("未返回登录任务编号，请完成授权后使用手动解析。"));
       }
     } catch (err: unknown) {
+      closePendingLoginWindow(pendingWindow);
       toast.error(`${t("启动登录失败")}: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsLoading(false);
@@ -621,7 +662,7 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
               <div className="space-y-3 pt-4 border-t">
                 <div className="space-y-2">
                   <Label className="text-xs flex items-center gap-1.5 text-muted-foreground">
-                    <Hash className="h-3 w-3" /> {t("手动解析回调（当本地 48760 端口占用时）")}
+                    <Hash className="h-3 w-3" /> {t("手动解析回调（当本地登录回调无法自动完成时）")}
                   </Label>
                   <div className="flex gap-2">
                     <Input 

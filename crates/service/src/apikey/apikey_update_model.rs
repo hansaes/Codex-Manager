@@ -1,7 +1,7 @@
-use crate::apikey::service_tier::normalize_service_tier_owned;
 use crate::apikey::quota_limits::{
     normalize_total_cost_usd_limit, normalize_total_request_limit, normalize_total_token_limit,
 };
+use crate::apikey::service_tier::normalize_service_tier_owned;
 use crate::apikey_profile::{
     normalize_protocol_type, normalize_rotation_strategy, normalize_static_headers_json,
     normalize_upstream_base_url, profile_from_protocol, ROTATION_AGGREGATE_API,
@@ -103,7 +103,9 @@ pub(crate) fn update_api_key_model(
         let next_total_token_limit = if has_total_token_limit {
             normalized_total_token_limit
         } else {
-            existing_limits.as_ref().and_then(|item| item.total_token_limit)
+            existing_limits
+                .as_ref()
+                .and_then(|item| item.total_token_limit)
         };
         let next_total_cost_usd_limit = if has_total_cost_usd_limit {
             normalized_total_cost_usd_limit
@@ -115,7 +117,9 @@ pub(crate) fn update_api_key_model(
         let next_total_request_limit = if has_total_request_limit {
             normalized_total_request_limit
         } else {
-            existing_limits.as_ref().and_then(|item| item.total_request_limit)
+            existing_limits
+                .as_ref()
+                .and_then(|item| item.total_request_limit)
         };
         storage
             .set_api_key_quota_limits(

@@ -32,12 +32,16 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            super::value_or_error(team_management::invite_managed_team_members(team_id, emails))
+            super::value_or_error(team_management::invite_managed_team_members(
+                team_id, emails,
+            ))
         }
         "team/removeMember" => {
             let team_id = super::str_param(req, "teamId").unwrap_or("");
             let user_id = super::str_param(req, "userId").unwrap_or("");
-            super::value_or_error(team_management::remove_managed_team_member(team_id, user_id))
+            super::value_or_error(team_management::remove_managed_team_member(
+                team_id, user_id,
+            ))
         }
         "team/revokeInvite" => {
             let team_id = super::str_param(req, "teamId").unwrap_or("");

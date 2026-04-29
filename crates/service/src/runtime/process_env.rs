@@ -271,9 +271,11 @@ fn canonical_uuid(value: &str) -> Option<String> {
             return None;
         }
     }
-    if bytes.iter().enumerate().any(|(index, byte)| {
-        !matches!(index, 8 | 13 | 18 | 23) && !byte.is_ascii_hexdigit()
-    }) {
+    if bytes
+        .iter()
+        .enumerate()
+        .any(|(index, byte)| !matches!(index, 8 | 13 | 18 | 23) && !byte.is_ascii_hexdigit())
+    {
         return None;
     }
     Some(value.to_ascii_lowercase())

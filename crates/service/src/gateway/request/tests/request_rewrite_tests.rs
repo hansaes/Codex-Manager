@@ -1153,7 +1153,8 @@ fn responses_reuses_persisted_installation_id_for_codex_backend() {
         Some("https://chatgpt.com/backend-api/codex"),
     );
     let first: serde_json::Value = serde_json::from_slice(&first).expect("parse first output body");
-    let second: serde_json::Value = serde_json::from_slice(&second).expect("parse second output body");
+    let second: serde_json::Value =
+        serde_json::from_slice(&second).expect("parse second output body");
 
     assert_eq!(
         first

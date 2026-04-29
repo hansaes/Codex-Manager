@@ -33,8 +33,9 @@ fn serialize_models_response(models: &ModelsResponse) -> String {
         serde_json::Value::String(OPENAI_MODELS_LIST_OBJECT.to_string()),
     );
     root.insert("success".to_string(), serde_json::Value::Bool(true));
-    serde_json::to_string(&serde_json::Value::Object(root))
-        .unwrap_or_else(|_| "{\"models\":[],\"data\":[],\"object\":\"list\",\"success\":true}".to_string())
+    serde_json::to_string(&serde_json::Value::Object(root)).unwrap_or_else(|_| {
+        "{\"models\":[],\"data\":[],\"object\":\"list\",\"success\":true}".to_string()
+    })
 }
 
 fn openai_model_item_from_model_info(
@@ -57,7 +58,8 @@ fn openai_model_item_from_model_info(
         .get("supported_endpoint_types")
         .and_then(|value| value.as_array())
         .map(|items| {
-            items.iter()
+            items
+                .iter()
                 .filter_map(|item| item.as_str().map(str::trim))
                 .filter(|value| !value.is_empty())
                 .map(|value| serde_json::Value::String(value.to_string()))
@@ -139,9 +141,7 @@ fn aggregate_models_response_for_key(
             .into_iter()
             .map(|item| codexmanager_core::rpc::types::ModelInfo {
                 slug: item.model_slug.clone(),
-                display_name: item
-                    .display_name
-                    .unwrap_or_else(|| item.model_slug.clone()),
+                display_name: item.display_name.unwrap_or_else(|| item.model_slug.clone()),
                 supported_in_api: true,
                 visibility: Some("list".to_string()),
                 ..Default::default()
