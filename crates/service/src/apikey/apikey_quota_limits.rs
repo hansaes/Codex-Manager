@@ -38,17 +38,26 @@ pub(crate) fn build_quota_exceeded_message(
 ) -> Option<String> {
     let mut exceeded = Vec::new();
 
-    if let Some(limit) = limits.total_request_limit.filter(|limit| usage.request_count >= *limit) {
+    if let Some(limit) = limits
+        .total_request_limit
+        .filter(|limit| usage.request_count >= *limit)
+    {
         exceeded.push(format!("requests {}/{}", usage.request_count, limit));
     }
-    if let Some(limit) = limits.total_token_limit.filter(|limit| usage.total_tokens >= *limit) {
+    if let Some(limit) = limits
+        .total_token_limit
+        .filter(|limit| usage.total_tokens >= *limit)
+    {
         exceeded.push(format!("tokens {}/{}", usage.total_tokens, limit));
     }
     if let Some(limit) = limits
         .total_cost_usd_limit
         .filter(|limit| usage.estimated_cost_usd >= *limit)
     {
-        exceeded.push(format!("cost ${:.4}/${:.4}", usage.estimated_cost_usd, limit));
+        exceeded.push(format!(
+            "cost ${:.4}/${:.4}",
+            usage.estimated_cost_usd, limit
+        ));
     }
 
     if exceeded.is_empty() {

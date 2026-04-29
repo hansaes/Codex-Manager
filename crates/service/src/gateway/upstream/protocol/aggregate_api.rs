@@ -507,6 +507,30 @@ fn aggregate_api_failure_message(
     }
 }
 
+fn aggregate_api_message_indicates_rate_limit(message: &str) -> bool {
+    let normalized = message.trim().to_ascii_lowercase();
+    normalized.contains("type=rate_limit_error")
+        || normalized.contains("concurrency limit exceeded")
+        || normalized.contains("too many requests")
+        || normalized.contains("rate limit exceeded")
+}
+
+fn normalize_aggregate_api_failure_status(status_code: u16, message: &str) -> u16 {
+    if status_code == 429 || aggregate_api_message_indicates_rate_limit(message) {
+        429
+    } else {
+        status_code
+    }
+}
+
+fn should_retry_aggregate_api_failure(status_code: u16, message: &str) -> bool {
+    let normalized_status = normalize_aggregate_api_failure_status(status_code, message);
+    if normalized_status == 429 {
+        return false;
+    }
+    status_code >= 500
+}
+
 /// 函数 `build_aggregate_api_request`
 ///
 /// 作者: gaohongshun
@@ -934,8 +958,16 @@ pub(in super::super) fn proxy_aggregate_request(
                 last_attempt_url = Some(url.as_str().to_string());
                 last_attempt_supplier_name = candidate_supplier_name.clone();
                 last_attempt_error = Some(message);
-                last_failure_status = 502;
-                if attempt_idx < AGGREGATE_API_RETRY_ATTEMPTS_PER_CHANNEL {
+                last_failure_status = normalize_aggregate_api_failure_status(
+                    status_code,
+                    last_attempt_error.as_deref().unwrap_or_default(),
+                );
+                if attempt_idx < AGGREGATE_API_RETRY_ATTEMPTS_PER_CHANNEL
+                    && should_retry_aggregate_api_failure(
+                        status_code,
+                        last_attempt_error.as_deref().unwrap_or_default(),
+                    )
+                {
                     continue;
                 }
                 break;
@@ -1324,7 +1356,10 @@ mod bridge_tests {
 mod tests {
     use codexmanager_core::storage::AggregateApi;
 
-    use super::{build_upstream_url, effective_action_path, resolve_passthrough_sse_protocol};
+    use super::{
+        build_upstream_url, effective_action_path, normalize_aggregate_api_failure_status,
+        resolve_passthrough_sse_protocol, should_retry_aggregate_api_failure,
+    };
     use crate::gateway::{PassthroughSseProtocol, ResponseAdapter};
 
     fn aggregate_api_with_action(action: Option<&str>) -> AggregateApi {
@@ -1467,6 +1502,22 @@ mod tests {
 
         let models_url = build_upstream_url(&api, "/v1/models").expect("models url");
         assert_eq!(models_url.as_str(), "https://api.example.com/custom/models");
+    }
+
+    #[test]
+    fn aggregate_rate_limit_failure_maps_to_429_without_retry() {
+        let message = "type=rate_limit_error Concurrency limit exceeded for account, please retry later";
+
+        assert_eq!(normalize_aggregate_api_failure_status(502, message), 429);
+        assert!(!should_retry_aggregate_api_failure(502, message));
+    }
+
+    #[test]
+    fn aggregate_cloudflare_502_keeps_status_and_remains_retryable() {
+        let message = "error code: 502 [cf_ray=9f1be15358cb67b2-SJC]";
+
+        assert_eq!(normalize_aggregate_api_failure_status(502, message), 502);
+        assert!(should_retry_aggregate_api_failure(502, message));
     }
 
     /// 函数 `final_error_promotes_success_status_to_bad_gateway`

@@ -126,21 +126,20 @@ fn aggregate_allowed_model_slugs(
     api_key: &ApiKey,
     requested_model: Option<&str>,
 ) -> Result<Option<HashSet<String>>, LocalValidationError> {
-    let Some(resolved_catalog) =
-        super::super::aggregate_catalog::resolve_aggregate_model_catalog(
-            storage,
-            api_key,
-            requested_model,
+    let Some(resolved_catalog) = super::super::aggregate_catalog::resolve_aggregate_model_catalog(
+        storage,
+        api_key,
+        requested_model,
+    )
+    .map_err(|err| {
+        LocalValidationError::new(
+            500,
+            crate::gateway::bilingual_error(
+                "读取聚合模型失败",
+                format!("aggregate model catalog read failed: {err}"),
+            ),
         )
-        .map_err(|err| {
-            LocalValidationError::new(
-                500,
-                crate::gateway::bilingual_error(
-                    "读取聚合模型失败",
-                    format!("aggregate model catalog read failed: {err}"),
-                ),
-            )
-        })?
+    })?
     else {
         return Ok(None);
     };

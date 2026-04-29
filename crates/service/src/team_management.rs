@@ -227,18 +227,18 @@ fn run_curl_request(
     ));
     command.arg(url);
 
-    let output = command.output().map_err(|err| {
-        format!(
-            "failed to execute {}: {}",
-            system_curl_binary(),
-            err
-        )
-    })?;
+    let output = command
+        .output()
+        .map_err(|err| format!("failed to execute {}: {}", system_curl_binary(), err))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if stderr.is_empty() {
-            format!("{} exited with status {}", system_curl_binary(), output.status)
+            format!(
+                "{} exited with status {}",
+                system_curl_binary(),
+                output.status
+            )
         } else {
             stderr
         });
@@ -342,15 +342,14 @@ fn fetch_team_accounts(access_token: &str) -> Result<Vec<ResolvedTeamAccount>, S
             .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
         return Err(summarize_http_error(status, &body));
     }
-    let payload: TeamAccountsResponse =
-        serde_json::from_str(&body).map_err(|err| format!("parse team accounts json failed: {err}"))?;
+    let payload: TeamAccountsResponse = serde_json::from_str(&body)
+        .map_err(|err| format!("parse team accounts json failed: {err}"))?;
     Ok(payload
         .accounts
         .into_iter()
         .filter_map(|(account_id, envelope)| {
             let plan_type = normalize_optional_text(envelope.account.plan_type);
-            let subscription_plan =
-                normalize_optional_text(envelope.entitlement.subscription_plan);
+            let subscription_plan = normalize_optional_text(envelope.entitlement.subscription_plan);
             if !is_team_like_plan(plan_type.as_deref())
                 && !is_team_like_subscription_plan(subscription_plan.as_deref())
             {
@@ -392,8 +391,8 @@ fn fetch_team_users(
                 .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
             return Err(summarize_http_error(status, &body));
         }
-        let payload: TeamUsersResponse =
-            serde_json::from_str(&body).map_err(|err| format!("parse team users json failed: {err}"))?;
+        let payload: TeamUsersResponse = serde_json::from_str(&body)
+            .map_err(|err| format!("parse team users json failed: {err}"))?;
         let total = payload.total.unwrap_or(payload.items.len() as i64).max(0);
         items.extend(payload.items);
         if items.len() as i64 >= total || total == 0 {
@@ -409,7 +408,11 @@ fn fetch_team_invites(
     access_token: &str,
     team_account_id: &str,
 ) -> Result<Vec<TeamInviteItem>, String> {
-    let url = format!("{}/accounts/{}/invites", backend_base_url(), team_account_id);
+    let url = format!(
+        "{}/accounts/{}/invites",
+        backend_base_url(),
+        team_account_id
+    );
     let headers = build_browser_like_headers(access_token, Some(team_account_id), false);
     let (status_code, _content_type, body) = run_curl_request("GET", &url, &headers, None)?;
     if !(200..300).contains(&status_code) {
@@ -417,8 +420,8 @@ fn fetch_team_invites(
             .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
         return Err(summarize_http_error(status, &body));
     }
-    let payload: TeamInvitesResponse =
-        serde_json::from_str(&body).map_err(|err| format!("parse team invites json failed: {err}"))?;
+    let payload: TeamInvitesResponse = serde_json::from_str(&body)
+        .map_err(|err| format!("parse team invites json failed: {err}"))?;
     Ok(payload.items)
 }
 
@@ -427,7 +430,11 @@ fn send_team_invites(
     team_account_id: &str,
     emails: &[String],
 ) -> Result<(), String> {
-    let url = format!("{}/accounts/{}/invites", backend_base_url(), team_account_id);
+    let url = format!(
+        "{}/accounts/{}/invites",
+        backend_base_url(),
+        team_account_id
+    );
     let headers = build_browser_like_headers(access_token, Some(team_account_id), true);
     let invite_payload = serde_json::json!({
         "email_addresses": emails,
@@ -444,7 +451,9 @@ fn send_team_invites(
     let payload: InviteResponse =
         serde_json::from_str(&body).map_err(|err| format!("parse invite json failed: {err}"))?;
     if payload.account_invites.is_empty() {
-        return Err("invite request returned success but no account_invites were created".to_string());
+        return Err(
+            "invite request returned success but no account_invites were created".to_string(),
+        );
     }
     Ok(())
 }
@@ -454,7 +463,11 @@ fn delete_team_invite(
     team_account_id: &str,
     email: &str,
 ) -> Result<(), String> {
-    let url = format!("{}/accounts/{}/invites", backend_base_url(), team_account_id);
+    let url = format!(
+        "{}/accounts/{}/invites",
+        backend_base_url(),
+        team_account_id
+    );
     let headers = build_browser_like_headers(access_token, Some(team_account_id), true);
     let payload = serde_json::json!({
         "email_address": email,
@@ -598,13 +611,15 @@ fn confirm_invite_visibility(
 }
 
 fn count_member_statuses(members: &[ManagedTeamMemberSummary]) -> (i64, i64) {
-    members.iter().fold((0_i64, 0_i64), |(joined, invited), member| {
-        if member.status == "joined" {
-            (joined + 1, invited)
-        } else {
-            (joined, invited + 1)
-        }
-    })
+    members
+        .iter()
+        .fold((0_i64, 0_i64), |(joined, invited), member| {
+            if member.status == "joined" {
+                (joined + 1, invited)
+            } else {
+                (joined, invited + 1)
+            }
+        })
 }
 
 fn apply_optimistic_invite_update(
@@ -638,10 +653,7 @@ fn build_invite_message(result: &ManagedTeamInviteResult) -> String {
         segments.push(format!("skipped {}", result.skipped_count));
     }
     if !result.pending_sync.is_empty() {
-        segments.push(format!(
-            "{} pending sync",
-            result.pending_sync.len()
-        ));
+        segments.push(format!("{} pending sync", result.pending_sync.len()));
     }
     if segments.is_empty() {
         "no new invites were sent".to_string()
@@ -718,15 +730,18 @@ fn ensure_recent_access_token(
         return Ok(());
     }
     if token.refresh_token.trim().is_empty() {
-        return Err("current account access token is expiring and no refresh token is available".to_string());
+        return Err(
+            "current account access token is expiring and no refresh token is available"
+                .to_string(),
+        );
     }
     let issuer = if account.issuer.trim().is_empty() {
         DEFAULT_ISSUER
     } else {
         account.issuer.trim()
     };
-    let client_id = std::env::var("CODEXMANAGER_CLIENT_ID")
-        .unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
+    let client_id =
+        std::env::var("CODEXMANAGER_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
     refresh_and_persist_access_token(storage, token, issuer, &client_id)
 }
 
@@ -846,7 +861,9 @@ fn sync_managed_team_internal(
     ensure_recent_access_token(storage, &source_account, &mut token)?;
     let candidates = fetch_team_accounts(&token.access_token)?;
     let resolved = pick_resolved_team_account(&managed_team, &source_account, &candidates)
-        .ok_or_else(|| "no eligible Team workspace was found for this parent account".to_string())?;
+        .ok_or_else(|| {
+            "no eligible Team workspace was found for this parent account".to_string()
+        })?;
     let users = fetch_team_users(&token.access_token, &resolved.account_id)?;
     let invites = fetch_team_invites(&token.access_token, &resolved.account_id)?;
     let updated = ManagedTeam {
@@ -876,7 +893,9 @@ fn sync_managed_team_internal(
     Ok(build_team_summary(updated, Some(&source_account)))
 }
 
-pub(crate) fn add_managed_team_from_account(account_id: &str) -> Result<ManagedTeamSummary, String> {
+pub(crate) fn add_managed_team_from_account(
+    account_id: &str,
+) -> Result<ManagedTeamSummary, String> {
     let normalized_account_id = account_id.trim();
     if normalized_account_id.is_empty() {
         return Err("accountId is required".to_string());
@@ -895,7 +914,10 @@ pub(crate) fn add_managed_team_from_account(account_id: &str) -> Result<ManagedT
         .as_deref()
         .is_some_and(|value| !is_team_like_plan(Some(value)))
     {
-        return Err("only TEAM / BUSINESS / ENTERPRISE accounts can be added as parent accounts".to_string());
+        return Err(
+            "only TEAM / BUSINESS / ENTERPRISE accounts can be added as parent accounts"
+                .to_string(),
+        );
     }
 
     let existing = storage
@@ -1005,7 +1027,9 @@ pub(crate) fn invite_managed_team_members(
     let (managed_team, source_account, mut token) =
         load_managed_team_source(&storage, normalized_team_id)?;
     if managed_team.status == "expired"
-        || managed_team.expires_at.is_some_and(|value| value <= now_ts())
+        || managed_team
+            .expires_at
+            .is_some_and(|value| value <= now_ts())
     {
         return Err("the parent account Team has expired".to_string());
     }
@@ -1088,8 +1112,8 @@ pub(crate) fn invite_managed_team_members(
         .map_err(|err| err.to_string())?;
     let mut result = ManagedTeamInviteResult {
         invited_count: classification.ready.len() as i64,
-        skipped_count: (classification.already_joined.len()
-            + classification.already_invited.len()) as i64,
+        skipped_count: (classification.already_joined.len() + classification.already_invited.len())
+            as i64,
         team_id: normalized_team_id.to_string(),
         invited: Vec::new(),
         already_joined: classification.already_joined,
@@ -1316,8 +1340,14 @@ mod tests {
 
         let confirmation = confirm_invite_visibility(&requested, &members);
 
-        assert_eq!(confirmation.confirmed, vec!["alice@example.com".to_string()]);
-        assert_eq!(confirmation.pending_sync, vec!["bob@example.com".to_string()]);
+        assert_eq!(
+            confirmation.confirmed,
+            vec!["alice@example.com".to_string()]
+        );
+        assert_eq!(
+            confirmation.pending_sync,
+            vec!["bob@example.com".to_string()]
+        );
     }
 
     #[test]
@@ -1397,8 +1427,8 @@ mod tests {
 
     #[test]
     fn revoke_managed_team_invite_requires_email_before_storage_lookup() {
-        let error = revoke_managed_team_invite("team-123", "")
-            .expect_err("expected missing email to fail");
+        let error =
+            revoke_managed_team_invite("team-123", "").expect_err("expected missing email to fail");
         assert_eq!(error, "email is required");
     }
 }

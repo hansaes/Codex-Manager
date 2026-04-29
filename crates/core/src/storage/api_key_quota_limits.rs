@@ -14,8 +14,10 @@ impl Storage {
             && total_cost_usd_limit.is_none()
             && total_request_limit.is_none()
         {
-            self.conn
-                .execute("DELETE FROM api_key_quota_limits WHERE key_id = ?1", [key_id])?;
+            self.conn.execute(
+                "DELETE FROM api_key_quota_limits WHERE key_id = ?1",
+                [key_id],
+            )?;
             return Ok(());
         }
 

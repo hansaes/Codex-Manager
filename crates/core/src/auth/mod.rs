@@ -342,6 +342,7 @@ pub fn build_authorize_url(
             "openid profile email offline_access api.connectors.read api.connectors.invoke"
                 .to_string(),
         ),
+        ("prompt", "login".to_string()),
         ("code_challenge", code_challenge.to_string()),
         ("code_challenge_method", "S256".to_string()),
         ("id_token_add_organizations", "true".to_string()),

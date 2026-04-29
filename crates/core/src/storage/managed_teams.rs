@@ -106,20 +106,18 @@ impl Storage {
                 created_at: row.get(12)?,
                 updated_at: row.get(13)?,
             };
-            let account = row
-                .get::<_, Option<String>>(14)?
-                .map(|id| Account {
-                    id,
-                    label: row.get(15).unwrap_or_default(),
-                    issuer: row.get(16).unwrap_or_default(),
-                    chatgpt_account_id: row.get(17).unwrap_or(None),
-                    workspace_id: row.get(18).unwrap_or(None),
-                    group_name: None,
-                    sort: row.get(19).unwrap_or(0),
-                    status: row.get(20).unwrap_or_else(|_| "unknown".to_string()),
-                    created_at: row.get(21).unwrap_or(0),
-                    updated_at: row.get(22).unwrap_or(0),
-                });
+            let account = row.get::<_, Option<String>>(14)?.map(|id| Account {
+                id,
+                label: row.get(15).unwrap_or_default(),
+                issuer: row.get(16).unwrap_or_default(),
+                chatgpt_account_id: row.get(17).unwrap_or(None),
+                workspace_id: row.get(18).unwrap_or(None),
+                group_name: None,
+                sort: row.get(19).unwrap_or(0),
+                status: row.get(20).unwrap_or_else(|_| "unknown".to_string()),
+                created_at: row.get(21).unwrap_or(0),
+                updated_at: row.get(22).unwrap_or(0),
+            });
             out.push((team, account));
         }
         Ok(out)
