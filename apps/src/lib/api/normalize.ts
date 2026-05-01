@@ -1761,6 +1761,15 @@ export function normalizeAppSettings(payload: unknown): AppSettings {
     routeStrategyOptions: asArray(source.routeStrategyOptions).map((item) =>
       asString(item)
     ),
+    globalChannelPriorityEnabled: asBoolean(
+      source.globalChannelPriorityEnabled,
+      false
+    ),
+    globalChannelPriorityOrder:
+      asString(source.globalChannelPriorityOrder) || "account_first",
+    globalChannelPriorityOrderOptions: asArray(
+      source.globalChannelPriorityOrderOptions
+    ).map((item) => asString(item)),
     freeAccountMaxModel: asString(source.freeAccountMaxModel) || "auto",
     freeAccountMaxModelOptions: asArray(source.freeAccountMaxModelOptions).map((item) =>
       asString(item)

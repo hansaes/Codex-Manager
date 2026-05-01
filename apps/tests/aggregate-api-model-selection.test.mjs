@@ -127,6 +127,20 @@ test("首次同步失败时仍会打开模型弹窗并允许手动添加", async
   );
 });
 
+test("保存聚合 API 模型后会刷新共享模型目录与启动快照缓存", async () => {
+  const source = await readAppFile("src", "app", "aggregate-api", "page.tsx");
+
+  assertIncludesAll(
+    source,
+    [
+      'invalidateQueries({ queryKey: ["apikey-models"] })',
+      'invalidateQueries({ queryKey: ["managed-model-catalog"] })',
+      'invalidateQueries({ queryKey: ["startup-snapshot"] })',
+    ],
+    "apps/src/app/aggregate-api/page.tsx"
+  );
+});
+
 test("平台密钥聚合 API 轮转不再绑定单个聚合 API", async () => {
   const source = await readAppFile(
     "src",

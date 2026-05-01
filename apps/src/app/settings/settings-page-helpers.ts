@@ -80,6 +80,11 @@ export const ROUTE_STRATEGY_LABELS: Record<string, string> = {
   balanced: "均衡轮询 (Balanced)",
 };
 
+export const GLOBAL_CHANNEL_PRIORITY_ORDER_LABELS: Record<string, string> = {
+  account_first: "账号优先，聚合兜底",
+  aggregate_first: "聚合优先，账号兜底",
+};
+
 export const SERVICE_LISTEN_MODE_LABELS: Record<string, string> = {
   loopback: "仅本机 (localhost)",
   all_interfaces: "全部网卡 (0.0.0.0)",

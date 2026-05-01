@@ -6,6 +6,8 @@ use super::{
     persisted_env_overrides_missing_process_env, reload_runtime_after_env_override_apply,
     set_service_bind_mode, BackgroundTasksInput, APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY,
     APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY, APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY,
+    APP_SETTING_GATEWAY_GLOBAL_CHANNEL_PRIORITY_ENABLED_KEY,
+    APP_SETTING_GATEWAY_GLOBAL_CHANNEL_PRIORITY_ORDER_KEY,
     APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY, APP_SETTING_GATEWAY_ORIGINATOR_KEY,
     APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY, APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY,
     APP_SETTING_GATEWAY_SSE_KEEPALIVE_INTERVAL_MS_KEY, APP_SETTING_GATEWAY_UPSTREAM_PROXY_URL_KEY,
@@ -75,6 +77,21 @@ pub fn sync_runtime_settings_from_storage() {
             if let Some(strategy) = normalize_optional_text(Some(strategy)) {
                 if let Err(err) = gateway::set_route_strategy(&strategy) {
                     log::warn!("sync persisted route strategy failed: {err}");
+                }
+            }
+        }
+    }
+    if !process_env_has_value("CODEXMANAGER_GLOBAL_CHANNEL_PRIORITY_ENABLED") {
+        if let Some(raw) = settings.get(APP_SETTING_GATEWAY_GLOBAL_CHANNEL_PRIORITY_ENABLED_KEY) {
+            let enabled = super::parse_bool_with_default(raw, false);
+            gateway::set_global_channel_priority_enabled(enabled);
+        }
+    }
+    if !process_env_has_value("CODEXMANAGER_GLOBAL_CHANNEL_PRIORITY_ORDER") {
+        if let Some(order) = settings.get(APP_SETTING_GATEWAY_GLOBAL_CHANNEL_PRIORITY_ORDER_KEY) {
+            if let Some(order) = normalize_optional_text(Some(order)) {
+                if let Err(err) = gateway::set_global_channel_priority_order(&order) {
+                    log::warn!("sync persisted global channel priority order failed: {err}");
                 }
             }
         }

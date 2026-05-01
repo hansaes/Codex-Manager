@@ -2,6 +2,36 @@ use super::{terminal_text_response, with_trace_id_header};
 use std::io::Read;
 use tiny_http::Response;
 
+#[test]
+fn error_message_for_client_prefers_chinese_for_external_clients() {
+    assert_eq!(
+        crate::gateway::error_message_for_client(false, "无可用账号(no available account)"),
+        "无可用账号"
+    );
+    assert_eq!(
+        crate::gateway::error_message_for_client(
+            false,
+            "aggregate api model not found in selected catalog: mimo-v2.5-pro",
+        ),
+        "请求模型不在聚合 API 已选择目录中: mimo-v2.5-pro"
+    );
+}
+
+#[test]
+fn error_message_for_client_keeps_raw_message_for_internal_clients() {
+    assert_eq!(
+        crate::gateway::error_message_for_client(true, "无可用账号(no available account)"),
+        "no available account"
+    );
+    assert_eq!(
+        crate::gateway::error_message_for_client(
+            true,
+            "aggregate api model not found in selected catalog: mimo-v2.5-pro",
+        ),
+        "aggregate api model not found in selected catalog: mimo-v2.5-pro"
+    );
+}
+
 /// 函数 `terminal_text_response_sets_error_code_header`
 ///
 /// 作者: gaohongshun
@@ -61,12 +91,12 @@ fn terminal_text_response_sets_error_code_header() {
         .read_to_string(&mut body)
         .expect("read response body");
     assert!(
-        body.contains("\"message\":\"no available account\""),
+        body.contains("\"message\":\"无可用账号\""),
         "unexpected response body: {body}"
     );
     assert!(
-        !body.contains("无可用账号("),
-        "response should return raw message only: {body}"
+        !body.contains("no available account"),
+        "response should return chinese message for external clients: {body}"
     );
 }
 

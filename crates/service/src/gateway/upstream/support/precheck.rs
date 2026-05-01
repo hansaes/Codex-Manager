@@ -6,7 +6,11 @@ pub(in super::super) enum CandidatePrecheckResult {
         request: Request,
         candidates: Vec<(Account, Token)>,
     },
-    Responded,
+    Failed {
+        request: Request,
+        status_code: u16,
+        message: String,
+    },
 }
 
 /// 函数 `prepare_candidates_for_proxy`
@@ -66,15 +70,6 @@ pub(in super::super) fn prepare_candidates_for_proxy(
                 Some(err_text.as_str()),
                 None,
             );
-            let response = super::super::super::error_response::terminal_text_response(
-                500,
-                super::super::super::error_message_for_client(
-                    super::super::super::prefers_raw_errors_for_tiny_http_request(&request),
-                    err_text.clone(),
-                ),
-                Some(trace_id),
-            );
-            let _ = request.respond(response);
             super::super::super::trace_log::log_request_final(
                 trace_id,
                 500,
@@ -83,7 +78,11 @@ pub(in super::super) fn prepare_candidates_for_proxy(
                 Some(err_text.as_str()),
                 0,
             );
-            return CandidatePrecheckResult::Responded;
+            return CandidatePrecheckResult::Failed {
+                request,
+                status_code: 500,
+                message: err_text,
+            };
         }
     };
 
@@ -109,15 +108,6 @@ pub(in super::super) fn prepare_candidates_for_proxy(
             Some("无可用账号(no available account)"),
             None,
         );
-        let response = super::super::super::error_response::terminal_text_response(
-            503,
-            super::super::super::error_message_for_client(
-                super::super::super::prefers_raw_errors_for_tiny_http_request(&request),
-                "无可用账号(no available account)",
-            ),
-            Some(trace_id),
-        );
-        let _ = request.respond(response);
         super::super::super::trace_log::log_request_final(
             trace_id,
             503,
@@ -126,7 +116,11 @@ pub(in super::super) fn prepare_candidates_for_proxy(
             Some("无可用账号(no available account)"),
             0,
         );
-        return CandidatePrecheckResult::Responded;
+        return CandidatePrecheckResult::Failed {
+            request,
+            status_code: 503,
+            message: "无可用账号(no available account)".to_string(),
+        };
     }
 
     CandidatePrecheckResult::Ready {

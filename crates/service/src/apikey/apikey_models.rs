@@ -5,8 +5,8 @@ use codexmanager_core::rpc::types::{
     ModelInfo, ModelReasoningLevel, ModelTruncationPolicy, ModelsResponse,
 };
 use codexmanager_core::storage::{
-    now_ts, ModelCatalogModelRecord, ModelCatalogReasoningLevelRecord, ModelCatalogScopeRecord,
-    ModelCatalogStringItemRecord, Storage,
+    now_ts, AggregateApiModel, ModelCatalogModelRecord, ModelCatalogReasoningLevelRecord,
+    ModelCatalogScopeRecord, ModelCatalogStringItemRecord, Storage,
 };
 use serde_json::Value;
 
@@ -172,6 +172,40 @@ pub(crate) fn save_managed_model_catalog_with_storage(
     let normalized = normalize_managed_model_catalog(catalog.clone());
     let updated_at = now_ts();
     save_managed_model_catalog_rows(storage, &normalized, updated_at)
+}
+
+pub(crate) fn merge_aggregate_models_into_managed_catalog(
+    storage: &Storage,
+    models: &[AggregateApiModel],
+) -> Result<ManagedModelCatalogResult, String> {
+    let cached_catalog = read_managed_model_catalog_from_storage(storage)?;
+    if models.is_empty() {
+        return Ok(cached_catalog);
+    }
+
+    let incoming = ModelsResponse {
+        models: models
+            .iter()
+            .filter_map(|item| {
+                normalize_model_info(ModelInfo {
+                    slug: item.model_slug.clone(),
+                    display_name: item
+                        .display_name
+                        .clone()
+                        .unwrap_or_else(|| item.model_slug.clone()),
+                    supported_in_api: true,
+                    visibility: Some("list".to_string()),
+                    ..Default::default()
+                })
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let merged_catalog = merge_managed_model_catalog(cached_catalog, incoming);
+    if !merged_catalog.items.is_empty() {
+        save_managed_model_catalog_with_storage(storage, &merged_catalog)?;
+    }
+    Ok(merged_catalog)
 }
 
 pub(crate) fn save_managed_model_catalog_model(
@@ -1156,11 +1190,12 @@ fn needs_structured_backfill(rows: &[ModelCatalogModelRecord], missing_scope_row
 mod tests {
     use std::collections::BTreeMap;
 
-    use codexmanager_core::storage::Storage;
+    use codexmanager_core::storage::{AggregateApiModel, Storage};
     use serde_json::{json, Value};
 
     use super::{
-        merge_managed_model_catalog, merge_models_response, normalize_models_response,
+        merge_aggregate_models_into_managed_catalog, merge_managed_model_catalog,
+        merge_models_response, normalize_models_response,
         read_managed_model_catalog_from_storage, read_model_options_from_storage,
         save_managed_model_catalog_with_storage, save_model_options_with_storage,
         MODEL_SOURCE_KIND_CUSTOM, MODEL_SOURCE_KIND_REMOTE,
@@ -1444,5 +1479,64 @@ mod tests {
         );
         assert_eq!(merged.items[0].source_kind, MODEL_SOURCE_KIND_REMOTE);
         assert!(merged.items[0].user_edited);
+    }
+
+    #[test]
+    fn merge_aggregate_models_into_managed_catalog_adds_missing_models_as_remote_entries() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+
+        save_managed_model_catalog_with_storage(
+            &storage,
+            &ManagedModelCatalogResult {
+                items: vec![ManagedModelCatalogEntry {
+                    model: serde_json::from_value(json!({
+                        "slug": "gpt-5.4",
+                        "display_name": "GPT-5.4",
+                        "description": "existing managed entry",
+                        "supported_in_api": true
+                    }))
+                    .expect("parse existing model"),
+                    source_kind: MODEL_SOURCE_KIND_CUSTOM.to_string(),
+                    user_edited: true,
+                    sort_index: 2,
+                    updated_at: 12,
+                }],
+                extra: BTreeMap::new(),
+            },
+        )
+        .expect("seed managed catalog");
+
+        let merged = merge_aggregate_models_into_managed_catalog(
+            &storage,
+            &[AggregateApiModel {
+                aggregate_api_id: "agg_mimo".to_string(),
+                model_slug: "mimo-v2.5-pro".to_string(),
+                display_name: Some("mimo-v2.5-pro".to_string()),
+                raw_json: "{\"id\":\"mimo-v2.5-pro\"}".to_string(),
+                created_at: 1,
+                updated_at: 1,
+            }],
+        )
+        .expect("merge aggregate models");
+
+        assert_eq!(merged.items.len(), 2);
+        assert_eq!(merged.items[0].model.slug, "mimo-v2.5-pro");
+        assert_eq!(merged.items[0].model.display_name, "mimo-v2.5-pro");
+        assert!(merged.items[0].model.supported_in_api);
+        assert_eq!(merged.items[0].model.visibility.as_deref(), Some("list"));
+        assert_eq!(merged.items[0].source_kind, MODEL_SOURCE_KIND_REMOTE);
+        assert!(!merged.items[0].user_edited);
+
+        let reloaded =
+            read_managed_model_catalog_from_storage(&storage).expect("reload managed catalog");
+        assert_eq!(
+            reloaded
+                .items
+                .iter()
+                .map(|item| item.model.slug.as_str())
+                .collect::<Vec<_>>(),
+            vec!["mimo-v2.5-pro", "gpt-5.4"]
+        );
     }
 }

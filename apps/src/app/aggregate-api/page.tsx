@@ -492,15 +492,18 @@ export default function AggregateApiPage() {
     onMutate: async ({ apiId }) => {
       setSavingModelsApiId(apiId);
     },
-    onSuccess: async (result) => {
-      toast.success(t("模型导入完成，共 {count} 个", { count: result.count }));
-      resetModelPicker();
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] }),
-        queryClient.invalidateQueries({ queryKey: ["aggregate-api-models"] }),
-        queryClient.invalidateQueries({ queryKey: ["apikeys"] }),
-      ]);
-    },
+      onSuccess: async (result) => {
+        toast.success(t("模型导入完成，共 {count} 个", { count: result.count }));
+        resetModelPicker();
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] }),
+          queryClient.invalidateQueries({ queryKey: ["aggregate-api-models"] }),
+          queryClient.invalidateQueries({ queryKey: ["apikeys"] }),
+          queryClient.invalidateQueries({ queryKey: ["apikey-models"] }),
+          queryClient.invalidateQueries({ queryKey: ["managed-model-catalog"] }),
+          queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
+        ]);
+      },
     onSettled: async (_result, _error, variables) => {
       setSavingModelsApiId((current) =>
         current === variables?.apiId ? null : current

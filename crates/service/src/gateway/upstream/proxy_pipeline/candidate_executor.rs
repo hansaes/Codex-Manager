@@ -16,8 +16,7 @@ use super::candidate_state::CandidateExecutionState;
 use super::execution_context::GatewayUpstreamExecutionContext;
 use super::request_setup::UpstreamRequestSetup;
 use super::response_finalize::{
-    finalize_terminal_candidate, finalize_upstream_response, respond_total_timeout,
-    FinalizeUpstreamResponseOutcome,
+    finalize_upstream_response, respond_total_timeout, FinalizeUpstreamResponseOutcome,
 };
 
 /// 函数 `extract_prompt_cache_key_for_trace`
@@ -46,6 +45,14 @@ fn extract_prompt_cache_key_for_trace(body: &[u8]) -> Option<String> {
 
 pub(in super::super) enum CandidateExecutionResult {
     Handled,
+    TerminalFailure {
+        request: Request,
+        status_code: u16,
+        message: String,
+        attempted_account_ids: Vec<String>,
+        last_attempt_url: Option<String>,
+        model_for_log: Option<String>,
+    },
     Exhausted {
         request: Request,
         attempted_account_ids: Vec<String>,
@@ -53,6 +60,7 @@ pub(in super::super) enum CandidateExecutionResult {
         skipped_inflight: usize,
         last_attempt_url: Option<String>,
         last_attempt_error: Option<String>,
+        final_status_code: u16,
     },
 }
 
@@ -84,10 +92,14 @@ fn record_failover_attempt(
     attempt_trace: &mut CandidateAttemptTrace,
     last_attempt_url: &mut Option<String>,
     last_attempt_error: &mut Option<String>,
+    last_failure_status: &mut u16,
 ) {
     super::super::super::record_gateway_failover_attempt();
     *last_attempt_url = attempt_trace.last_attempt_url.take();
     *last_attempt_error = attempt_trace.last_attempt_error.take();
+    if let Some(status) = attempt_trace.last_attempt_status.take() {
+        *last_failure_status = status;
+    }
 }
 
 fn should_failover_terminal_gateway_error(
@@ -98,6 +110,8 @@ fn should_failover_terminal_gateway_error(
     attempt_trace: &mut CandidateAttemptTrace,
     last_attempt_url: &mut Option<String>,
     last_attempt_error: &mut Option<String>,
+    last_failure_status: &mut u16,
+    status_code: u16,
 ) -> bool {
     let gateway_error_follow_up =
         context.apply_gateway_error_follow_up(account_id, message, has_more_candidates);
@@ -107,35 +121,8 @@ fn should_failover_terminal_gateway_error(
     super::super::super::record_gateway_failover_attempt();
     *last_attempt_url = attempt_trace.last_attempt_url.take();
     *last_attempt_error = Some(message.to_string());
+    *last_failure_status = attempt_trace.last_attempt_status.take().unwrap_or(status_code);
     true
-}
-
-#[allow(clippy::too_many_arguments)]
-fn respond_terminal_attempt(
-    request: Request,
-    context: &GatewayUpstreamExecutionContext<'_>,
-    account_id: &str,
-    last_attempt_url: Option<&str>,
-    status_code: u16,
-    message: String,
-    trace_id: &str,
-    started_at: Instant,
-    model_for_log: Option<&str>,
-    attempted_account_ids: Option<&[String]>,
-) -> Result<CandidateExecutionResult, String> {
-    finalize_terminal_candidate(
-        request,
-        context,
-        account_id,
-        last_attempt_url,
-        status_code,
-        message,
-        trace_id,
-        started_at,
-        model_for_log,
-        attempted_account_ids,
-    )?;
-    Ok(CandidateExecutionResult::Handled)
 }
 
 /// 函数 `execute_candidate_sequence`
@@ -183,6 +170,7 @@ pub(in super::super) fn execute_candidate_sequence(
     let mut skipped_inflight = 0usize;
     let mut last_attempt_url = None;
     let mut last_attempt_error = None;
+    let mut last_failure_status = 503u16;
     for (idx, (account, mut token)) in candidates.into_iter().enumerate() {
         if deadline::is_expired(request_deadline) {
             let request = request
@@ -300,6 +288,7 @@ pub(in super::super) fn execute_candidate_sequence(
                     &mut attempt_trace,
                     &mut last_attempt_url,
                     &mut last_attempt_error,
+                    &mut last_failure_status,
                 );
                 continue;
             }
@@ -315,24 +304,21 @@ pub(in super::super) fn execute_candidate_sequence(
                     &mut attempt_trace,
                     &mut last_attempt_url,
                     &mut last_attempt_error,
+                    &mut last_failure_status,
+                    status_code,
                 ) {
                     continue;
                 }
-                let request = request
-                    .take()
-                    .expect("request should be available before terminal response");
-                return respond_terminal_attempt(
-                    request,
-                    context,
-                    &account.id,
-                    attempt_trace.last_attempt_url.as_deref(),
+                return Ok(CandidateExecutionResult::TerminalFailure {
+                    request: request
+                        .take()
+                        .expect("request should be available before terminal response"),
                     status_code,
                     message,
-                    trace_id,
-                    started_at,
-                    attempt_model_for_log,
-                    Some(attempted_account_ids.as_slice()),
-                );
+                    attempted_account_ids,
+                    last_attempt_url: attempt_trace.last_attempt_url.take(),
+                    model_for_log: attempt_model_for_log.map(str::to_string),
+                });
             }
             CandidateUpstreamDecision::RespondUpstream(mut resp) => {
                 if resp.status().as_u16() == 400
@@ -378,6 +364,7 @@ pub(in super::super) fn execute_candidate_sequence(
                                 &mut attempt_trace,
                                 &mut last_attempt_url,
                                 &mut last_attempt_error,
+                                &mut last_failure_status,
                             );
                             continue;
                         }
@@ -385,21 +372,29 @@ pub(in super::super) fn execute_candidate_sequence(
                             status_code,
                             message,
                         } => {
-                            let request = request
-                                .take()
-                                .expect("request should be available before terminal response");
-                            return respond_terminal_attempt(
-                                request,
+                            if should_failover_terminal_gateway_error(
                                 context,
                                 &account.id,
-                                attempt_trace.last_attempt_url.as_deref(),
+                                context.has_more_candidates(idx),
+                                &message,
+                                &mut attempt_trace,
+                                &mut last_attempt_url,
+                                &mut last_attempt_error,
+                                &mut last_failure_status,
+                                status_code,
+                            ) {
+                                continue;
+                            }
+                            return Ok(CandidateExecutionResult::TerminalFailure {
+                                request: request
+                                    .take()
+                                    .expect("request should be available before terminal response"),
                                 status_code,
                                 message,
-                                trace_id,
-                                started_at,
-                                attempt_model_for_log,
-                                Some(attempted_account_ids.as_slice()),
-                            );
+                                attempted_account_ids,
+                                last_attempt_url: attempt_trace.last_attempt_url.take(),
+                                model_for_log: attempt_model_for_log.map(str::to_string),
+                            });
                         }
                     }
                 }
@@ -451,6 +446,7 @@ pub(in super::super) fn execute_candidate_sequence(
                             &mut attempt_trace,
                             &mut last_attempt_url,
                             &mut last_attempt_error,
+                            &mut last_failure_status,
                         );
                         continue;
                     }
@@ -467,5 +463,6 @@ pub(in super::super) fn execute_candidate_sequence(
         skipped_inflight,
         last_attempt_url,
         last_attempt_error,
+        final_status_code: last_failure_status,
     })
 }

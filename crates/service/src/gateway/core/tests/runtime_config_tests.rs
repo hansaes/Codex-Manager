@@ -104,6 +104,18 @@ fn reload_from_env_updates_timeout_and_proxy() {
     );
 }
 
+#[test]
+fn reload_from_env_updates_global_channel_priority_settings() {
+    let _guard = crate::test_env_guard();
+    let _enabled_guard = EnvGuard::set(ENV_GLOBAL_CHANNEL_PRIORITY_ENABLED, "1");
+    let _order_guard = EnvGuard::set(ENV_GLOBAL_CHANNEL_PRIORITY_ORDER, "aggregate_first");
+
+    reload_from_env();
+
+    assert!(global_channel_priority_enabled());
+    assert_eq!(current_global_channel_priority_order(), "aggregate_first");
+}
+
 /// 函数 `reload_from_env_defaults_limits_to_unbounded_codex_friendly_values`
 ///
 /// 作者: gaohongshun

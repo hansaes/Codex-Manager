@@ -73,6 +73,403 @@ fn resolve_upstream_is_stream(client_is_stream: bool, path: &str) -> bool {
     client_is_stream || (path.starts_with("/v1/responses") && !is_compact_path)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GatewayRouteFamily {
+    Account,
+    AggregateApi,
+}
+
+enum GatewayFamilyOutcome {
+    Handled,
+    Failed {
+        request: Request,
+        status_code: u16,
+        message: String,
+    },
+}
+
+fn route_family_for_rotation_strategy(rotation_strategy: &str) -> GatewayRouteFamily {
+    if rotation_strategy == ROTATION_AGGREGATE_API {
+        GatewayRouteFamily::AggregateApi
+    } else {
+        GatewayRouteFamily::Account
+    }
+}
+
+fn resolve_route_family_sequence(
+    global_enabled: bool,
+    global_order: &str,
+    rotation_strategy: &str,
+) -> Vec<GatewayRouteFamily> {
+    if !global_enabled {
+        return vec![route_family_for_rotation_strategy(rotation_strategy)];
+    }
+    match global_order.trim().to_ascii_lowercase().as_str() {
+        "aggregate_first" => vec![GatewayRouteFamily::AggregateApi, GatewayRouteFamily::Account],
+        _ => vec![GatewayRouteFamily::Account, GatewayRouteFamily::AggregateApi],
+    }
+}
+
+fn should_failover_across_route_families(status_code: u16, message: &str) -> bool {
+    if matches!(status_code, 401 | 403 | 404 | 408 | 409 | 429 | 500..=599) {
+        return true;
+    }
+    matches!(
+        crate::error_codes::classify_message(message),
+        crate::error_codes::ErrorCode::BackendProxyError
+            | crate::error_codes::ErrorCode::UpstreamTimeout
+            | crate::error_codes::ErrorCode::UpstreamChallengeBlocked
+            | crate::error_codes::ErrorCode::UpstreamRateLimited
+            | crate::error_codes::ErrorCode::UpstreamNotFound
+            | crate::error_codes::ErrorCode::UpstreamNonSuccess
+            | crate::error_codes::ErrorCode::NoAvailableAccount
+            | crate::error_codes::ErrorCode::StreamInterrupted
+    )
+}
+
+fn route_variant_for_family(
+    family: GatewayRouteFamily,
+    rotation_strategy: &str,
+    default_variant: &super::super::local_validation::GatewayRouteVariant,
+    account_route_variant: Option<&super::super::local_validation::GatewayRouteVariant>,
+    aggregate_route_variant: Option<&super::super::local_validation::GatewayRouteVariant>,
+) -> Option<super::super::local_validation::GatewayRouteVariant> {
+    match family {
+        GatewayRouteFamily::Account => account_route_variant.cloned().or_else(|| {
+            (route_family_for_rotation_strategy(rotation_strategy) == GatewayRouteFamily::Account)
+                .then(|| default_variant.clone())
+        }),
+        GatewayRouteFamily::AggregateApi => aggregate_route_variant.cloned().or_else(|| {
+            (route_family_for_rotation_strategy(rotation_strategy)
+                == GatewayRouteFamily::AggregateApi)
+            .then(|| default_variant.clone())
+        }),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_aggregate_route_family(
+    request: Request,
+    storage: &crate::storage_helpers::StorageHandle,
+    trace_id: &str,
+    key_id: &str,
+    original_path: &str,
+    request_method: &str,
+    method: &reqwest::Method,
+    request_deadline: Option<Instant>,
+    started_at: Instant,
+    variant: &super::super::local_validation::GatewayRouteVariant,
+) -> Result<GatewayFamilyOutcome, String> {
+    let path = variant.path.as_str();
+    let mut aggregate_api_candidates =
+        match super::protocol::aggregate_api::resolve_aggregate_api_rotation_candidates(
+            storage,
+            variant.protocol_type.as_str(),
+            variant.aggregate_api_id.as_deref(),
+        ) {
+            Ok(candidates) => candidates,
+            Err(err) => {
+                let message = crate::gateway::bilingual_error("未找到可用聚合 API", err);
+                super::super::record_gateway_request_outcome(path, 404, Some("aggregate_api"));
+                super::super::trace_log::log_request_final(
+                    trace_id,
+                    404,
+                    Some(key_id),
+                    None,
+                    Some(message.as_str()),
+                    started_at.elapsed().as_millis(),
+                );
+                super::super::write_request_log(
+                    storage,
+                    super::super::request_log::RequestLogTraceContext {
+                        trace_id: Some(trace_id),
+                        original_path: Some(original_path),
+                        adapted_path: Some(path),
+                        response_adapter: Some(variant.response_adapter),
+                        effective_service_tier: variant.effective_service_tier_for_log.as_deref(),
+                        ..Default::default()
+                    },
+                    Some(key_id),
+                    None,
+                    path,
+                    request_method,
+                    variant.model_for_log.as_deref(),
+                    variant.reasoning_for_log.as_deref(),
+                    None,
+                    Some(404),
+                    super::super::request_log::RequestLogUsage::default(),
+                    Some(message.as_str()),
+                    Some(started_at.elapsed().as_millis()),
+                );
+                return Ok(GatewayFamilyOutcome::Failed {
+                    request,
+                    status_code: 404,
+                    message,
+                });
+            }
+        };
+
+    aggregate_api_candidates = super::protocol::aggregate_api::filter_aggregate_api_candidates_by_model(
+        storage,
+        aggregate_api_candidates,
+        variant.model_for_log.as_deref(),
+    )?;
+
+    if aggregate_api_candidates.is_empty() {
+        let message = match variant
+            .model_for_log
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(model) => crate::gateway::bilingual_error(
+                "请求模型不在聚合 API 已选择目录中",
+                format!("aggregate api model not found in selected catalog: {model}"),
+            ),
+            None => crate::gateway::bilingual_error("未找到可用聚合 API", "aggregate api not found"),
+        };
+        super::super::record_gateway_request_outcome(path, 404, Some("aggregate_api"));
+        super::super::trace_log::log_request_final(
+            trace_id,
+            404,
+            Some(key_id),
+            None,
+            Some(message.as_str()),
+            started_at.elapsed().as_millis(),
+        );
+        return Ok(GatewayFamilyOutcome::Failed {
+            request,
+            status_code: 404,
+            message,
+        });
+    }
+
+    super::protocol::aggregate_api::apply_gateway_route_strategy_to_aggregate_candidates(
+        &mut aggregate_api_candidates,
+        key_id,
+        variant.model_for_log.as_deref(),
+        variant.aggregate_api_id.as_deref(),
+    );
+
+    match super::protocol::aggregate_api::proxy_aggregate_request(
+        super::protocol::aggregate_api::AggregateProxyRequest {
+            request,
+            storage,
+            trace_id,
+            key_id,
+            original_path,
+            path,
+            request_method,
+            method,
+            body: &variant.body,
+            is_stream: variant.is_stream,
+            response_adapter: variant.response_adapter,
+            model_for_log: variant.model_for_log.as_deref(),
+            reasoning_for_log: variant.reasoning_for_log.as_deref(),
+            effective_service_tier_for_log: variant.effective_service_tier_for_log.as_deref(),
+            aggregate_api_candidates,
+            request_deadline,
+            started_at,
+        },
+    )? {
+        super::protocol::aggregate_api::AggregateProxyOutcome::Handled => {
+            Ok(GatewayFamilyOutcome::Handled)
+        }
+        super::protocol::aggregate_api::AggregateProxyOutcome::Failed {
+            request,
+            status_code,
+            message,
+        } => Ok(GatewayFamilyOutcome::Failed {
+            request,
+            status_code,
+            message,
+        }),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_account_route_family(
+    request: Request,
+    storage: &crate::storage_helpers::StorageHandle,
+    trace_id: &str,
+    key_id: &str,
+    original_path: &str,
+    request_method: &str,
+    platform_key_hash: &str,
+    local_conversation_id: Option<&str>,
+    account_plan_filter: Option<&str>,
+    method: &reqwest::Method,
+    request_deadline: Option<Instant>,
+    started_at: Instant,
+    debug: bool,
+    variant: &super::super::local_validation::GatewayRouteVariant,
+) -> Result<GatewayFamilyOutcome, String> {
+    let path = variant.path.as_str();
+    let client_is_stream = variant.is_stream;
+    let upstream_is_stream = resolve_upstream_is_stream(client_is_stream, path);
+    let (request, mut candidates) = match prepare_candidates_for_proxy(
+        request,
+        storage,
+        trace_id,
+        key_id,
+        original_path,
+        path,
+        variant.response_adapter,
+        request_method,
+        variant.model_for_log.as_deref(),
+        variant.reasoning_for_log.as_deref(),
+        account_plan_filter,
+    ) {
+        CandidatePrecheckResult::Ready {
+            request,
+            candidates,
+        } => (request, candidates),
+        CandidatePrecheckResult::Failed {
+            request,
+            status_code,
+            message,
+        } => {
+            return Ok(GatewayFamilyOutcome::Failed {
+                request,
+                status_code,
+                message,
+            });
+        }
+    };
+    let setup = prepare_request_setup(
+        path,
+        variant.protocol_type.as_str(),
+        variant.has_prompt_cache_key,
+        &variant.incoming_headers,
+        &variant.body,
+        &mut candidates,
+        key_id,
+        platform_key_hash,
+        local_conversation_id,
+        variant.conversation_binding.as_ref(),
+        variant.model_for_log.as_deref(),
+        trace_id,
+    );
+    let base = setup.upstream_base.clone();
+    let context = GatewayUpstreamExecutionContext::new(
+        trace_id,
+        storage,
+        key_id,
+        original_path,
+        path,
+        request_method,
+        variant.response_adapter,
+        variant.protocol_type.as_str(),
+        variant.model_for_log.as_deref(),
+        variant.reasoning_for_log.as_deref(),
+        variant.service_tier_for_log.as_deref(),
+        variant.effective_service_tier_for_log.as_deref(),
+        setup.candidate_count,
+        setup.account_max_inflight,
+    );
+    let allow_openai_fallback = setup.upstream_fallback_base.is_some();
+    let disable_challenge_stateless_retry = !(variant.protocol_type == PROTOCOL_ANTHROPIC_NATIVE
+        && variant.body.len() <= 2 * 1024)
+        && !path.starts_with("/v1/responses");
+    let _request_gate_guard = acquire_request_gate(
+        trace_id,
+        key_id,
+        path,
+        variant.model_for_log.as_deref(),
+        request_deadline,
+    );
+    match execute_candidate_sequence(
+        request,
+        candidates,
+        CandidateExecutorParams {
+            storage,
+            method,
+            incoming_headers: &variant.incoming_headers,
+            body: &variant.body,
+            path,
+            request_shape: variant.request_shape.as_deref(),
+            trace_id,
+            model_for_log: variant.model_for_log.as_deref(),
+            response_adapter: variant.response_adapter,
+            gemini_stream_output_mode: variant.gemini_stream_output_mode,
+            tool_name_restore_map: &variant.tool_name_restore_map,
+            context: &context,
+            setup: &setup,
+            request_deadline,
+            started_at,
+            client_is_stream,
+            upstream_is_stream,
+            debug,
+            allow_openai_fallback,
+            disable_challenge_stateless_retry,
+        },
+    )? {
+        CandidateExecutionResult::Handled => Ok(GatewayFamilyOutcome::Handled),
+        CandidateExecutionResult::TerminalFailure {
+            request,
+            status_code,
+            message,
+            attempted_account_ids,
+            last_attempt_url,
+            model_for_log,
+        } => {
+            context.log_final_result_with_model(
+                None,
+                last_attempt_url.as_deref().or(Some(base.as_str())),
+                model_for_log.as_deref(),
+                status_code,
+                RequestLogUsage::default(),
+                Some(message.as_str()),
+                started_at.elapsed().as_millis(),
+                (!attempted_account_ids.is_empty()).then_some(attempted_account_ids.as_slice()),
+            );
+            Ok(GatewayFamilyOutcome::Failed {
+                request,
+                status_code,
+                message,
+            })
+        }
+        CandidateExecutionResult::Exhausted {
+            request,
+            attempted_account_ids,
+            skipped_cooldown,
+            skipped_inflight,
+            last_attempt_url,
+            last_attempt_error,
+            final_status_code,
+        } => {
+            let log_message = exhausted_gateway_error_for_log(
+                attempted_account_ids.as_slice(),
+                skipped_cooldown,
+                skipped_inflight,
+                last_attempt_error.as_deref(),
+            );
+            let status_code = if last_attempt_error.is_some() {
+                final_status_code
+            } else {
+                503
+            };
+            let message = last_attempt_error.unwrap_or_else(|| {
+                crate::gateway::bilingual_error("无可用账号", "no available account")
+            });
+            context.log_final_result(
+                None,
+                last_attempt_url.as_deref().or(Some(base.as_str())),
+                status_code,
+                RequestLogUsage::default(),
+                Some(log_message.as_str()),
+                started_at.elapsed().as_millis(),
+                (!attempted_account_ids.is_empty()).then_some(attempted_account_ids.as_slice()),
+            );
+            Ok(GatewayFamilyOutcome::Failed {
+                request,
+                status_code,
+                message,
+            })
+        }
+    }
+}
+
 /// 函数 `proxy_validated_request`
 ///
 /// 作者: gaohongshun
@@ -115,13 +512,12 @@ pub(in super::super) fn proxy_validated_request(
         reasoning_for_log,
         service_tier_for_log,
         effective_service_tier_for_log,
+        account_route_variant,
+        aggregate_route_variant,
         method,
     } = validated;
     let started_at = Instant::now();
     let client_is_stream = is_stream;
-    // 中文注释：对齐 Codex 上游协议：/v1/responses 固定走 SSE。
-    // 下游是否流式仍由客户端 `stream` 参数决定（在 response bridge 层聚合/透传）。
-    let upstream_is_stream = resolve_upstream_is_stream(client_is_stream, path.as_str());
     let request_deadline = super::support::deadline::request_deadline(started_at, client_is_stream);
 
     super::super::trace_log::log_request_start(
@@ -151,273 +547,120 @@ pub(in super::super) fn proxy_validated_request(
         );
     }
 
-    if rotation_strategy == ROTATION_AGGREGATE_API {
-        let mut aggregate_api_candidates =
-            match super::protocol::aggregate_api::resolve_aggregate_api_rotation_candidates(
-                &storage,
-                protocol_type.as_str(),
-                aggregate_api_id.as_deref(),
-            ) {
-                Ok(candidates) => candidates,
-                Err(err) => {
-                    let message = err;
-                    super::super::record_gateway_request_outcome(
-                        path.as_str(),
-                        404,
-                        Some("aggregate_api"),
-                    );
-                    super::super::trace_log::log_request_final(
-                        trace_id.as_str(),
-                        404,
-                        Some(key_id.as_str()),
-                        None,
-                        Some(message.as_str()),
-                        started_at.elapsed().as_millis(),
-                    );
-                    super::super::write_request_log(
-                        &storage,
-                        super::super::request_log::RequestLogTraceContext {
-                            trace_id: Some(trace_id.as_str()),
-                            original_path: Some(original_path.as_str()),
-                            adapted_path: Some(path.as_str()),
-                            response_adapter: Some(super::super::ResponseAdapter::Passthrough),
-                            effective_service_tier: effective_service_tier_for_log.as_deref(),
-                            ..Default::default()
-                        },
-                        Some(key_id.as_str()),
-                        None,
-                        path.as_str(),
-                        request_method.as_str(),
-                        model_for_log.as_deref(),
-                        reasoning_for_log.as_deref(),
-                        None,
-                        Some(404),
-                        super::super::request_log::RequestLogUsage::default(),
-                        Some(message.as_str()),
-                        Some(started_at.elapsed().as_millis()),
-                    );
-                    let response = super::super::error_response::terminal_text_response(
-                        404,
-                        super::super::error_message_for_client(
-                            super::super::prefers_raw_errors_for_tiny_http_request(&request),
-                            message,
-                        ),
-                        Some(trace_id.as_str()),
-                    );
-                    let _ = request.respond(response);
-                    return Ok(());
+    let default_route_variant = super::super::local_validation::GatewayRouteVariant {
+        incoming_headers: incoming_headers.clone(),
+        path: path.clone(),
+        body: body.clone(),
+        is_stream: client_is_stream,
+        has_prompt_cache_key,
+        request_shape: request_shape.clone(),
+        protocol_type: protocol_type.clone(),
+        aggregate_api_id: aggregate_api_id.clone(),
+        response_adapter,
+        gemini_stream_output_mode,
+        tool_name_restore_map: tool_name_restore_map.clone(),
+        conversation_binding: conversation_binding.clone(),
+        model_for_log: model_for_log.clone(),
+        reasoning_for_log: reasoning_for_log.clone(),
+        service_tier_for_log: service_tier_for_log.clone(),
+        effective_service_tier_for_log: effective_service_tier_for_log.clone(),
+    };
+    let family_sequence = resolve_route_family_sequence(
+        crate::gateway::global_channel_priority_enabled(),
+        crate::gateway::current_global_channel_priority_order(),
+        rotation_strategy.as_str(),
+    );
+    let mut request = request;
+    for (family_index, family) in family_sequence.iter().enumerate() {
+        let variant = match route_variant_for_family(
+            *family,
+            rotation_strategy.as_str(),
+            &default_route_variant,
+            account_route_variant.as_ref(),
+            aggregate_route_variant.as_ref(),
+        ) {
+            Some(variant) => variant,
+            None => {
+                if family_index + 1 < family_sequence.len() {
+                    continue;
                 }
-            };
+                let message = match family {
+                    GatewayRouteFamily::Account => crate::gateway::bilingual_error(
+                        "当前请求无法构建账号通道",
+                        "account route variant unavailable",
+                    ),
+                    GatewayRouteFamily::AggregateApi => crate::gateway::bilingual_error(
+                        "当前请求无法构建聚合 API 通道",
+                        "aggregate api route variant unavailable",
+                    ),
+                };
+                return respond_terminal(request, 503, message, Some(trace_id.as_str()));
+            }
+        };
 
-        aggregate_api_candidates =
-            super::protocol::aggregate_api::filter_aggregate_api_candidates_by_model(
-                &storage,
-                aggregate_api_candidates,
-                model_for_log.as_deref(),
-            )?;
-
-        if aggregate_api_candidates.is_empty() {
-            let message = match model_for_log
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            {
-                Some(model) => {
-                    format!("aggregate api model not found in selected catalog: {model}")
-                }
-                None => "aggregate api not found".to_string(),
-            };
-            super::super::record_gateway_request_outcome(path.as_str(), 404, Some("aggregate_api"));
-            super::super::trace_log::log_request_final(
-                trace_id.as_str(),
-                404,
-                Some(key_id.as_str()),
-                None,
-                Some(message.as_str()),
-                started_at.elapsed().as_millis(),
-            );
-            let response = super::super::error_response::terminal_text_response(
-                404,
-                super::super::error_message_for_client(
-                    super::super::prefers_raw_errors_for_tiny_http_request(&request),
-                    message,
-                ),
-                Some(trace_id.as_str()),
-            );
-            let _ = request.respond(response);
-            return Ok(());
-        }
-
-        super::protocol::aggregate_api::apply_gateway_route_strategy_to_aggregate_candidates(
-            &mut aggregate_api_candidates,
-            key_id.as_str(),
-            model_for_log.as_deref(),
-            aggregate_api_id.as_deref(),
-        );
-
-        return super::protocol::aggregate_api::proxy_aggregate_request(
-            super::protocol::aggregate_api::AggregateProxyRequest {
+        let outcome = match family {
+            GatewayRouteFamily::Account => run_account_route_family(
                 request,
-                storage: &storage,
-                trace_id: trace_id.as_str(),
-                key_id: key_id.as_str(),
-                original_path: original_path.as_str(),
-                path: path.as_str(),
-                request_method: request_method.as_str(),
-                method: &method,
-                body: &body,
-                is_stream: client_is_stream,
-                response_adapter: super::super::ResponseAdapter::Passthrough,
-                model_for_log: model_for_log.as_deref(),
-                reasoning_for_log: reasoning_for_log.as_deref(),
-                effective_service_tier_for_log: effective_service_tier_for_log.as_deref(),
-                aggregate_api_candidates,
+                &storage,
+                trace_id.as_str(),
+                key_id.as_str(),
+                original_path.as_str(),
+                request_method.as_str(),
+                platform_key_hash.as_str(),
+                local_conversation_id.as_deref(),
+                account_plan_filter.as_deref(),
+                &method,
                 request_deadline,
                 started_at,
-            },
-        );
+                debug,
+                &variant,
+            )?,
+            GatewayRouteFamily::AggregateApi => run_aggregate_route_family(
+                request,
+                &storage,
+                trace_id.as_str(),
+                key_id.as_str(),
+                original_path.as_str(),
+                request_method.as_str(),
+                &method,
+                request_deadline,
+                started_at,
+                &variant,
+            )?,
+        };
+
+        match outcome {
+            GatewayFamilyOutcome::Handled => return Ok(()),
+            GatewayFamilyOutcome::Failed {
+                request: failed_request,
+                status_code,
+                message,
+            } => {
+                if family_index + 1 < family_sequence.len()
+                    && should_failover_across_route_families(status_code, message.as_str())
+                {
+                    request = failed_request;
+                    continue;
+                }
+                return respond_terminal(
+                    failed_request,
+                    status_code,
+                    message,
+                    Some(trace_id.as_str()),
+                );
+            }
+        }
     }
 
-    let (request, mut candidates) = match prepare_candidates_for_proxy(
-        request,
-        &storage,
-        trace_id.as_str(),
-        &key_id,
-        &original_path,
-        &path,
-        response_adapter,
-        &request_method,
-        model_for_log.as_deref(),
-        reasoning_for_log.as_deref(),
-        account_plan_filter.as_deref(),
-    ) {
-        CandidatePrecheckResult::Ready {
-            request,
-            candidates,
-        } => (request, candidates),
-        CandidatePrecheckResult::Responded => return Ok(()),
-    };
-    let setup = prepare_request_setup(
-        path.as_str(),
-        protocol_type.as_str(),
-        has_prompt_cache_key,
-        &incoming_headers,
-        &body,
-        &mut candidates,
-        key_id.as_str(),
-        platform_key_hash.as_str(),
-        local_conversation_id.as_deref(),
-        conversation_binding.as_ref(),
-        model_for_log.as_deref(),
-        trace_id.as_str(),
-    );
-    let base = setup.upstream_base.as_str();
-
-    let context = GatewayUpstreamExecutionContext::new(
-        &trace_id,
-        &storage,
-        &key_id,
-        &original_path,
-        &path,
-        &request_method,
-        response_adapter,
-        protocol_type.as_str(),
-        model_for_log.as_deref(),
-        reasoning_for_log.as_deref(),
-        service_tier_for_log.as_deref(),
-        effective_service_tier_for_log.as_deref(),
-        setup.candidate_count,
-        setup.account_max_inflight,
-    );
-    let allow_openai_fallback = setup.upstream_fallback_base.is_some();
-    let disable_challenge_stateless_retry = !(protocol_type == PROTOCOL_ANTHROPIC_NATIVE
-        && body.len() <= 2 * 1024)
-        && !path.starts_with("/v1/responses");
-    let _request_gate_guard = acquire_request_gate(
-        trace_id.as_str(),
-        key_id.as_str(),
-        path.as_str(),
-        model_for_log.as_deref(),
-        request_deadline,
-    );
-    let exhausted = match execute_candidate_sequence(
-        request,
-        candidates,
-        CandidateExecutorParams {
-            storage: &storage,
-            method: &method,
-            incoming_headers: &incoming_headers,
-            body: &body,
-            path: path.as_str(),
-            request_shape: request_shape.as_deref(),
-            trace_id: trace_id.as_str(),
-            model_for_log: model_for_log.as_deref(),
-            response_adapter,
-            gemini_stream_output_mode,
-            tool_name_restore_map: &tool_name_restore_map,
-            context: &context,
-            setup: &setup,
-            request_deadline,
-            started_at,
-            client_is_stream,
-            upstream_is_stream,
-            debug,
-            allow_openai_fallback,
-            disable_challenge_stateless_retry,
-        },
-    )? {
-        CandidateExecutionResult::Handled => return Ok(()),
-        CandidateExecutionResult::Exhausted {
-            request,
-            attempted_account_ids,
-            skipped_cooldown,
-            skipped_inflight,
-            last_attempt_url,
-            last_attempt_error,
-        } => (
-            request,
-            attempted_account_ids,
-            skipped_cooldown,
-            skipped_inflight,
-            last_attempt_url,
-            last_attempt_error,
-        ),
-    };
-    let (
-        request,
-        attempted_account_ids,
-        skipped_cooldown,
-        skipped_inflight,
-        last_attempt_url,
-        last_attempt_error,
-    ) = exhausted;
-    let final_error = exhausted_gateway_error_for_log(
-        attempted_account_ids.as_slice(),
-        skipped_cooldown,
-        skipped_inflight,
-        last_attempt_error.as_deref(),
-    );
-
-    context.log_final_result(
-        None,
-        last_attempt_url.as_deref().or(Some(base)),
-        503,
-        RequestLogUsage::default(),
-        Some(final_error.as_str()),
-        started_at.elapsed().as_millis(),
-        (!attempted_account_ids.is_empty()).then_some(attempted_account_ids.as_slice()),
-    );
-    respond_terminal(
-        request,
-        503,
-        crate::gateway::bilingual_error("无可用账号", "no available account"),
-        Some(trace_id.as_str()),
-    )
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{exhausted_gateway_error_for_log, resolve_upstream_is_stream};
+    use super::{
+        exhausted_gateway_error_for_log, resolve_route_family_sequence,
+        resolve_upstream_is_stream, should_failover_across_route_families, GatewayRouteFamily,
+    };
 
     /// 函数 `exhausted_gateway_error_includes_attempts_skips_and_last_error`
     ///
@@ -474,5 +717,81 @@ mod tests {
         assert!(!resolve_upstream_is_stream(false, "/v1/responses/compact"));
         assert!(!resolve_upstream_is_stream(false, "/v1/chat/completions"));
         assert!(resolve_upstream_is_stream(true, "/v1/chat/completions"));
+    }
+
+    #[test]
+    fn resolve_route_family_sequence_prefers_global_account_first_order() {
+        assert_eq!(
+            resolve_route_family_sequence(
+                true,
+                "account_first",
+                crate::apikey_profile::ROTATION_AGGREGATE_API,
+            ),
+            vec![GatewayRouteFamily::Account, GatewayRouteFamily::AggregateApi]
+        );
+    }
+
+    #[test]
+    fn resolve_route_family_sequence_prefers_global_aggregate_first_order() {
+        assert_eq!(
+            resolve_route_family_sequence(
+                true,
+                "aggregate_first",
+                crate::apikey_profile::ROTATION_ACCOUNT,
+            ),
+            vec![GatewayRouteFamily::AggregateApi, GatewayRouteFamily::Account]
+        );
+    }
+
+    #[test]
+    fn resolve_route_family_sequence_keeps_legacy_strategy_when_global_priority_disabled() {
+        assert_eq!(
+            resolve_route_family_sequence(
+                false,
+                "aggregate_first",
+                crate::apikey_profile::ROTATION_AGGREGATE_API,
+            ),
+            vec![GatewayRouteFamily::AggregateApi]
+        );
+        assert_eq!(
+            resolve_route_family_sequence(
+                false,
+                "aggregate_first",
+                crate::apikey_profile::ROTATION_ACCOUNT,
+            ),
+            vec![GatewayRouteFamily::Account]
+        );
+    }
+
+    #[test]
+    fn should_failover_across_route_families_for_runtime_failures() {
+        assert!(should_failover_across_route_families(
+            401,
+            "aggregate api upstream status=401"
+        ));
+        assert!(should_failover_across_route_families(
+            429,
+            "type=rate_limit_error Too many requests"
+        ));
+        assert!(should_failover_across_route_families(
+            502,
+            "aggregate api upstream status=502"
+        ));
+        assert!(should_failover_across_route_families(
+            200,
+            "aggregate api request timeout"
+        ));
+    }
+
+    #[test]
+    fn should_not_failover_across_route_families_for_client_side_validation_errors() {
+        assert!(!should_failover_across_route_families(
+            400,
+            "invalid aggregate api authParams"
+        ));
+        assert!(!should_failover_across_route_families(
+            422,
+            "invalid request payload"
+        ));
     }
 }

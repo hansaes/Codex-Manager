@@ -9,6 +9,7 @@ use super::{
     current_background_tasks_snapshot_value, current_close_to_tray_on_close_setting,
     current_codex_cli_guide_dismissed, current_env_overrides, current_gateway_account_max_inflight,
     current_gateway_free_account_max_model, current_gateway_model_forward_rules,
+    current_gateway_global_channel_priority_enabled, current_gateway_global_channel_priority_order,
     current_gateway_originator, current_gateway_residency_requirement,
     current_gateway_sse_keepalive_interval_ms, current_gateway_upstream_stream_timeout_ms,
     current_gateway_user_agent_version, current_lightweight_mode_on_close_to_tray_setting,
@@ -20,6 +21,8 @@ use super::{
     save_persisted_app_setting, save_persisted_bool_setting, sync_runtime_settings_from_storage,
     APP_SETTING_CLOSE_TO_TRAY_ON_CLOSE_KEY, APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY,
     APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY, APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY,
+    APP_SETTING_GATEWAY_GLOBAL_CHANNEL_PRIORITY_ENABLED_KEY,
+    APP_SETTING_GATEWAY_GLOBAL_CHANNEL_PRIORITY_ORDER_KEY,
     APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY, APP_SETTING_GATEWAY_ORIGINATOR_KEY,
     APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY, APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY,
     APP_SETTING_GATEWAY_SSE_KEEPALIVE_INTERVAL_MS_KEY, APP_SETTING_GATEWAY_UPSTREAM_PROXY_URL_KEY,
@@ -108,6 +111,8 @@ pub(super) fn current_app_settings_value(
         current_service_bind_mode()
     };
     let route_strategy = crate::gateway::current_route_strategy().to_string();
+    let global_channel_priority_enabled = current_gateway_global_channel_priority_enabled();
+    let global_channel_priority_order = current_gateway_global_channel_priority_order();
     let free_account_max_model = current_gateway_free_account_max_model();
     let model_forward_rules = current_gateway_model_forward_rules();
     let account_max_inflight = current_gateway_account_max_inflight();
@@ -152,6 +157,8 @@ pub(super) fn current_app_settings_value(
         &service_addr,
         &service_listen_mode,
         &route_strategy,
+        global_channel_priority_enabled,
+        &global_channel_priority_order,
         &free_account_max_model,
         &model_forward_rules,
         account_max_inflight,
@@ -193,6 +200,9 @@ pub(super) fn current_app_settings_value(
         ],
         "routeStrategy": route_strategy,
         "routeStrategyOptions": ["ordered", "balanced"],
+        "globalChannelPriorityEnabled": global_channel_priority_enabled,
+        "globalChannelPriorityOrder": global_channel_priority_order,
+        "globalChannelPriorityOrderOptions": ["account_first", "aggregate_first"],
         "freeAccountMaxModel": free_account_max_model,
         "modelForwardRules": model_forward_rules,
         "accountMaxInflight": account_max_inflight,
@@ -335,6 +345,8 @@ fn persist_current_snapshot(
     service_addr: &str,
     service_listen_mode: &str,
     route_strategy: &str,
+    global_channel_priority_enabled: bool,
+    global_channel_priority_order: &str,
     free_account_max_model: &str,
     model_forward_rules: &str,
     account_max_inflight: usize,
@@ -373,6 +385,14 @@ fn persist_current_snapshot(
     let _ = save_persisted_app_setting(SERVICE_BIND_MODE_SETTING_KEY, Some(service_listen_mode));
     let _ =
         save_persisted_app_setting(APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY, Some(route_strategy));
+    let _ = save_persisted_bool_setting(
+        APP_SETTING_GATEWAY_GLOBAL_CHANNEL_PRIORITY_ENABLED_KEY,
+        global_channel_priority_enabled,
+    );
+    let _ = save_persisted_app_setting(
+        APP_SETTING_GATEWAY_GLOBAL_CHANNEL_PRIORITY_ORDER_KEY,
+        Some(global_channel_priority_order),
+    );
     let _ = save_persisted_app_setting(
         APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY,
         Some(free_account_max_model),
@@ -460,10 +480,11 @@ fn normalize_market_mode(raw: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_free_account_max_model_options, normalize_market_mode,
+        collect_free_account_max_model_options, current_app_settings_value, normalize_market_mode,
         DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS,
     };
     use codexmanager_core::rpc::types::ModelInfo;
+    use serde_json::Value;
 
     /// 函数 `free_account_max_model_options_fallback_to_curated_defaults`
     ///
@@ -558,5 +579,52 @@ mod tests {
         assert_eq!(normalize_market_mode("private"), "private");
         assert_eq!(normalize_market_mode("custom"), "custom");
         assert_eq!(normalize_market_mode("unknown"), "builtin");
+    }
+
+    #[test]
+    fn current_app_settings_value_exposes_global_channel_priority_defaults() {
+        let _guard = crate::test_env_guard();
+        let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+        let db_path = std::env::temp_dir().join(format!(
+            "codexmanager-app-settings-global-priority-{}.db",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&db_path);
+        std::env::set_var("CODEXMANAGER_DB_PATH", &db_path);
+        crate::initialize_storage_if_needed().expect("init storage");
+
+        let snapshot = current_app_settings_value(None, None, None).expect("current settings");
+
+        assert_eq!(
+            snapshot
+                .get("globalChannelPriorityEnabled")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            snapshot
+                .get("globalChannelPriorityOrder")
+                .and_then(Value::as_str),
+            Some("account_first")
+        );
+        assert_eq!(
+            snapshot
+                .get("globalChannelPriorityOrderOptions")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                }),
+            Some(vec!["account_first", "aggregate_first"])
+        );
+
+        if let Some(value) = previous_db_path {
+            std::env::set_var("CODEXMANAGER_DB_PATH", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_DB_PATH");
+        }
+        let _ = std::fs::remove_file(&db_path);
     }
 }

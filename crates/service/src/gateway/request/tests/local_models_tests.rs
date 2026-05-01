@@ -3,6 +3,27 @@ use codexmanager_core::rpc::types::{ModelInfo, ModelsResponse};
 use codexmanager_core::storage::{now_ts, AggregateApi, AggregateApiModel, ApiKey, Storage};
 use serde_json::Value;
 
+struct GlobalChannelPriorityGuard {
+    enabled: bool,
+    order: String,
+}
+
+impl GlobalChannelPriorityGuard {
+    fn capture() -> Self {
+        Self {
+            enabled: crate::gateway::global_channel_priority_enabled(),
+            order: crate::gateway::current_global_channel_priority_order().to_string(),
+        }
+    }
+}
+
+impl Drop for GlobalChannelPriorityGuard {
+    fn drop(&mut self) {
+        crate::gateway::set_global_channel_priority_enabled(self.enabled);
+        let _ = crate::gateway::set_global_channel_priority_order(&self.order);
+    }
+}
+
 /// 函数 `serialize_models_response_outputs_official_shape`
 ///
 /// 作者: gaohongshun
@@ -359,5 +380,99 @@ fn aggregate_models_response_for_key_returns_union_of_selected_models_when_bindi
         .map(|item| item.slug.as_str())
         .collect::<Vec<_>>();
     assert!(slugs.contains(&"deepseek-v3"));
+    assert!(slugs.contains(&"gpt-5.4"));
+}
+
+#[test]
+fn aggregate_models_response_for_non_aggregate_key_uses_union_when_global_priority_enabled() {
+    let _guard = crate::test_env_guard();
+    let _priority_guard = GlobalChannelPriorityGuard::capture();
+    crate::gateway::set_global_channel_priority_enabled(true);
+    let _ = crate::gateway::set_global_channel_priority_order("account_first");
+
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let now = now_ts();
+
+    for (id, slug, display_name) in [
+        ("agg_a", "mimo-v2.5-pro", "MIMO v2.5 Pro"),
+        ("agg_b", "gpt-5.4", "gpt-5.4"),
+    ] {
+        storage
+            .insert_aggregate_api(&AggregateApi {
+                id: id.to_string(),
+                provider_type: "codex".to_string(),
+                supplier_name: Some(id.to_string()),
+                sort: 0,
+                url: format!("https://example.com/{id}"),
+                auth_type: "apikey".to_string(),
+                auth_params_json: None,
+                action: None,
+                upstream_format: "chat_completions".to_string(),
+                models_path: Some("/models".to_string()),
+                responses_path: None,
+                chat_completions_path: None,
+                proxy_mode: "follow_global".to_string(),
+                proxy_url: None,
+                status: "active".to_string(),
+                created_at: now,
+                updated_at: now,
+                last_test_at: None,
+                last_test_status: None,
+                last_test_error: None,
+                models_last_synced_at: None,
+                models_last_sync_status: None,
+                models_last_sync_error: None,
+            })
+            .expect("insert aggregate api");
+        storage
+            .replace_aggregate_api_models(
+                id,
+                &[AggregateApiModel {
+                    aggregate_api_id: id.to_string(),
+                    model_slug: slug.to_string(),
+                    display_name: Some(display_name.to_string()),
+                    raw_json: format!("{{\"id\":\"{slug}\"}}"),
+                    created_at: now,
+                    updated_at: now,
+                }],
+            )
+            .expect("replace aggregate models");
+    }
+
+    storage
+        .insert_api_key(&ApiKey {
+            id: "gk_account".to_string(),
+            name: Some("account route".to_string()),
+            model_slug: None,
+            reasoning_effort: None,
+            service_tier: None,
+            rotation_strategy: crate::apikey_profile::ROTATION_ACCOUNT.to_string(),
+            aggregate_api_id: None,
+            account_plan_filter: None,
+            aggregate_api_url: None,
+            client_type: "codex".to_string(),
+            protocol_type: "openai_compat".to_string(),
+            auth_scheme: "authorization_bearer".to_string(),
+            upstream_base_url: None,
+            static_headers_json: None,
+            key_hash: "hash-account".to_string(),
+            status: "active".to_string(),
+            created_at: now,
+            last_used_at: None,
+        })
+        .expect("insert api key");
+
+    let response = aggregate_models_response_for_key(&storage, "gk_account")
+        .expect("aggregate models response")
+        .expect("global union response");
+    let slugs = response
+        .models
+        .iter()
+        .map(|item| item.slug.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(response.models.len(), 2);
+    assert!(slugs.contains(&"mimo-v2.5-pro"));
     assert!(slugs.contains(&"gpt-5.4"));
 }

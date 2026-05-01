@@ -51,13 +51,83 @@ pub(crate) fn prefers_raw_errors_for_tiny_http_request(request: &tiny_http::Requ
     })
 }
 
+fn extract_localized_error_message(message: &str) -> Option<&str> {
+    let (head, _) = message.rsplit_once('(')?;
+    let head = head.trim();
+    if head.is_empty() {
+        return None;
+    }
+    Some(head)
+}
+
+fn translate_gateway_error_message(message: &str) -> Option<String> {
+    let trimmed = message.trim();
+    let lower = trimmed.to_ascii_lowercase();
+
+    if lower == "aggregate api not found" {
+        return Some("未找到可用聚合 API".to_string());
+    }
+    if lower == "aggregate api request timeout" {
+        return Some("聚合 API 请求超时".to_string());
+    }
+    if let Some(model) = trimmed
+        .strip_prefix("aggregate api model not found in selected catalog:")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(format!("请求模型不在聚合 API 已选择目录中: {model}"));
+    }
+    if lower.starts_with("aggregate api upstream error:") {
+        return Some("聚合 API 上游请求失败".to_string());
+    }
+    if let Some(status) = lower
+        .strip_prefix("aggregate api upstream status=")
+        .and_then(|value| {
+            let digits: String = value.chars().take_while(|ch| ch.is_ascii_digit()).collect();
+            if digits.is_empty() {
+                None
+            } else {
+                Some(digits)
+            }
+        })
+    {
+        return Some(format!("聚合 API 上游返回错误，状态码 {status}"));
+    }
+    if lower.contains("type=rate_limit_error")
+        || lower.contains("too many requests")
+        || lower.contains("rate limit exceeded")
+    {
+        return Some("上游请求过于频繁，请稍后重试".to_string());
+    }
+    if lower.contains("timeout") || lower.contains("timed out") {
+        return Some("上游请求超时".to_string());
+    }
+    if lower.contains("model_not_found")
+        || lower.contains("model not found")
+        || lower.contains("does not exist")
+        || lower.contains("unsupported model")
+    {
+        return Some("请求模型不存在或上游不支持".to_string());
+    }
+    None
+}
+
 pub(crate) fn error_message_for_client(
-    _prefers_raw_errors: bool,
+    prefers_raw_errors: bool,
     message: impl Into<String>,
 ) -> String {
     let message = message.into();
-    if let Some(raw) = extract_raw_error_message(message.as_str()) {
-        return raw.to_string();
+    if prefers_raw_errors {
+        if let Some(raw) = extract_raw_error_message(message.as_str()) {
+            return raw.to_string();
+        }
+        return message;
+    }
+    if let Some(localized) = extract_localized_error_message(message.as_str()) {
+        return localized.to_string();
+    }
+    if let Some(translated) = translate_gateway_error_message(message.as_str()) {
+        return translated;
     }
     message
 }
@@ -508,6 +578,14 @@ pub(crate) fn request_compression_enabled() -> bool {
     runtime_config::request_compression_enabled()
 }
 
+pub(crate) fn global_channel_priority_enabled() -> bool {
+    runtime_config::global_channel_priority_enabled()
+}
+
+pub(crate) fn current_global_channel_priority_order() -> &'static str {
+    runtime_config::current_global_channel_priority_order()
+}
+
 /// 函数 `current_originator`
 ///
 /// 作者: gaohongshun
@@ -611,6 +689,14 @@ pub(crate) fn set_originator(originator: &str) -> Result<String, String> {
 /// 返回函数执行结果
 pub(crate) fn set_codex_user_agent_version(version: &str) -> Result<String, String> {
     runtime_config::set_codex_user_agent_version(version)
+}
+
+pub(crate) fn set_global_channel_priority_enabled(enabled: bool) -> bool {
+    runtime_config::set_global_channel_priority_enabled(enabled)
+}
+
+pub(crate) fn set_global_channel_priority_order(order: &str) -> Result<String, String> {
+    runtime_config::set_global_channel_priority_order(order)
 }
 
 /// 函数 `current_residency_requirement`

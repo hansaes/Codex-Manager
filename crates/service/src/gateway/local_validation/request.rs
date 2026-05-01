@@ -9,7 +9,7 @@ use reqwest::Method;
 use std::collections::HashSet;
 use tiny_http::Request;
 
-use super::{LocalValidationError, LocalValidationResult};
+use super::{GatewayRouteVariant, LocalValidationError, LocalValidationResult};
 
 /// 函数 `resolve_effective_request_overrides`
 ///
@@ -411,203 +411,145 @@ fn apply_passthrough_request_overrides(
     )
 }
 
-/// 函数 `build_local_validation_result`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// - super: 参数 super
-///
-/// # 返回
-/// 返回函数执行结果
-pub(super) fn build_local_validation_result(
-    request: &Request,
-    trace_id: String,
-    incoming_headers: super::super::IncomingHeaderSnapshot,
-    storage: crate::storage_helpers::StorageHandle,
-    mut body: Vec<u8>,
-    api_key: ApiKey,
-) -> Result<LocalValidationResult, LocalValidationError> {
-    // 按当前策略取消每次请求都更新 api_keys.last_used_at，减少并发写入冲突。
-    let normalized_path = super::super::normalize_models_path(request.url());
-    let effective_protocol_type =
-        resolve_gateway_protocol_type(api_key.protocol_type.as_str(), normalized_path.as_str());
-    let request_method = request.method().as_str().to_string();
-    let method = Method::from_bytes(request_method.as_bytes()).map_err(|_| {
+#[allow(clippy::too_many_arguments)]
+fn build_aggregate_route_variant(
+    storage: &codexmanager_core::storage::Storage,
+    normalized_path: &str,
+    body: Vec<u8>,
+    api_key: &ApiKey,
+    protocol_type: &str,
+    incoming_headers: &super::super::IncomingHeaderSnapshot,
+    explicit_service_tier_for_log: Option<String>,
+    local_conversation_id: Option<&str>,
+    is_stream: bool,
+) -> Result<GatewayRouteVariant, LocalValidationError> {
+    let (
+        rewritten_body,
+        model_for_log,
+        reasoning_for_log,
+        service_tier_for_log,
+        effective_service_tier_for_log,
+        has_prompt_cache_key,
+        request_shape,
+    ) = apply_passthrough_request_overrides(
+        normalized_path,
+        body,
+        api_key,
+        explicit_service_tier_for_log,
+    );
+    let aggregate_api_id = super::super::aggregate_catalog::resolve_aggregate_model_catalog(
+        storage,
+        api_key,
+        model_for_log.as_deref(),
+    )
+    .map_err(|err| {
         LocalValidationError::new(
-            405,
-            crate::gateway::bilingual_error("不支持的请求方法", "unsupported method"),
+            500,
+            crate::gateway::bilingual_error(
+                "读取聚合模型失败",
+                format!("aggregate model catalog read failed: {err}"),
+            ),
         )
-    })?;
-    let initial_service_tier_diagnostic = super::super::inspect_service_tier_for_log(&body);
-    super::super::log_client_service_tier(
-        trace_id.as_str(),
-        "http",
-        normalized_path.as_str(),
-        initial_service_tier_diagnostic.has_field,
-        initial_service_tier_diagnostic.raw_value.as_deref(),
-        initial_service_tier_diagnostic.normalized_value.as_deref(),
-    );
-    let initial_request_meta = super::super::parse_request_metadata(&body);
-    let native_codex_client = is_native_codex_client_request(&incoming_headers);
-    log::debug!(
-        "event=gateway_client_profile trace_id={} path={} originator={} user_agent={} session_affinity={} native_codex={}",
-        trace_id.as_str(),
-        normalized_path.as_str(),
-        incoming_headers.originator().unwrap_or("-"),
-        incoming_headers.user_agent().unwrap_or("-"),
-        incoming_headers.session_affinity().unwrap_or("-"),
-        if native_codex_client {
-            "true"
-        } else {
-            "false"
-        }
-    );
-    let initial_local_conversation_id = resolve_local_conversation_id(
-        effective_protocol_type,
-        normalized_path.as_str(),
-        &incoming_headers,
-        initial_request_meta.has_prompt_cache_key,
-    );
+    })?
+    .and_then(|catalog| catalog.aggregate_api_id)
+    .or_else(|| api_key.aggregate_api_id.clone());
+    ensure_aggregate_model_is_allowed(storage, api_key, model_for_log.as_deref())?;
+    super::super::validate_text_input_limit_for_path(normalized_path, &rewritten_body)
+        .map_err(|err| LocalValidationError::new(400, err.message()))?;
+    Ok(GatewayRouteVariant {
+        incoming_headers: incoming_headers.with_conversation_id_override(local_conversation_id),
+        path: normalized_path.to_string(),
+        body: Bytes::from(rewritten_body),
+        is_stream,
+        has_prompt_cache_key,
+        request_shape,
+        protocol_type: protocol_type.to_string(),
+        aggregate_api_id,
+        response_adapter: super::super::ResponseAdapter::Passthrough,
+        gemini_stream_output_mode: None,
+        tool_name_restore_map: super::super::ToolNameRestoreMap::default(),
+        conversation_binding: None,
+        model_for_log,
+        reasoning_for_log,
+        service_tier_for_log,
+        effective_service_tier_for_log,
+    })
+}
 
-    if api_key.rotation_strategy == ROTATION_AGGREGATE_API {
-        let (
-            rewritten_body,
-            model_for_log,
-            reasoning_for_log,
-            service_tier_for_log,
-            effective_service_tier_for_log,
-            has_prompt_cache_key,
-            request_shape,
-        ) = apply_passthrough_request_overrides(
-            &normalized_path,
-            body,
-            &api_key,
-            initial_request_meta.service_tier.clone(),
-        );
-        let effective_aggregate_api_id =
-            super::super::aggregate_catalog::resolve_aggregate_model_catalog(
-                &storage,
-                &api_key,
-                model_for_log.as_deref(),
-            )
-            .map_err(|err| {
-                LocalValidationError::new(
-                    500,
-                    crate::gateway::bilingual_error(
-                        "读取聚合模型失败",
-                        format!("aggregate model catalog read failed: {err}"),
-                    ),
-                )
-            })?
-            .and_then(|catalog| catalog.aggregate_api_id)
-            .or_else(|| api_key.aggregate_api_id.clone());
-        ensure_aggregate_model_is_allowed(&storage, &api_key, model_for_log.as_deref())?;
-        super::super::validate_text_input_limit_for_path(&normalized_path, &rewritten_body)
-            .map_err(|err| LocalValidationError::new(400, err.message()))?;
-        let incoming_headers = incoming_headers
-            .with_conversation_id_override(initial_local_conversation_id.as_deref());
-        return Ok(LocalValidationResult {
-            trace_id,
-            incoming_headers,
-            storage,
-            original_path: normalized_path.clone(),
-            path: normalized_path,
-            body: Bytes::from(rewritten_body),
-            is_stream: initial_request_meta.is_stream,
-            has_prompt_cache_key,
-            request_shape,
-            protocol_type: effective_protocol_type.to_string(),
-            rotation_strategy: api_key.rotation_strategy,
-            aggregate_api_id: effective_aggregate_api_id,
-            account_plan_filter: api_key.account_plan_filter,
-            response_adapter: super::super::ResponseAdapter::Passthrough,
-            gemini_stream_output_mode: None,
-            tool_name_restore_map: super::super::ToolNameRestoreMap::default(),
-            request_method,
-            key_id: api_key.id,
-            platform_key_hash: api_key.key_hash,
-            local_conversation_id: initial_local_conversation_id,
-            conversation_binding: None,
-            model_for_log,
-            reasoning_for_log,
-            service_tier_for_log,
-            effective_service_tier_for_log,
-            method,
-        });
-    }
-
+#[allow(clippy::too_many_arguments)]
+fn build_account_route_variant(
+    storage: &codexmanager_core::storage::Storage,
+    normalized_path: &str,
+    body: Vec<u8>,
+    api_key: &ApiKey,
+    effective_protocol_type: &str,
+    incoming_headers: &super::super::IncomingHeaderSnapshot,
+    initial_request_meta: &ParsedRequestMetadata,
+    native_codex_client: bool,
+    local_conversation_id: Option<String>,
+) -> Result<GatewayRouteVariant, LocalValidationError> {
     let original_body = body.clone();
     let adapted =
-        super::super::adapt_request_for_protocol(effective_protocol_type, &normalized_path, body)
+        super::super::adapt_request_for_protocol(effective_protocol_type, normalized_path, body)
             .map_err(|err| {
-            LocalValidationError::new(
-                400,
-                crate::gateway::bilingual_error("请求协议适配失败", err),
-            )
-        })?;
+                LocalValidationError::new(
+                    400,
+                    crate::gateway::bilingual_error("请求协议适配失败", err),
+                )
+            })?;
     let mut path = adapted.path;
     let mut response_adapter = adapted.response_adapter;
     let mut gemini_stream_output_mode = adapted.gemini_stream_output_mode;
     let mut tool_name_restore_map = adapted.tool_name_restore_map;
-    body = adapted.body;
+    let mut body = adapted.body;
     if effective_protocol_type != PROTOCOL_ANTHROPIC_NATIVE
         && !normalized_path.starts_with("/v1/responses")
         && path.starts_with("/v1/responses")
-        && !allow_compat_responses_path_rewrite(effective_protocol_type, &normalized_path)
+        && !allow_compat_responses_path_rewrite(effective_protocol_type, normalized_path)
     {
-        // 中文注释：防回归保护：仅已登记的兼容协议路径允许改写到 /v1/responses；
-        // 其余协议和路径一律保持原路径透传，避免客户端按原生协议却拿到错误的流格式。
         log::warn!(
             "event=gateway_protocol_adapt_guard protocol_type={} from_path={} to_path={} action=force_passthrough",
             effective_protocol_type,
             normalized_path,
             path
         );
-        path = normalized_path.clone();
+        path = normalized_path.to_string();
         body = original_body;
         response_adapter = super::super::ResponseAdapter::Passthrough;
         gemini_stream_output_mode = None;
         tool_name_restore_map.clear();
     }
-    // 中文注释：下游调用方的 stream 语义应在请求改写前确定；
-    // 否则上游兼容改写（例如 /responses 强制 stream=true）会污染下游响应模式判断。
+
     let client_request_meta = super::super::parse_request_metadata(&body);
     let (effective_model, effective_reasoning, effective_service_tier) =
-        resolve_effective_request_overrides(&api_key);
+        resolve_effective_request_overrides(api_key);
     let preferred_prompt_cache_key = resolve_preferred_client_prompt_cache_key(
         effective_protocol_type,
-        &incoming_headers,
-        &initial_request_meta,
+        incoming_headers,
+        initial_request_meta,
         &client_request_meta,
     );
-    let local_conversation_id = initial_local_conversation_id.clone();
     let allow_codex_compat_rewrite =
-        allow_compat_responses_path_rewrite(effective_protocol_type, normalized_path.as_str())
-            || should_force_codex_compat_rewrite(normalized_path.as_str(), native_codex_client);
+        allow_compat_responses_path_rewrite(effective_protocol_type, normalized_path)
+            || should_force_codex_compat_rewrite(normalized_path, native_codex_client);
     let conversation_binding = super::super::conversation_binding::load_conversation_binding(
-        &storage,
+        storage,
         api_key.key_hash.as_str(),
         local_conversation_id.as_deref(),
     )
     .map_err(|err| LocalValidationError::new(500, err))?;
     let effective_thread_anchor = super::super::resolve_fallback_thread_anchor(
-        &incoming_headers,
+        incoming_headers,
         local_conversation_id.as_deref(),
         conversation_binding.as_ref(),
     );
-    // 中文注释：保留原始 local conversation_id 作为对外会话标识；
-    // 线程世代只参与 prompt_cache_key 与路由绑定，不直接污染对外请求头。
     let incoming_headers =
         incoming_headers.with_conversation_id_override(local_conversation_id.as_deref());
-    let should_normalize_compat_service_tier =
-        should_normalize_compat_service_tier_for_codex_backend(
-            effective_protocol_type,
-            normalized_path.as_str(),
-            path.as_str(),
-        );
+    let should_normalize_compat_service_tier = should_normalize_compat_service_tier_for_codex_backend(
+        effective_protocol_type,
+        normalized_path,
+        path.as_str(),
+    );
     body = if preferred_prompt_cache_key.is_some() {
         super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
             &path,
@@ -660,34 +602,221 @@ pub(super) fn build_local_validation_result(
     let has_prompt_cache_key = request_meta.has_prompt_cache_key;
     let request_shape = client_request_meta.request_shape;
 
-    ensure_anthropic_model_is_listed(&storage, effective_protocol_type, model_for_log.as_deref())?;
+    ensure_anthropic_model_is_listed(storage, effective_protocol_type, model_for_log.as_deref())?;
 
-    Ok(LocalValidationResult {
-        trace_id,
+    Ok(GatewayRouteVariant {
         incoming_headers,
-        storage,
-        original_path: normalized_path,
         path,
         body: Bytes::from(body),
         is_stream,
         has_prompt_cache_key,
         request_shape,
         protocol_type: effective_protocol_type.to_string(),
+        aggregate_api_id: api_key.aggregate_api_id.clone(),
         response_adapter,
         gemini_stream_output_mode,
         tool_name_restore_map,
-        request_method,
-        key_id: api_key.id,
-        platform_key_hash: api_key.key_hash,
-        local_conversation_id,
         conversation_binding,
-        rotation_strategy: api_key.rotation_strategy,
-        aggregate_api_id: api_key.aggregate_api_id,
-        account_plan_filter: api_key.account_plan_filter,
         model_for_log,
         reasoning_for_log,
         service_tier_for_log,
         effective_service_tier_for_log,
+    })
+}
+
+/// 函数 `build_local_validation_result`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// - super: 参数 super
+///
+/// # 返回
+/// 返回函数执行结果
+pub(super) fn build_local_validation_result(
+    request: &Request,
+    trace_id: String,
+    incoming_headers: super::super::IncomingHeaderSnapshot,
+    storage: crate::storage_helpers::StorageHandle,
+    body: Vec<u8>,
+    api_key: ApiKey,
+) -> Result<LocalValidationResult, LocalValidationError> {
+    // 按当前策略取消每次请求都更新 api_keys.last_used_at，减少并发写入冲突。
+    let normalized_path = super::super::normalize_models_path(request.url());
+    let effective_protocol_type =
+        resolve_gateway_protocol_type(api_key.protocol_type.as_str(), normalized_path.as_str());
+    let request_method = request.method().as_str().to_string();
+    let method = Method::from_bytes(request_method.as_bytes()).map_err(|_| {
+        LocalValidationError::new(
+            405,
+            crate::gateway::bilingual_error("不支持的请求方法", "unsupported method"),
+        )
+    })?;
+    let initial_service_tier_diagnostic = super::super::inspect_service_tier_for_log(&body);
+    super::super::log_client_service_tier(
+        trace_id.as_str(),
+        "http",
+        normalized_path.as_str(),
+        initial_service_tier_diagnostic.has_field,
+        initial_service_tier_diagnostic.raw_value.as_deref(),
+        initial_service_tier_diagnostic.normalized_value.as_deref(),
+    );
+    let initial_request_meta = super::super::parse_request_metadata(&body);
+    let native_codex_client = is_native_codex_client_request(&incoming_headers);
+    log::debug!(
+        "event=gateway_client_profile trace_id={} path={} originator={} user_agent={} session_affinity={} native_codex={}",
+        trace_id.as_str(),
+        normalized_path.as_str(),
+        incoming_headers.originator().unwrap_or("-"),
+        incoming_headers.user_agent().unwrap_or("-"),
+        incoming_headers.session_affinity().unwrap_or("-"),
+        if native_codex_client {
+            "true"
+        } else {
+            "false"
+        }
+    );
+    let initial_local_conversation_id = resolve_local_conversation_id(
+        effective_protocol_type,
+        normalized_path.as_str(),
+        &incoming_headers,
+        initial_request_meta.has_prompt_cache_key,
+    );
+    let raw_request_body = body.clone();
+    let global_channel_priority_enabled = crate::gateway::global_channel_priority_enabled();
+    let default_is_aggregate = api_key.rotation_strategy == ROTATION_AGGREGATE_API;
+
+    if default_is_aggregate {
+        let aggregate_variant = build_aggregate_route_variant(
+            &storage,
+            normalized_path.as_str(),
+            body,
+            &api_key,
+            effective_protocol_type,
+            &incoming_headers,
+            initial_request_meta.service_tier.clone(),
+            initial_local_conversation_id.as_deref(),
+            initial_request_meta.is_stream,
+        )?;
+        let account_route_variant = if global_channel_priority_enabled {
+            build_account_route_variant(
+                &storage,
+                normalized_path.as_str(),
+                raw_request_body.clone(),
+                &api_key,
+                effective_protocol_type,
+                &incoming_headers,
+                &initial_request_meta,
+                native_codex_client,
+                initial_local_conversation_id.clone(),
+            )
+            .ok()
+        } else {
+            None
+        };
+
+        return Ok(LocalValidationResult {
+            trace_id,
+            incoming_headers: aggregate_variant.incoming_headers.clone(),
+            storage,
+            original_path: normalized_path,
+            path: aggregate_variant.path.clone(),
+            body: aggregate_variant.body.clone(),
+            is_stream: aggregate_variant.is_stream,
+            has_prompt_cache_key: aggregate_variant.has_prompt_cache_key,
+            request_shape: aggregate_variant.request_shape.clone(),
+            protocol_type: aggregate_variant.protocol_type.clone(),
+            rotation_strategy: api_key.rotation_strategy,
+            aggregate_api_id: aggregate_variant.aggregate_api_id.clone(),
+            account_plan_filter: api_key.account_plan_filter,
+            response_adapter: aggregate_variant.response_adapter,
+            gemini_stream_output_mode: aggregate_variant.gemini_stream_output_mode,
+            tool_name_restore_map: aggregate_variant.tool_name_restore_map.clone(),
+            request_method,
+            key_id: api_key.id,
+            platform_key_hash: api_key.key_hash,
+            local_conversation_id: initial_local_conversation_id,
+            conversation_binding: aggregate_variant.conversation_binding.clone(),
+            model_for_log: aggregate_variant.model_for_log.clone(),
+            reasoning_for_log: aggregate_variant.reasoning_for_log.clone(),
+            service_tier_for_log: aggregate_variant.service_tier_for_log.clone(),
+            effective_service_tier_for_log: aggregate_variant
+                .effective_service_tier_for_log
+                .clone(),
+            account_route_variant,
+            aggregate_route_variant: if global_channel_priority_enabled {
+                Some(aggregate_variant.clone())
+            } else {
+                None
+            },
+            method,
+        });
+    }
+
+    let account_variant = build_account_route_variant(
+        &storage,
+        normalized_path.as_str(),
+        raw_request_body.clone(),
+        &api_key,
+        effective_protocol_type,
+        &incoming_headers,
+        &initial_request_meta,
+        native_codex_client,
+        initial_local_conversation_id.clone(),
+    )?;
+    let aggregate_route_variant = if global_channel_priority_enabled {
+        build_aggregate_route_variant(
+            &storage,
+            normalized_path.as_str(),
+            raw_request_body,
+            &api_key,
+            effective_protocol_type,
+            &incoming_headers,
+            initial_request_meta.service_tier.clone(),
+            initial_local_conversation_id.as_deref(),
+            initial_request_meta.is_stream,
+        )
+        .ok()
+    } else {
+        None
+    };
+
+    Ok(LocalValidationResult {
+        trace_id,
+        incoming_headers: account_variant.incoming_headers.clone(),
+        storage,
+        original_path: normalized_path,
+        path: account_variant.path.clone(),
+        body: account_variant.body.clone(),
+        is_stream: account_variant.is_stream,
+        has_prompt_cache_key: account_variant.has_prompt_cache_key,
+        request_shape: account_variant.request_shape.clone(),
+        protocol_type: account_variant.protocol_type.clone(),
+        response_adapter: account_variant.response_adapter,
+        gemini_stream_output_mode: account_variant.gemini_stream_output_mode,
+        tool_name_restore_map: account_variant.tool_name_restore_map.clone(),
+        request_method,
+        key_id: api_key.id,
+        platform_key_hash: api_key.key_hash,
+        local_conversation_id: initial_local_conversation_id,
+        conversation_binding: account_variant.conversation_binding.clone(),
+        rotation_strategy: api_key.rotation_strategy,
+        aggregate_api_id: account_variant.aggregate_api_id.clone(),
+        account_plan_filter: api_key.account_plan_filter,
+        model_for_log: account_variant.model_for_log.clone(),
+        reasoning_for_log: account_variant.reasoning_for_log.clone(),
+        service_tier_for_log: account_variant.service_tier_for_log.clone(),
+        effective_service_tier_for_log: account_variant
+            .effective_service_tier_for_log
+            .clone(),
+        account_route_variant: if global_channel_priority_enabled {
+            Some(account_variant.clone())
+        } else {
+            None
+        },
+        aggregate_route_variant,
         method,
     })
 }

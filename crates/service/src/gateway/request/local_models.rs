@@ -128,7 +128,44 @@ fn aggregate_models_response_for_key(
         return Ok(None);
     };
     if api_key.rotation_strategy != crate::apikey_profile::ROTATION_AGGREGATE_API {
-        return Ok(None);
+        if !crate::gateway::global_channel_priority_enabled() {
+            return Ok(None);
+        }
+        let candidates = match crate::gateway::upstream::protocol::aggregate_api::resolve_aggregate_api_rotation_candidates(
+            storage,
+            api_key.protocol_type.as_str(),
+            None,
+        ) {
+            Ok(items) => items,
+            Err(_) => return Ok(None),
+        };
+        let mut seen = std::collections::HashSet::new();
+        let mut models = Vec::new();
+        for candidate in candidates {
+            for item in storage
+                .list_aggregate_api_models(candidate.id.as_str())
+                .map_err(|err| err.to_string())?
+            {
+                let slug = item.model_slug.trim().to_ascii_lowercase();
+                if slug.is_empty() || !seen.insert(slug) {
+                    continue;
+                }
+                models.push(codexmanager_core::rpc::types::ModelInfo {
+                    slug: item.model_slug.clone(),
+                    display_name: item.display_name.unwrap_or_else(|| item.model_slug.clone()),
+                    supported_in_api: true,
+                    visibility: Some("list".to_string()),
+                    ..Default::default()
+                });
+            }
+        }
+        if models.is_empty() {
+            return Ok(None);
+        }
+        return Ok(Some(ModelsResponse {
+            models,
+            ..Default::default()
+        }));
     }
     let Some(resolved_catalog) =
         super::aggregate_catalog::resolve_aggregate_model_catalog(storage, &api_key, None)?
@@ -218,7 +255,50 @@ pub(super) fn maybe_respond_local_models(
         }
     };
 
-    let models = if let Some(aggregate_models) = aggregate_models {
+    let models = if crate::gateway::global_channel_priority_enabled() {
+        match (cached.is_empty(), aggregate_models) {
+            (true, Some(aggregate_models)) => aggregate_models,
+            (false, Some(aggregate_models)) => {
+                crate::apikey_models::merge_models_response(cached.clone(), aggregate_models)
+            }
+            (false, None) => cached,
+            (true, None) => match super::fetch_models_for_picker() {
+                Ok(fetched) if !fetched.is_empty() => {
+                    let merged = crate::apikey_models::merge_models_response(cached.clone(), fetched);
+                    if let Err(err) =
+                        crate::apikey_models::save_model_options_with_storage(storage, &merged)
+                    {
+                        log::warn!(
+                            "event=gateway_model_catalog_upsert_failed scope={} err={}",
+                            MODEL_CACHE_SCOPE_DEFAULT,
+                            err
+                        );
+                    }
+                    merged
+                }
+                Ok(_) => {
+                    let message = crate::gateway::bilingual_error(
+                        "模型刷新后返回空目录",
+                        "models refresh returned empty catalog",
+                    );
+                    super::local_response::respond_local_terminal_error(
+                        request, &context, 503, message,
+                    )?;
+                    return Ok(None);
+                }
+                Err(err) => {
+                    let message = crate::gateway::bilingual_error(
+                        "模型刷新失败",
+                        format!("models refresh failed: {err}"),
+                    );
+                    super::local_response::respond_local_terminal_error(
+                        request, &context, 503, message,
+                    )?;
+                    return Ok(None);
+                }
+            },
+        }
+    } else if let Some(aggregate_models) = aggregate_models {
         aggregate_models
     } else if !cached.is_empty() {
         cached

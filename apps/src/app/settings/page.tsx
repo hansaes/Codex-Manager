@@ -82,6 +82,7 @@ import {
   ENV_EFFECT_SCOPE_LABELS,
   ENV_RISK_BADGE_CLASSES,
   ENV_RISK_LABELS,
+  GLOBAL_CHANNEL_PRIORITY_ORDER_LABELS,
   RESIDENCY_REQUIREMENT_LABELS,
   ROUTE_STRATEGY_LABELS,
   SERVICE_LISTEN_MODE_LABELS,
@@ -1400,11 +1401,62 @@ export default function SettingsPage() {
           <Card className="glass-card border-none shadow-md">
             <CardHeader>
               <CardTitle className="text-base">{t("网关策略")}</CardTitle>
-              <CardDescription>{t("配置账号选路和请求头处理方式")}</CardDescription>
+              <CardDescription>{t("配置账号 / 聚合 API 路由优先级和请求头处理方式")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label>{t("启用全局通道优先级")}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t("开启后会把账号和聚合 API 放进同一条优先级链，主通道失败时自动切到次通道。")}
+                  </p>
+                </div>
+                <Switch
+                  checked={snapshot.globalChannelPriorityEnabled}
+                  onCheckedChange={(value) =>
+                    updateSettings.mutate({ globalChannelPriorityEnabled: value })
+                  }
+                />
+              </div>
+
               <div className="grid gap-2">
-                <Label>{t("账号选路策略")}</Label>
+                <Label>{t("全局通道顺序")}</Label>
+                <Select
+                  value={snapshot.globalChannelPriorityOrder || "account_first"}
+                  disabled={!snapshot.globalChannelPriorityEnabled}
+                  onValueChange={(value) =>
+                    updateSettings.mutate({
+                      globalChannelPriorityOrder: value || "account_first",
+                    })
+                  }
+                >
+                  <SelectTrigger className="w-full md:w-[300px]">
+                    <SelectValue placeholder={t("选择通道顺序")}>
+                      {(value) => {
+                        const nextValue = String(value || "").trim();
+                        if (!nextValue) return t("选择通道顺序");
+                        return t(
+                          GLOBAL_CHANNEL_PRIORITY_ORDER_LABELS[nextValue] || nextValue
+                        );
+                      }}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="account_first">
+                      {t("账号优先，聚合兜底")}
+                    </SelectItem>
+                    <SelectItem value="aggregate_first">
+                      {t("聚合优先，账号兜底")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground">
+                  {t("自动切换包含无候选、模型不支持、401/403/429/5xx 和超时等运行期失败。")}
+                </p>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>{t("通道内账号选路策略")}</Label>
                 <Select
                   value={snapshot.routeStrategy || "ordered"}
                   onValueChange={(value) =>
@@ -1429,7 +1481,7 @@ export default function SettingsPage() {
                 </Select>
                 <p className="text-[10px] text-muted-foreground">
                   {t(
-                    "顺序优先：按账号候选顺序优先尝试，默认只会在头部小窗口内按健康度做轻微换头；均衡轮询：按“平台密钥 + 模型”维度严格轮询可用账号，默认不做健康度换头。",
+                    "这个策略只影响账号 family 内部的候选顺序；全局开关开启后，账号和聚合 API 之间的先后关系由“全局通道顺序”决定。顺序优先：按账号候选顺序优先尝试，默认只会在头部小窗口内按健康度做轻微换头；均衡轮询：按“平台密钥 + 模型”维度严格轮询可用账号，默认不做健康度换头。",
                   )}
                 </p>
               </div>

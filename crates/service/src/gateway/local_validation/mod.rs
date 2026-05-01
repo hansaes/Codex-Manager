@@ -7,6 +7,26 @@ mod auth;
 mod io;
 mod request;
 
+#[derive(Clone)]
+pub(super) struct GatewayRouteVariant {
+    pub(super) incoming_headers: super::IncomingHeaderSnapshot,
+    pub(super) path: String,
+    pub(super) body: Bytes,
+    pub(super) is_stream: bool,
+    pub(super) has_prompt_cache_key: bool,
+    pub(super) request_shape: Option<String>,
+    pub(super) protocol_type: String,
+    pub(super) aggregate_api_id: Option<String>,
+    pub(super) response_adapter: super::ResponseAdapter,
+    pub(super) gemini_stream_output_mode: Option<super::GeminiStreamOutputMode>,
+    pub(super) tool_name_restore_map: super::ToolNameRestoreMap,
+    pub(super) conversation_binding: Option<ConversationBinding>,
+    pub(super) model_for_log: Option<String>,
+    pub(super) reasoning_for_log: Option<String>,
+    pub(super) service_tier_for_log: Option<String>,
+    pub(super) effective_service_tier_for_log: Option<String>,
+}
+
 pub(super) struct LocalValidationResult {
     pub(super) trace_id: String,
     pub(super) incoming_headers: super::IncomingHeaderSnapshot,
@@ -33,6 +53,8 @@ pub(super) struct LocalValidationResult {
     pub(super) reasoning_for_log: Option<String>,
     pub(super) service_tier_for_log: Option<String>,
     pub(super) effective_service_tier_for_log: Option<String>,
+    pub(super) account_route_variant: Option<GatewayRouteVariant>,
+    pub(super) aggregate_route_variant: Option<GatewayRouteVariant>,
     pub(super) method: Method,
 }
 

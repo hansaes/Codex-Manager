@@ -38,6 +38,9 @@ export interface AppSettings {
   serviceListenModeOptions: string[];
   routeStrategy: string;
   routeStrategyOptions: string[];
+  globalChannelPriorityEnabled: boolean;
+  globalChannelPriorityOrder: string;
+  globalChannelPriorityOrderOptions: string[];
   freeAccountMaxModel: string;
   freeAccountMaxModelOptions: string[];
   modelForwardRules: string;

@@ -305,19 +305,6 @@ fn should_skip_forward_header_with_overrides(name: &str, injected: &HashSet<Stri
 ///
 /// # 返回
 /// 无
-fn respond_error(request: Request, status: u16, message: &str, trace_id: Option<&str>) {
-    let response_message = super::super::super::error_message_for_client(
-        super::super::super::prefers_raw_errors_for_tiny_http_request(&request),
-        message,
-    );
-    let response = super::super::super::error_response::terminal_text_response(
-        status,
-        response_message,
-        trace_id,
-    );
-    let _ = request.respond(response);
-}
-
 /// 函数 `normalize_candidate_order`
 ///
 /// 作者: gaohongshun
@@ -730,9 +717,18 @@ pub(in super::super) struct AggregateProxyRequest<'a> {
     pub started_at: Instant,
 }
 
+pub(in super::super) enum AggregateProxyOutcome {
+    Handled,
+    Failed {
+        request: Request,
+        status_code: u16,
+        message: String,
+    },
+}
+
 pub(in super::super) fn proxy_aggregate_request(
     params: AggregateProxyRequest<'_>,
-) -> Result<(), String> {
+) -> Result<AggregateProxyOutcome, String> {
     let AggregateProxyRequest {
         request,
         storage,
@@ -763,9 +759,11 @@ pub(in super::super) fn proxy_aggregate_request(
             Some(message.as_str()),
             started_at.elapsed().as_millis(),
         );
-        let request = request;
-        respond_error(request, 404, message.as_str(), Some(trace_id));
-        return Ok(());
+        return Ok(AggregateProxyOutcome::Failed {
+            request,
+            status_code: 404,
+            message,
+        });
     }
 
     let mut request = Some(request);
@@ -857,8 +855,11 @@ pub(in super::super) fn proxy_aggregate_request(
                     Some(message.as_str()),
                     Some(started_at.elapsed().as_millis()),
                 );
-                respond_error(request, 504, message.as_str(), Some(trace_id));
-                return Ok(());
+                return Ok(AggregateProxyOutcome::Failed {
+                    request,
+                    status_code: 504,
+                    message,
+                });
             }
 
             let mut url = match build_upstream_url(&candidate, path) {
@@ -1090,7 +1091,7 @@ pub(in super::super) fn proxy_aggregate_request(
         }
 
         if succeeded {
-            return Ok(());
+            return Ok(AggregateProxyOutcome::Handled);
         }
 
         if candidate_idx + 1 < total_candidates {
@@ -1138,8 +1139,11 @@ pub(in super::super) fn proxy_aggregate_request(
         Some(message.as_str()),
         Some(started_at.elapsed().as_millis()),
     );
-    respond_error(request, status_code, message.as_str(), Some(trace_id));
-    Ok(())
+    Ok(AggregateProxyOutcome::Failed {
+        request,
+        status_code,
+        message,
+    })
 }
 
 #[cfg(test)]

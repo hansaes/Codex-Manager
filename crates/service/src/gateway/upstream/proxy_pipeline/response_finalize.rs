@@ -131,43 +131,6 @@ pub(super) fn respond_total_timeout(
     respond_terminal(request, 504, message, Some(trace_id))
 }
 
-/// 函数 `finalize_terminal_candidate`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// - super: 参数 super
-///
-/// # 返回
-/// 返回函数执行结果
-pub(super) fn finalize_terminal_candidate(
-    request: Request,
-    context: &GatewayUpstreamExecutionContext<'_>,
-    account_id: &str,
-    last_attempt_url: Option<&str>,
-    status_code: u16,
-    message: String,
-    trace_id: &str,
-    started_at: std::time::Instant,
-    model_for_log: Option<&str>,
-    attempted_account_ids: Option<&[String]>,
-) -> Result<(), String> {
-    let _ = context.mark_account_unavailable_for_gateway_error(account_id, &message);
-    context.log_final_result_with_model(
-        Some(account_id),
-        last_attempt_url,
-        model_for_log,
-        status_code,
-        RequestLogUsage::default(),
-        Some(message.as_str()),
-        started_at.elapsed().as_millis(),
-        attempted_account_ids,
-    );
-    respond_terminal(request, status_code, message, Some(trace_id))
-}
-
 /// 函数 `finalize_upstream_response`
 ///
 /// 作者: gaohongshun

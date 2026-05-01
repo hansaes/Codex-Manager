@@ -28,6 +28,8 @@ use super::{
     normalize_optional_text, save_persisted_app_setting, save_persisted_bool_setting,
     APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY, APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY,
     APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY, APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY,
+    APP_SETTING_GATEWAY_GLOBAL_CHANNEL_PRIORITY_ENABLED_KEY,
+    APP_SETTING_GATEWAY_GLOBAL_CHANNEL_PRIORITY_ORDER_KEY,
     APP_SETTING_GATEWAY_ORIGINATOR_KEY, APP_SETTING_GATEWAY_REQUEST_COMPRESSION_ENABLED_KEY,
     APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY, APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY,
     APP_SETTING_GATEWAY_SSE_KEEPALIVE_INTERVAL_MS_KEY, APP_SETTING_GATEWAY_UPSTREAM_PROXY_URL_KEY,
@@ -94,6 +96,32 @@ pub fn set_gateway_route_strategy(strategy: &str) -> Result<String, String> {
     let applied = gateway::set_route_strategy(strategy)?.to_string();
     save_persisted_app_setting(APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY, Some(&applied))?;
     Ok(applied)
+}
+
+pub fn set_gateway_global_channel_priority_enabled(enabled: bool) -> Result<bool, String> {
+    let applied = gateway::set_global_channel_priority_enabled(enabled);
+    save_persisted_bool_setting(
+        APP_SETTING_GATEWAY_GLOBAL_CHANNEL_PRIORITY_ENABLED_KEY,
+        applied,
+    )?;
+    Ok(applied)
+}
+
+pub fn current_gateway_global_channel_priority_enabled() -> bool {
+    gateway::global_channel_priority_enabled()
+}
+
+pub fn set_gateway_global_channel_priority_order(order: &str) -> Result<String, String> {
+    let applied = gateway::set_global_channel_priority_order(order)?;
+    save_persisted_app_setting(
+        APP_SETTING_GATEWAY_GLOBAL_CHANNEL_PRIORITY_ORDER_KEY,
+        Some(applied.as_str()),
+    )?;
+    Ok(applied)
+}
+
+pub fn current_gateway_global_channel_priority_order() -> String {
+    gateway::current_global_channel_priority_order().to_string()
 }
 
 /// 函数 `set_gateway_free_account_max_model`

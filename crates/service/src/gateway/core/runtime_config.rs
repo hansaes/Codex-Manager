@@ -2,7 +2,7 @@ use codexmanager_core::auth::DEFAULT_ORIGINATOR;
 use codexmanager_core::auth::{DEFAULT_CLIENT_ID, DEFAULT_ISSUER};
 use reqwest::blocking::Client;
 use reqwest::Proxy;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{OnceLock, RwLock};
 use std::time::Duration;
 
@@ -23,6 +23,10 @@ static ACCOUNT_MAX_INFLIGHT: AtomicUsize = AtomicUsize::new(DEFAULT_ACCOUNT_MAX_
 static STRICT_REQUEST_PARAM_ALLOWLIST: AtomicBool =
     AtomicBool::new(DEFAULT_STRICT_REQUEST_PARAM_ALLOWLIST);
 static ENABLE_REQUEST_COMPRESSION: AtomicBool = AtomicBool::new(DEFAULT_ENABLE_REQUEST_COMPRESSION);
+static GLOBAL_CHANNEL_PRIORITY_ENABLED: AtomicBool =
+    AtomicBool::new(DEFAULT_GLOBAL_CHANNEL_PRIORITY_ENABLED);
+static GLOBAL_CHANNEL_PRIORITY_ORDER: AtomicU8 =
+    AtomicU8::new(GLOBAL_CHANNEL_PRIORITY_ORDER_ACCOUNT_FIRST);
 static UPSTREAM_PROXY_URL: OnceLock<RwLock<Option<String>>> = OnceLock::new();
 static FREE_ACCOUNT_MAX_MODEL: OnceLock<RwLock<String>> = OnceLock::new();
 static MODEL_FORWARD_RULES: OnceLock<RwLock<Vec<ModelForwardRule>>> = OnceLock::new();
@@ -39,6 +43,7 @@ const DEFAULT_UPSTREAM_STREAM_TIMEOUT_MS: u64 = 300_000;
 const DEFAULT_ACCOUNT_MAX_INFLIGHT: usize = 0;
 const DEFAULT_STRICT_REQUEST_PARAM_ALLOWLIST: bool = false;
 const DEFAULT_ENABLE_REQUEST_COMPRESSION: bool = true;
+const DEFAULT_GLOBAL_CHANNEL_PRIORITY_ENABLED: bool = false;
 const DEFAULT_REQUEST_GATE_WAIT_TIMEOUT_MS: u64 = 0;
 const DEFAULT_TRACE_BODY_PREVIEW_MAX_BYTES: usize = 0;
 const DEFAULT_FRONT_PROXY_MAX_BODY_BYTES: usize = 0;
@@ -46,6 +51,10 @@ const DEFAULT_FREE_ACCOUNT_MAX_MODEL: &str = "auto";
 const DEFAULT_MODEL_FORWARD_RULES: &str = "";
 const DEFAULT_CODEX_USER_AGENT_VERSION: &str = "0.101.0";
 const MAX_UPSTREAM_PROXY_POOL_SIZE: usize = 5;
+const GLOBAL_CHANNEL_PRIORITY_ORDER_ACCOUNT_FIRST: u8 = 0;
+const GLOBAL_CHANNEL_PRIORITY_ORDER_AGGREGATE_FIRST: u8 = 1;
+const GLOBAL_CHANNEL_PRIORITY_ORDER_ACCOUNT_FIRST_LABEL: &str = "account_first";
+const GLOBAL_CHANNEL_PRIORITY_ORDER_AGGREGATE_FIRST_LABEL: &str = "aggregate_first";
 
 const ENV_REQUEST_GATE_WAIT_TIMEOUT_MS: &str = "CODEXMANAGER_REQUEST_GATE_WAIT_TIMEOUT_MS";
 const ENV_TRACE_BODY_PREVIEW_MAX_BYTES: &str = "CODEXMANAGER_TRACE_BODY_PREVIEW_MAX_BYTES";
@@ -56,6 +65,8 @@ const ENV_UPSTREAM_STREAM_TIMEOUT_MS: &str = "CODEXMANAGER_UPSTREAM_STREAM_TIMEO
 const ENV_ACCOUNT_MAX_INFLIGHT: &str = "CODEXMANAGER_ACCOUNT_MAX_INFLIGHT";
 const ENV_STRICT_REQUEST_PARAM_ALLOWLIST: &str = "CODEXMANAGER_STRICT_REQUEST_PARAM_ALLOWLIST";
 const ENV_ENABLE_REQUEST_COMPRESSION: &str = "CODEXMANAGER_ENABLE_REQUEST_COMPRESSION";
+const ENV_GLOBAL_CHANNEL_PRIORITY_ENABLED: &str = "CODEXMANAGER_GLOBAL_CHANNEL_PRIORITY_ENABLED";
+const ENV_GLOBAL_CHANNEL_PRIORITY_ORDER: &str = "CODEXMANAGER_GLOBAL_CHANNEL_PRIORITY_ORDER";
 const ENV_TOKEN_EXCHANGE_CLIENT_ID: &str = "CODEXMANAGER_CLIENT_ID";
 const ENV_TOKEN_EXCHANGE_ISSUER: &str = "CODEXMANAGER_ISSUER";
 const ENV_PROXY_LIST: &str = "CODEXMANAGER_PROXY_LIST";
@@ -76,6 +87,29 @@ struct UpstreamClientPool {
 pub(crate) struct ModelForwardRule {
     pub from_pattern: String,
     pub to_model: String,
+}
+
+fn parse_global_channel_priority_order(raw: &str) -> Option<u8> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        GLOBAL_CHANNEL_PRIORITY_ORDER_ACCOUNT_FIRST_LABEL
+        | "account"
+        | "account-priority"
+        | "account_first_priority" => Some(GLOBAL_CHANNEL_PRIORITY_ORDER_ACCOUNT_FIRST),
+        GLOBAL_CHANNEL_PRIORITY_ORDER_AGGREGATE_FIRST_LABEL
+        | "aggregate"
+        | "aggregate_api"
+        | "aggregate-first"
+        | "aggregate_api_first" => Some(GLOBAL_CHANNEL_PRIORITY_ORDER_AGGREGATE_FIRST),
+        _ => None,
+    }
+}
+
+fn global_channel_priority_order_label(order: u8) -> &'static str {
+    if order == GLOBAL_CHANNEL_PRIORITY_ORDER_AGGREGATE_FIRST {
+        GLOBAL_CHANNEL_PRIORITY_ORDER_AGGREGATE_FIRST_LABEL
+    } else {
+        GLOBAL_CHANNEL_PRIORITY_ORDER_ACCOUNT_FIRST_LABEL
+    }
 }
 
 impl UpstreamClientPool {
@@ -391,6 +425,16 @@ pub(crate) fn current_upstream_stream_timeout_ms() -> u64 {
 pub(crate) fn request_compression_enabled() -> bool {
     ensure_runtime_config_loaded();
     ENABLE_REQUEST_COMPRESSION.load(Ordering::Relaxed)
+}
+
+pub(crate) fn global_channel_priority_enabled() -> bool {
+    ensure_runtime_config_loaded();
+    GLOBAL_CHANNEL_PRIORITY_ENABLED.load(Ordering::Relaxed)
+}
+
+pub(crate) fn current_global_channel_priority_order() -> &'static str {
+    ensure_runtime_config_loaded();
+    global_channel_priority_order_label(GLOBAL_CHANNEL_PRIORITY_ORDER.load(Ordering::Relaxed))
 }
 
 /// 函数 `account_max_inflight_limit`
@@ -856,6 +900,28 @@ pub(crate) fn set_request_compression_enabled(enabled: bool) -> bool {
     enabled
 }
 
+pub(crate) fn set_global_channel_priority_enabled(enabled: bool) -> bool {
+    ensure_runtime_config_loaded();
+    GLOBAL_CHANNEL_PRIORITY_ENABLED.store(enabled, Ordering::Relaxed);
+    std::env::set_var(
+        ENV_GLOBAL_CHANNEL_PRIORITY_ENABLED,
+        if enabled { "1" } else { "0" },
+    );
+    enabled
+}
+
+pub(crate) fn set_global_channel_priority_order(order: &str) -> Result<String, String> {
+    ensure_runtime_config_loaded();
+    let Some(normalized) = parse_global_channel_priority_order(order) else {
+        return Err("invalid global channel priority order; use account_first or aggregate_first"
+            .to_string());
+    };
+    GLOBAL_CHANNEL_PRIORITY_ORDER.store(normalized, Ordering::Relaxed);
+    let label = global_channel_priority_order_label(normalized).to_string();
+    std::env::set_var(ENV_GLOBAL_CHANNEL_PRIORITY_ORDER, label.as_str());
+    Ok(label)
+}
+
 /// 函数 `set_upstream_proxy_url`
 ///
 /// 作者: gaohongshun
@@ -1006,6 +1072,19 @@ pub(super) fn reload_from_env() {
             ENV_ENABLE_REQUEST_COMPRESSION,
             DEFAULT_ENABLE_REQUEST_COMPRESSION,
         ),
+        Ordering::Relaxed,
+    );
+    GLOBAL_CHANNEL_PRIORITY_ENABLED.store(
+        env_bool_or(
+            ENV_GLOBAL_CHANNEL_PRIORITY_ENABLED,
+            DEFAULT_GLOBAL_CHANNEL_PRIORITY_ENABLED,
+        ),
+        Ordering::Relaxed,
+    );
+    GLOBAL_CHANNEL_PRIORITY_ORDER.store(
+        env_non_empty(ENV_GLOBAL_CHANNEL_PRIORITY_ORDER)
+            .and_then(|value| parse_global_channel_priority_order(value.as_str()))
+            .unwrap_or(GLOBAL_CHANNEL_PRIORITY_ORDER_ACCOUNT_FIRST),
         Ordering::Relaxed,
     );
 

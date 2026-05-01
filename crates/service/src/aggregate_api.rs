@@ -2134,6 +2134,7 @@ pub(crate) fn save_aggregate_api_models(
     storage
         .replace_aggregate_api_models(api_id, &models)
         .map_err(|err| err.to_string())?;
+    crate::apikey_models::merge_aggregate_models_into_managed_catalog(&storage, &models)?;
     storage
         .update_aggregate_api_models_sync_result(api_id, Some(synced_at), Some("success"), None)
         .map_err(|err| err.to_string())?;
