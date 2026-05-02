@@ -264,7 +264,8 @@ pub(super) fn maybe_respond_local_models(
             (false, None) => cached,
             (true, None) => match super::fetch_models_for_picker() {
                 Ok(fetched) if !fetched.is_empty() => {
-                    let merged = crate::apikey_models::merge_models_response(cached.clone(), fetched);
+                    let merged =
+                        crate::apikey_models::merge_models_response(cached.clone(), fetched);
                     if let Err(err) =
                         crate::apikey_models::save_model_options_with_storage(storage, &merged)
                     {

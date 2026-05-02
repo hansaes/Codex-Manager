@@ -890,6 +890,14 @@ export default function AggregateApiPage() {
     return secret.key || "";
   };
 
+  const maskedSecretPreview = (api: AggregateApi) => {
+    const authType = String(api.authType || "").trim().toLowerCase();
+    if (authType === "userpass") {
+      return "********:********";
+    }
+    return "********";
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {!isServiceReady ? (
@@ -1103,11 +1111,11 @@ export default function AggregateApiPage() {
                                     ? secretPreview(revealed)
                                     : loadingSecretId === api.id
                                       ? t("读取中...")
-                                      : api.id}
+                                      : maskedSecretPreview(api)}
                                 </code>
                               </TooltipTrigger>
                               <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
-                                {revealed ? secretPreview(revealed) : api.id}
+                                {revealed ? secretPreview(revealed) : maskedSecretPreview(api)}
                               </TooltipContent>
                             </Tooltip>
                             <Button

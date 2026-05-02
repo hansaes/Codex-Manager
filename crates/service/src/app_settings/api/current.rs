@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 use super::{
     current_background_tasks_snapshot_value, current_close_to_tray_on_close_setting,
     current_codex_cli_guide_dismissed, current_env_overrides, current_gateway_account_max_inflight,
-    current_gateway_free_account_max_model, current_gateway_model_forward_rules,
-    current_gateway_global_channel_priority_enabled, current_gateway_global_channel_priority_order,
+    current_gateway_free_account_max_model, current_gateway_global_channel_priority_enabled,
+    current_gateway_global_channel_priority_order, current_gateway_model_forward_rules,
     current_gateway_originator, current_gateway_residency_requirement,
     current_gateway_sse_keepalive_interval_ms, current_gateway_upstream_stream_timeout_ms,
     current_gateway_user_agent_version, current_lightweight_mode_on_close_to_tray_setting,
@@ -199,7 +199,7 @@ pub(super) fn current_app_settings_value(
             SERVICE_BIND_MODE_ALL_INTERFACES
         ],
         "routeStrategy": route_strategy,
-        "routeStrategyOptions": ["ordered", "balanced"],
+        "routeStrategyOptions": ["ordered", "balanced", "global_balanced"],
         "globalChannelPriorityEnabled": global_channel_priority_enabled,
         "globalChannelPriorityOrder": global_channel_priority_order,
         "globalChannelPriorityOrderOptions": ["account_first", "aggregate_first"],
@@ -611,12 +611,7 @@ mod tests {
             snapshot
                 .get("globalChannelPriorityOrderOptions")
                 .and_then(Value::as_array)
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .collect::<Vec<_>>()
-                }),
+                .map(|items| { items.iter().filter_map(Value::as_str).collect::<Vec<_>>() }),
             Some(vec!["account_first", "aggregate_first"])
         );
 

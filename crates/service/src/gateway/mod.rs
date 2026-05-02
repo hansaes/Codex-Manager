@@ -60,6 +60,14 @@ fn extract_localized_error_message(message: &str) -> Option<&str> {
     Some(head)
 }
 
+fn extract_model_name_after_prefix<'a>(message: &'a str, prefix: &str) -> Option<&'a str> {
+    message
+        .trim()
+        .strip_prefix(prefix)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
 fn translate_gateway_error_message(message: &str) -> Option<String> {
     let trimmed = message.trim();
     let lower = trimmed.to_ascii_lowercase();
@@ -68,17 +76,32 @@ fn translate_gateway_error_message(message: &str) -> Option<String> {
         return Some("未找到可用聚合 API".to_string());
     }
     if lower == "aggregate api request timeout" {
-        return Some("聚合 API 请求超时".to_string());
+        return Some("聚合 API 请求超时，请稍后重试".to_string());
     }
-    if let Some(model) = trimmed
-        .strip_prefix("aggregate api model not found in selected catalog:")
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
+    if let Some(model) = extract_model_name_after_prefix(
+        trimmed,
+        "aggregate api model not found in selected catalog:",
+    ) {
+        return Some(format!(
+            "请求模型 {model} 不在聚合 API 已启用列表中，请检查模型名或先在聚合 API 中勾选它"
+        ));
+    }
+    if let Some(model) =
+        extract_model_name_after_prefix(trimmed, "aggregate model not found in selected catalog:")
     {
-        return Some(format!("请求模型不在聚合 API 已选择目录中: {model}"));
+        return Some(format!(
+            "请求模型 {model} 不在聚合 API 已启用列表中，请检查模型名或先在聚合 API 中勾选它"
+        ));
+    }
+    if let Some(model) =
+        extract_model_name_after_prefix(trimmed, "claude model not found in model list:")
+    {
+        return Some(format!(
+            "请求模型 {model} 不在账号模型列表中，请检查模型名或先同步模型列表"
+        ));
     }
     if lower.starts_with("aggregate api upstream error:") {
-        return Some("聚合 API 上游请求失败".to_string());
+        return Some("聚合 API 上游请求失败，请稍后重试".to_string());
     }
     if let Some(status) = lower
         .strip_prefix("aggregate api upstream status=")
@@ -91,25 +114,91 @@ fn translate_gateway_error_message(message: &str) -> Option<String> {
             }
         })
     {
-        return Some(format!("聚合 API 上游返回错误，状态码 {status}"));
+        return Some(format!(
+            "聚合 API 上游返回错误（状态码 {status}），请稍后重试"
+        ));
     }
     if lower.contains("type=rate_limit_error")
         || lower.contains("too many requests")
         || lower.contains("rate limit exceeded")
     {
-        return Some("上游请求过于频繁，请稍后重试".to_string());
+        return Some("当前请求过于频繁，请稍后重试".to_string());
     }
     if lower.contains("timeout") || lower.contains("timed out") {
-        return Some("上游请求超时".to_string());
+        return Some("上游请求超时，请稍后重试".to_string());
     }
     if lower.contains("model_not_found")
         || lower.contains("model not found")
         || lower.contains("does not exist")
         || lower.contains("unsupported model")
     {
-        return Some("请求模型不存在或上游不支持".to_string());
+        return Some("请求模型不存在或上游不支持，请检查模型名或模型映射".to_string());
+    }
+    if lower == "invalid aggregate api authparams" {
+        return Some("聚合 API 鉴权配置无效，请检查认证参数".to_string());
+    }
+    if lower == "invalid aggregate api secret" {
+        return Some("聚合 API 密钥配置无效，请检查已填写的密钥".to_string());
+    }
+    if lower == "invalid aggregate api auth header" {
+        return Some("聚合 API 鉴权请求头配置无效，请检查认证参数".to_string());
+    }
+    if lower == "invalid aggregate api url" {
+        return Some("聚合 API 地址无效，请检查接口地址".to_string());
+    }
+    if lower == "aggregate api secret not found" {
+        return Some("未找到聚合 API 密钥，请检查聚合 API 配置".to_string());
+    }
+    if lower == "aggregate api route variant unavailable" {
+        return Some(
+            "当前请求暂时无法构建聚合 API 通道，请检查模型、协议和聚合 API 配置".to_string(),
+        );
+    }
+    if lower == "account route variant unavailable" {
+        return Some("当前请求暂时无法构建账号通道，请检查模型、协议和账号配置".to_string());
+    }
+    if lower == "invalid api key" {
+        return Some("API Key 无效或未授权，请检查平台密钥配置".to_string());
+    }
+    if lower == "api key disabled" {
+        return Some("当前 API Key 已被禁用，请联系管理员".to_string());
+    }
+    if lower.starts_with("upstream error:")
+        || lower.starts_with("openai upstream error:")
+        || lower.starts_with("upstream fallback error:")
+    {
+        return Some("上游服务请求失败，请稍后重试".to_string());
     }
     None
+}
+
+fn polish_localized_error_message(localized: &str, original_message: &str) -> Option<String> {
+    match localized.trim() {
+        "无可用账号" => Some("当前没有可用账号，请稍后重试或检查账号状态".to_string()),
+        "缺少 API Key" => Some("请求缺少 API Key，请检查 Authorization 请求头".to_string()),
+        "API Key 已禁用" => Some("当前 API Key 已被禁用，请联系管理员".to_string()),
+        "平台密钥额度已达上限" => {
+            Some("当前平台密钥额度已达上限，请稍后重试或更换密钥".to_string())
+        }
+        "存储不可用" | "读取存储失败" | "读取平台密钥额度限制失败" | "读取平台密钥使用统计失败" => {
+            Some("服务内部存储暂时不可用，请稍后重试".to_string())
+        }
+        "读取模型缓存失败" | "读取聚合模型失败" => {
+            Some("读取模型配置失败，请稍后重试".to_string())
+        }
+        "请求协议适配失败" => {
+            Some("请求格式暂不受当前通道支持，请检查请求参数".to_string())
+        }
+        "不支持的请求方法" => {
+            Some("当前接口不支持这个请求方法，请检查请求方式".to_string())
+        }
+        "Claude 模型必填" => Some("Claude 请求缺少 model 参数，请检查请求体".to_string()),
+        "Claude 模型不在模型列表中" => translate_gateway_error_message(original_message),
+        "模型不在聚合 API 已选择列表中" => {
+            translate_gateway_error_message(original_message)
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn error_message_for_client(
@@ -124,6 +213,9 @@ pub(crate) fn error_message_for_client(
         return message;
     }
     if let Some(localized) = extract_localized_error_message(message.as_str()) {
+        if let Some(friendly) = polish_localized_error_message(localized, message.as_str()) {
+            return friendly;
+        }
         return localized.to_string();
     }
     if let Some(translated) = translate_gateway_error_message(message.as_str()) {
@@ -514,6 +606,18 @@ pub(crate) fn reload_runtime_config_from_env() {
 /// 返回函数执行结果
 pub(crate) fn current_route_strategy() -> &'static str {
     route_hint::current_route_strategy()
+}
+
+pub(crate) fn current_route_strategy_uses_candidate_round_robin() -> bool {
+    route_hint::current_route_strategy_uses_candidate_round_robin()
+}
+
+pub(crate) fn current_route_strategy_uses_global_family_round_robin() -> bool {
+    route_hint::current_route_strategy_uses_global_family_round_robin()
+}
+
+pub(crate) fn next_global_route_family_start_index(priority_anchor: &str) -> usize {
+    route_hint::next_global_route_family_start_index(priority_anchor)
 }
 
 /// 函数 `set_route_strategy`

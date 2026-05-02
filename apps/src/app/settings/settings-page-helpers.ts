@@ -78,6 +78,7 @@ export const THEMES = [
 export const ROUTE_STRATEGY_LABELS: Record<string, string> = {
   ordered: "顺序优先 (Ordered)",
   balanced: "均衡轮询 (Balanced)",
+  global_balanced: "全局轮转 (Global Balanced)",
 };
 
 export const GLOBAL_CHANNEL_PRIORITY_ORDER_LABELS: Record<string, string> = {

@@ -14,7 +14,7 @@ const SETTINGS_SNAPSHOT = {
   serviceListenMode: "loopback",
   serviceListenModeOptions: ["loopback", "all_interfaces"],
   routeStrategy: "ordered",
-  routeStrategyOptions: ["ordered", "balanced"],
+  routeStrategyOptions: ["ordered", "balanced", "global_balanced"],
   freeAccountMaxModel: "auto",
   freeAccountMaxModelOptions: ["auto", "gpt-5"],
   modelForwardRules: "",

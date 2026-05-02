@@ -1456,7 +1456,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="grid gap-2">
-                <Label>{t("通道内账号选路策略")}</Label>
+                <Label>{t("通道路由策略")}</Label>
                 <Select
                   value={snapshot.routeStrategy || "ordered"}
                   onValueChange={(value) =>
@@ -1477,11 +1477,14 @@ export default function SettingsPage() {
                     <SelectItem value="balanced">
                       {t("均衡轮询 (Balanced)")}
                     </SelectItem>
+                    <SelectItem value="global_balanced">
+                      {t("全局轮转 (Global Balanced)")}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-muted-foreground">
                   {t(
-                    "这个策略只影响账号 family 内部的候选顺序；全局开关开启后，账号和聚合 API 之间的先后关系由“全局通道顺序”决定。顺序优先：按账号候选顺序优先尝试，默认只会在头部小窗口内按健康度做轻微换头；均衡轮询：按“平台密钥 + 模型”维度严格轮询可用账号，默认不做健康度换头。",
+                    "顺序优先：账号与聚合 API 各自保持当前顺序，默认只会在头部小窗口内按健康度做轻微换头。均衡轮询：各自 family 内按“平台密钥 + 模型”维度严格轮询可用候选，默认不做健康度换头。全局轮转：在均衡轮询基础上，如果开启“全局通道优先级”，账号和聚合 API 会按配置的优先级轮流作为每次请求的首选 family；同一次请求内仍保留 401/403/429/5xx/超时等失败自动切换。",
                   )}
                 </p>
               </div>

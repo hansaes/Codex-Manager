@@ -346,7 +346,7 @@ pub(crate) fn apply_gateway_route_strategy_to_aggregate_candidates(
     if candidates.len() <= 1 {
         return;
     }
-    if crate::gateway::current_route_strategy() != "balanced" {
+    if !crate::gateway::current_route_strategy_uses_candidate_round_robin() {
         return;
     }
 
@@ -1354,6 +1354,46 @@ mod bridge_tests {
         }
         crate::gateway::reload_runtime_config_from_env();
     }
+
+    #[test]
+    fn global_balanced_route_strategy_rotates_aggregate_candidates() {
+        let _guard = crate::test_env_guard();
+        let previous = std::env::var("CODEXMANAGER_ROUTE_STRATEGY").ok();
+        crate::gateway::set_route_strategy("global_balanced").expect("set global balanced");
+
+        let mut candidates = vec![
+            candidate("agg-a", 0),
+            candidate("agg-b", 1),
+            candidate("agg-c", 2),
+        ];
+        apply_gateway_route_strategy_to_aggregate_candidates(
+            &mut candidates,
+            "gk-aggregate-global-route-strategy",
+            Some("gpt-5.4-mini"),
+            None,
+        );
+        assert_eq!(ids(&candidates), vec!["agg-a", "agg-b", "agg-c"]);
+
+        let mut second = vec![
+            candidate("agg-a", 0),
+            candidate("agg-b", 1),
+            candidate("agg-c", 2),
+        ];
+        apply_gateway_route_strategy_to_aggregate_candidates(
+            &mut second,
+            "gk-aggregate-global-route-strategy",
+            Some("gpt-5.4-mini"),
+            None,
+        );
+        assert_eq!(ids(&second), vec!["agg-b", "agg-c", "agg-a"]);
+
+        if let Some(value) = previous {
+            std::env::set_var("CODEXMANAGER_ROUTE_STRATEGY", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_ROUTE_STRATEGY");
+        }
+        crate::gateway::reload_runtime_config_from_env();
+    }
 }
 
 #[cfg(test)]
@@ -1510,7 +1550,8 @@ mod tests {
 
     #[test]
     fn aggregate_rate_limit_failure_maps_to_429_without_retry() {
-        let message = "type=rate_limit_error Concurrency limit exceeded for account, please retry later";
+        let message =
+            "type=rate_limit_error Concurrency limit exceeded for account, please retry later";
 
         assert_eq!(normalize_aggregate_api_failure_status(502, message), 429);
         assert!(!should_retry_aggregate_api_failure(502, message));

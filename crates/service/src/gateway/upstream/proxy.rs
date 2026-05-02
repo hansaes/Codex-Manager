@@ -104,9 +104,24 @@ fn resolve_route_family_sequence(
     if !global_enabled {
         return vec![route_family_for_rotation_strategy(rotation_strategy)];
     }
-    match global_order.trim().to_ascii_lowercase().as_str() {
-        "aggregate_first" => vec![GatewayRouteFamily::AggregateApi, GatewayRouteFamily::Account],
-        _ => vec![GatewayRouteFamily::Account, GatewayRouteFamily::AggregateApi],
+    let (primary, secondary) = match global_order.trim().to_ascii_lowercase().as_str() {
+        "aggregate_first" => (
+            GatewayRouteFamily::AggregateApi,
+            GatewayRouteFamily::Account,
+        ),
+        _ => (
+            GatewayRouteFamily::Account,
+            GatewayRouteFamily::AggregateApi,
+        ),
+    };
+    if crate::gateway::current_route_strategy_uses_global_family_round_robin() {
+        if crate::gateway::next_global_route_family_start_index(global_order) % 2 == 0 {
+            vec![primary, secondary]
+        } else {
+            vec![secondary, primary]
+        }
+    } else {
+        vec![primary, secondary]
     }
 }
 
@@ -142,7 +157,7 @@ fn route_variant_for_family(
         GatewayRouteFamily::AggregateApi => aggregate_route_variant.cloned().or_else(|| {
             (route_family_for_rotation_strategy(rotation_strategy)
                 == GatewayRouteFamily::AggregateApi)
-            .then(|| default_variant.clone())
+                .then(|| default_variant.clone())
         }),
     }
 }
@@ -209,11 +224,12 @@ fn run_aggregate_route_family(
             }
         };
 
-    aggregate_api_candidates = super::protocol::aggregate_api::filter_aggregate_api_candidates_by_model(
-        storage,
-        aggregate_api_candidates,
-        variant.model_for_log.as_deref(),
-    )?;
+    aggregate_api_candidates =
+        super::protocol::aggregate_api::filter_aggregate_api_candidates_by_model(
+            storage,
+            aggregate_api_candidates,
+            variant.model_for_log.as_deref(),
+        )?;
 
     if aggregate_api_candidates.is_empty() {
         let message = match variant
@@ -226,7 +242,9 @@ fn run_aggregate_route_family(
                 "请求模型不在聚合 API 已选择目录中",
                 format!("aggregate api model not found in selected catalog: {model}"),
             ),
-            None => crate::gateway::bilingual_error("未找到可用聚合 API", "aggregate api not found"),
+            None => {
+                crate::gateway::bilingual_error("未找到可用聚合 API", "aggregate api not found")
+            }
         };
         super::super::record_gateway_request_outcome(path, 404, Some("aggregate_api"));
         super::super::trace_log::log_request_final(
@@ -658,8 +676,8 @@ pub(in super::super) fn proxy_validated_request(
 #[cfg(test)]
 mod tests {
     use super::{
-        exhausted_gateway_error_for_log, resolve_route_family_sequence,
-        resolve_upstream_is_stream, should_failover_across_route_families, GatewayRouteFamily,
+        exhausted_gateway_error_for_log, resolve_route_family_sequence, resolve_upstream_is_stream,
+        should_failover_across_route_families, GatewayRouteFamily,
     };
 
     /// 函数 `exhausted_gateway_error_includes_attempts_skips_and_last_error`
@@ -727,7 +745,10 @@ mod tests {
                 "account_first",
                 crate::apikey_profile::ROTATION_AGGREGATE_API,
             ),
-            vec![GatewayRouteFamily::Account, GatewayRouteFamily::AggregateApi]
+            vec![
+                GatewayRouteFamily::Account,
+                GatewayRouteFamily::AggregateApi
+            ]
         );
     }
 
@@ -739,8 +760,70 @@ mod tests {
                 "aggregate_first",
                 crate::apikey_profile::ROTATION_ACCOUNT,
             ),
-            vec![GatewayRouteFamily::AggregateApi, GatewayRouteFamily::Account]
+            vec![
+                GatewayRouteFamily::AggregateApi,
+                GatewayRouteFamily::Account
+            ]
         );
+    }
+
+    #[test]
+    fn resolve_route_family_sequence_globally_rotates_route_families() {
+        let _guard = crate::test_env_guard();
+        let previous = std::env::var("CODEXMANAGER_ROUTE_STRATEGY").ok();
+        crate::gateway::set_route_strategy("global_balanced").expect("set global balanced");
+
+        assert_eq!(
+            resolve_route_family_sequence(
+                true,
+                "account_first",
+                crate::apikey_profile::ROTATION_ACCOUNT,
+            ),
+            vec![
+                GatewayRouteFamily::Account,
+                GatewayRouteFamily::AggregateApi
+            ]
+        );
+        assert_eq!(
+            resolve_route_family_sequence(
+                true,
+                "account_first",
+                crate::apikey_profile::ROTATION_ACCOUNT,
+            ),
+            vec![
+                GatewayRouteFamily::AggregateApi,
+                GatewayRouteFamily::Account
+            ]
+        );
+        assert_eq!(
+            resolve_route_family_sequence(
+                true,
+                "aggregate_first",
+                crate::apikey_profile::ROTATION_ACCOUNT,
+            ),
+            vec![
+                GatewayRouteFamily::AggregateApi,
+                GatewayRouteFamily::Account
+            ]
+        );
+        assert_eq!(
+            resolve_route_family_sequence(
+                true,
+                "aggregate_first",
+                crate::apikey_profile::ROTATION_ACCOUNT,
+            ),
+            vec![
+                GatewayRouteFamily::Account,
+                GatewayRouteFamily::AggregateApi
+            ]
+        );
+
+        if let Some(value) = previous {
+            std::env::set_var("CODEXMANAGER_ROUTE_STRATEGY", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_ROUTE_STRATEGY");
+        }
+        crate::gateway::reload_runtime_config_from_env();
     }
 
     #[test]

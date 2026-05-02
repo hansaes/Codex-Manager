@@ -55,7 +55,7 @@ export const useAppStore = create<AppState>((set) => ({
     serviceListenMode: "loopback",
     serviceListenModeOptions: ["loopback", "all_interfaces"],
     routeStrategy: "ordered",
-    routeStrategyOptions: ["ordered", "balanced"],
+    routeStrategyOptions: ["ordered", "balanced", "global_balanced"],
     globalChannelPriorityEnabled: false,
     globalChannelPriorityOrder: "account_first",
     globalChannelPriorityOrderOptions: ["account_first", "aggregate_first"],

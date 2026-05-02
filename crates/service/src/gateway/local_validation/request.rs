@@ -545,11 +545,12 @@ fn build_account_route_variant(
     );
     let incoming_headers =
         incoming_headers.with_conversation_id_override(local_conversation_id.as_deref());
-    let should_normalize_compat_service_tier = should_normalize_compat_service_tier_for_codex_backend(
-        effective_protocol_type,
-        normalized_path,
-        path.as_str(),
-    );
+    let should_normalize_compat_service_tier =
+        should_normalize_compat_service_tier_for_codex_backend(
+            effective_protocol_type,
+            normalized_path,
+            path.as_str(),
+        );
     body = if preferred_prompt_cache_key.is_some() {
         super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
             &path,
@@ -808,9 +809,7 @@ pub(super) fn build_local_validation_result(
         model_for_log: account_variant.model_for_log.clone(),
         reasoning_for_log: account_variant.reasoning_for_log.clone(),
         service_tier_for_log: account_variant.service_tier_for_log.clone(),
-        effective_service_tier_for_log: account_variant
-            .effective_service_tier_for_log
-            .clone(),
+        effective_service_tier_for_log: account_variant.effective_service_tier_for_log.clone(),
         account_route_variant: if global_channel_priority_enabled {
             Some(account_variant.clone())
         } else {

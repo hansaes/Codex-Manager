@@ -913,8 +913,10 @@ pub(crate) fn set_global_channel_priority_enabled(enabled: bool) -> bool {
 pub(crate) fn set_global_channel_priority_order(order: &str) -> Result<String, String> {
     ensure_runtime_config_loaded();
     let Some(normalized) = parse_global_channel_priority_order(order) else {
-        return Err("invalid global channel priority order; use account_first or aggregate_first"
-            .to_string());
+        return Err(
+            "invalid global channel priority order; use account_first or aggregate_first"
+                .to_string(),
+        );
     };
     GLOBAL_CHANNEL_PRIORITY_ORDER.store(normalized, Ordering::Relaxed);
     let label = global_channel_priority_order_label(normalized).to_string();

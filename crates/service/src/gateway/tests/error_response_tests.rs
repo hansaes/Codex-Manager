@@ -6,14 +6,25 @@ use tiny_http::Response;
 fn error_message_for_client_prefers_chinese_for_external_clients() {
     assert_eq!(
         crate::gateway::error_message_for_client(false, "无可用账号(no available account)"),
-        "无可用账号"
+        "当前没有可用账号，请稍后重试或检查账号状态"
     );
     assert_eq!(
         crate::gateway::error_message_for_client(
             false,
             "aggregate api model not found in selected catalog: mimo-v2.5-pro",
         ),
-        "请求模型不在聚合 API 已选择目录中: mimo-v2.5-pro"
+        "请求模型 mimo-v2.5-pro 不在聚合 API 已启用列表中，请检查模型名或先在聚合 API 中勾选它"
+    );
+    assert_eq!(
+        crate::gateway::error_message_for_client(false, "invalid aggregate api authParams"),
+        "聚合 API 鉴权配置无效，请检查认证参数"
+    );
+    assert_eq!(
+        crate::gateway::error_message_for_client(
+            false,
+            crate::gateway::MISSING_AUTH_JSON_OPENAI_API_KEY_ERROR,
+        ),
+        "API Key 无效或未授权，请检查平台密钥配置"
     );
 }
 
@@ -91,13 +102,33 @@ fn terminal_text_response_sets_error_code_header() {
         .read_to_string(&mut body)
         .expect("read response body");
     assert!(
-        body.contains("\"message\":\"无可用账号\""),
+        body.contains("\"message\":\"当前没有可用账号，请稍后重试或检查账号状态\""),
         "unexpected response body: {body}"
     );
     assert!(
         !body.contains("no available account"),
         "response should return chinese message for external clients: {body}"
     );
+}
+
+#[test]
+fn terminal_text_response_keeps_friendly_message_error_code_mapping() {
+    let response = terminal_text_response(
+        503,
+        "当前没有可用账号，请稍后重试或检查账号状态",
+        Some("trc_test_2"),
+    );
+    let header = response
+        .headers()
+        .iter()
+        .find(|item| {
+            item.field
+                .as_str()
+                .as_str()
+                .eq_ignore_ascii_case(crate::error_codes::ERROR_CODE_HEADER_NAME)
+        })
+        .map(|item| item.value.as_str().to_string());
+    assert_eq!(header.as_deref(), Some("no_available_account"));
 }
 
 /// 函数 `with_trace_id_header_appends_trace_header`

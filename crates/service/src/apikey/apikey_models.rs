@@ -1195,10 +1195,9 @@ mod tests {
 
     use super::{
         merge_aggregate_models_into_managed_catalog, merge_managed_model_catalog,
-        merge_models_response, normalize_models_response,
-        read_managed_model_catalog_from_storage, read_model_options_from_storage,
-        save_managed_model_catalog_with_storage, save_model_options_with_storage,
-        MODEL_SOURCE_KIND_CUSTOM, MODEL_SOURCE_KIND_REMOTE,
+        merge_models_response, normalize_models_response, read_managed_model_catalog_from_storage,
+        read_model_options_from_storage, save_managed_model_catalog_with_storage,
+        save_model_options_with_storage, MODEL_SOURCE_KIND_CUSTOM, MODEL_SOURCE_KIND_REMOTE,
     };
     use codexmanager_core::rpc::types::{
         ManagedModelCatalogEntry, ManagedModelCatalogResult, ModelInfo, ModelsResponse,

@@ -114,20 +114,31 @@ pub(crate) fn classify_message(message: &str) -> ErrorCode {
     if eq("upstream total timeout exceeded") || eq("upstream request timed out") {
         return ErrorCode::UpstreamTimeout;
     }
-    if eq("上游请求超时") || contains("连接超时") {
+    if eq("上游请求超时")
+        || eq("上游请求超时，请稍后重试")
+        || eq("上游处理超时，请稍后重试")
+        || contains("连接超时")
+    {
         return ErrorCode::UpstreamTimeout;
     }
-    if eq("stream idle timeout") || eq("上游流式空闲超时") || contains("stream_timeout") {
+    if eq("stream idle timeout")
+        || eq("上游流式空闲超时")
+        || eq("聚合 api 请求超时，请稍后重试")
+        || contains("stream_timeout")
+    {
         return ErrorCode::UpstreamTimeout;
     }
     if starts_with("upstream blocked by cloudflare/waf") || eq("upstream challenge blocked") {
         return ErrorCode::UpstreamChallengeBlocked;
     }
-    if contains("cloudflare/waf") || contains("安全验证拦截") || contains("验证/拦截页面")
+    if contains("cloudflare/waf")
+        || contains("安全验证拦截")
+        || contains("验证/拦截页面")
+        || contains("触发了安全验证")
     {
         return ErrorCode::UpstreamChallengeBlocked;
     }
-    if eq("upstream rate-limited") {
+    if eq("upstream rate-limited") || eq("当前请求过于频繁，请稍后重试") {
         return ErrorCode::UpstreamRateLimited;
     }
     if eq("upstream not-found failover") {
@@ -136,7 +147,7 @@ pub(crate) fn classify_message(message: &str) -> ErrorCode {
     if eq("upstream non-success") {
         return ErrorCode::UpstreamNonSuccess;
     }
-    if eq("no available account") {
+    if eq("no available account") || contains("没有可用账号") {
         return ErrorCode::NoAvailableAccount;
     }
     if starts_with("candidate resolve failed:") {
@@ -197,6 +208,13 @@ pub(crate) fn classify_message(message: &str) -> ErrorCode {
         || eq("claude request body must be an object")
         || eq("invalid gemini request json")
         || eq("gemini request body must be an object")
+        || contains("缺少 api key")
+        || contains("请求缺少 api key")
+        || contains("model 参数")
+        || contains("请求方式")
+        || contains("请求格式暂不受当前通道支持")
+        || contains("模型列表中")
+        || contains("已启用列表中")
     {
         return ErrorCode::InvalidRequestPayload;
     }
@@ -368,8 +386,16 @@ mod tests {
             ErrorCode::NoAvailableAccount
         );
         assert_eq!(
+            classify_message("当前没有可用账号，请稍后重试或检查账号状态"),
+            ErrorCode::NoAvailableAccount
+        );
+        assert_eq!(
             classify_message("code=model_not_found type=invalid_request_error The model 'gpt-5.4' does not exist"),
             ErrorCode::UpstreamNonSuccess
+        );
+        assert_eq!(
+            classify_message("请求模型 mimo-v2.5-pro 不在聚合 API 已启用列表中，请检查模型名或先在聚合 API 中勾选它"),
+            ErrorCode::InvalidRequestPayload
         );
     }
 }

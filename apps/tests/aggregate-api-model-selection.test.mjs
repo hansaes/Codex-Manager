@@ -50,6 +50,21 @@ test("聚合 API 页面接入模型选择弹窗且默认不自动全选", async 
   );
 });
 
+test("聚合 API 页面默认用星号遮罩密钥并保留点击显示明文能力", async () => {
+  const source = await readAppFile("src", "app", "aggregate-api", "page.tsx");
+
+  assertIncludesAll(
+    source,
+    [
+      "const maskedSecretPreview = (api: AggregateApi) => {",
+      'return "********:********";',
+      'return "********";',
+      "{revealed ? secretPreview(revealed) : maskedSecretPreview(api)}",
+    ],
+    "apps/src/app/aggregate-api/page.tsx"
+  );
+});
+
 test("模型选择弹窗为列表区域提供可收缩滚动容器", async () => {
   const source = await readAppFile(
     "src",

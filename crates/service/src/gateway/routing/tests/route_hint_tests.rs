@@ -276,6 +276,11 @@ fn set_route_strategy_accepts_aliases_and_reports_canonical_name() {
         "balanced"
     );
     assert_eq!(current_route_strategy(), "balanced");
+    assert_eq!(
+        set_route_strategy("global_round_robin").expect("set global rr alias"),
+        "global_balanced"
+    );
+    assert_eq!(current_route_strategy(), "global_balanced");
     assert!(set_route_strategy("unsupported").is_err());
 }
 

@@ -121,7 +121,10 @@ fn should_failover_terminal_gateway_error(
     super::super::super::record_gateway_failover_attempt();
     *last_attempt_url = attempt_trace.last_attempt_url.take();
     *last_attempt_error = Some(message.to_string());
-    *last_failure_status = attempt_trace.last_attempt_status.take().unwrap_or(status_code);
+    *last_failure_status = attempt_trace
+        .last_attempt_status
+        .take()
+        .unwrap_or(status_code);
     true
 }
 

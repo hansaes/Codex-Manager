@@ -8,8 +8,10 @@ use std::time::{Duration, Instant};
 const ROUTE_STRATEGY_ENV: &str = "CODEXMANAGER_ROUTE_STRATEGY";
 const ROUTE_MODE_ORDERED: u8 = 0;
 const ROUTE_MODE_BALANCED_ROUND_ROBIN: u8 = 1;
+const ROUTE_MODE_GLOBAL_BALANCED_ROUND_ROBIN: u8 = 2;
 const ROUTE_STRATEGY_ORDERED: &str = "ordered";
 const ROUTE_STRATEGY_BALANCED: &str = "balanced";
+const ROUTE_STRATEGY_GLOBAL_BALANCED: &str = "global_balanced";
 const ROUTE_HEALTH_P2C_ENABLED_ENV: &str = "CODEXMANAGER_ROUTE_HEALTH_P2C_ENABLED";
 const ROUTE_HEALTH_P2C_ORDERED_WINDOW_ENV: &str = "CODEXMANAGER_ROUTE_HEALTH_P2C_ORDERED_WINDOW";
 const ROUTE_HEALTH_P2C_BALANCED_WINDOW_ENV: &str = "CODEXMANAGER_ROUTE_HEALTH_P2C_BALANCED_WINDOW";
@@ -94,7 +96,7 @@ pub(crate) fn apply_route_strategy(
     }
 
     let mode = route_mode();
-    if mode == ROUTE_MODE_BALANCED_ROUND_ROBIN {
+    if route_mode_uses_candidate_round_robin(mode) {
         apply_balanced_round_robin(candidates, key_id, model);
     }
 
@@ -181,10 +183,10 @@ fn route_mode() -> u8 {
 /// # 返回
 /// 返回函数执行结果
 fn route_mode_label(mode: u8) -> &'static str {
-    if mode == ROUTE_MODE_BALANCED_ROUND_ROBIN {
-        ROUTE_STRATEGY_BALANCED
-    } else {
-        ROUTE_STRATEGY_ORDERED
+    match mode {
+        ROUTE_MODE_BALANCED_ROUND_ROBIN => ROUTE_STRATEGY_BALANCED,
+        ROUTE_MODE_GLOBAL_BALANCED_ROUND_ROBIN => ROUTE_STRATEGY_GLOBAL_BALANCED,
+        _ => ROUTE_STRATEGY_ORDERED,
     }
 }
 
@@ -205,6 +207,11 @@ fn parse_route_mode(raw: &str) -> Option<u8> {
         ROUTE_STRATEGY_BALANCED | "round_robin" | "round-robin" | "rr" => {
             Some(ROUTE_MODE_BALANCED_ROUND_ROBIN)
         }
+        ROUTE_STRATEGY_GLOBAL_BALANCED
+        | "global_round_robin"
+        | "global-round-robin"
+        | "global_rr"
+        | "global-rr" => Some(ROUTE_MODE_GLOBAL_BALANCED_ROUND_ROBIN),
         _ => None,
     }
 }
@@ -239,7 +246,7 @@ pub(crate) fn current_route_strategy() -> &'static str {
 pub(crate) fn set_route_strategy(strategy: &str) -> Result<&'static str, String> {
     let Some(mode) = parse_route_mode(strategy) else {
         return Err(
-            "invalid strategy; use ordered or balanced (aliases: round_robin/round-robin/rr)"
+            "invalid strategy; use ordered, balanced, or global_balanced (aliases: round_robin/round-robin/rr/global_round_robin/global-round-robin/global_rr/global-rr)"
                 .to_string(),
         );
     };
@@ -251,6 +258,25 @@ pub(crate) fn set_route_strategy(strategy: &str) -> Result<&'static str, String>
         state.maintenance_tick = 0;
     }
     Ok(route_mode_label(mode))
+}
+
+pub(crate) fn current_route_strategy_uses_candidate_round_robin() -> bool {
+    ensure_route_config_loaded();
+    route_mode_uses_candidate_round_robin(route_mode())
+}
+
+pub(crate) fn current_route_strategy_uses_global_family_round_robin() -> bool {
+    ensure_route_config_loaded();
+    route_mode() == ROUTE_MODE_GLOBAL_BALANCED_ROUND_ROBIN
+}
+
+pub(crate) fn next_global_route_family_start_index(priority_anchor: &str) -> usize {
+    ensure_route_config_loaded();
+    let synthetic_key = format!(
+        "__global_family__{}",
+        priority_anchor.trim().to_ascii_lowercase()
+    );
+    next_start_index(synthetic_key.as_str(), None, 2)
 }
 
 /// 函数 `get_manual_preferred_account`
@@ -491,11 +517,18 @@ fn route_health_p2c_enabled() -> bool {
 /// # 返回
 /// 返回函数执行结果
 fn route_health_window(mode: u8) -> usize {
-    if mode == ROUTE_MODE_BALANCED_ROUND_ROBIN {
+    if route_mode_uses_candidate_round_robin(mode) {
         ROUTE_HEALTH_P2C_BALANCED_WINDOW.load(Ordering::Relaxed)
     } else {
         ROUTE_HEALTH_P2C_ORDERED_WINDOW.load(Ordering::Relaxed)
     }
+}
+
+fn route_mode_uses_candidate_round_robin(mode: u8) -> bool {
+    matches!(
+        mode,
+        ROUTE_MODE_BALANCED_ROUND_ROBIN | ROUTE_MODE_GLOBAL_BALANCED_ROUND_ROBIN
+    )
 }
 
 /// 函数 `route_state_ttl`
