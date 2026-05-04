@@ -119,20 +119,26 @@
 - 持久化键 `gateway.route_strategy`
 - 环境变量 `CODEXMANAGER_ROUTE_STRATEGY`
 
-后端接受的规范值只有两个：
+后端接受的规范值有三个：
 
 - `ordered`
 - `balanced`
+- `global_balanced`
 
 兼容别名：
 
 - `round_robin`
 - `round-robin`
 - `rr`
+- `global_round_robin`
+- `global-round-robin`
+- `global_rr`
+- `global-rr`
 
 注意：
 
 - 后端会把以上轮询别名统一归一化为 `balanced`
+- `global_*` 轮询别名会统一归一化为 `global_balanced`
 - 如果未配置 `CODEXMANAGER_ROUTE_STRATEGY`，默认策略是 `ordered`
 
 候选池基础顺序：
@@ -233,6 +239,45 @@
 - 更接近“同一平台密钥、同一模型下的均衡轮询”
 - 不同 key、不同模型之间的轮询状态互相隔离
 
+### `global_balanced`
+
+行为：
+
+- 保持 `balanced` 的 family 内部轮询语义，也就是账号 family 与聚合 API family 各自继续按 `key_id + model` 维度推进轮询
+- 只有在开启“全局通道优先级”后，才会额外让账号和聚合 API 两个 family 按优先级一起轮转
+- 同一次请求里，如果首选 family 遇到 `401/403/429/5xx/超时` 等运行期失败，会自动切到另一个 family 继续尝试
+
+适用理解：
+
+- 更接近“账号和聚合 API 放进同一个全局轮转池”
+- 适合账号容易掉线、想优先打散首选通道，同时仍保留自动兜底的场景
+
+推荐搭配：
+
+- `globalChannelPriorityEnabled = true`
+- `globalChannelPriorityOrder = account_first` 或 `aggregate_first`
+- `routeStrategy = global_balanced`
+
+### 聚合 API `responses` 桥接
+
+行为：
+
+- 当外部请求路径是 `/v1/responses`，但聚合 API 候选被声明为 `upstreamFormat=chat_completions` 时，`upstream/protocol/aggregate_api.rs` 会先把请求改写到 `/v1/chat/completions`
+- 对于非流式响应，会把上游 chat completion JSON 转回标准 OpenAI Responses JSON
+- 对于流式响应，会把上游 `chat.completion.chunk` 实时桥接成 `response.output_text.delta`、`response.output_item.added`、`response.function_call_arguments.delta`、`response.completed`
+- 当聚合 API 候选是 Anthropic Native 时，`/v1/responses` 也会按同样思路桥接到 `/v1/messages`，并把 Anthropic JSON / SSE 回写成 OpenAI Responses 形状
+
+落点：
+
+- 请求改写：`upstream/protocol/aggregate_api.rs`
+- 实时 SSE bridge：`observability/http_bridge/stream_readers/openai_responses_bridge.rs`
+- 最终 JSON/SSE 适配：`protocol_adapter/response_conversion/`
+
+适用结论：
+
+- 外部像 Codex 这样固定调用 `/v1/responses` 的客户端，不需要为了 chat-only 聚合上游单独改成 `/v1/chat/completions`
+- 聚合 API 的 `responsesPath` 可以为空；只要配置了 `chatCompletionsPath` 或命中 Anthropic messages，网关就会自动做中途转换
+
 ### 可观测性
 
 - 候选池最终顺序会在错误 trace 中以 `CANDIDATE_POOL` 事件记录
@@ -264,6 +309,21 @@
 - `request_log.rs`
 - `trace_log.rs`
 - `error_response.rs`
+
+### 对外错误提示
+
+当前对外 HTTP JSON 错误会优先返回更友好的中文提示，典型行为包括：
+
+- `无可用账号(no available account)` -> `当前没有可用账号，请稍后重试或检查账号状态`
+- `aggregate api model not found in selected catalog: <model>` -> `请求模型 <model> 不在聚合 API 已启用列表中，请检查模型名或先在聚合 API 中勾选它`
+- `invalid aggregate api authParams` -> `聚合 API 鉴权配置无效，请检查认证参数`
+- `invalid api key` -> `API Key 无效或未授权，请检查平台密钥配置`
+
+补充说明：
+
+- 对外友好文案主要通过 `gateway/mod.rs::error_message_for_client()` 收敛
+- 错误码头部 `X-CodexManager-Error-Code` 仍然保留，便于外部程序按机器可读方式判断错误类别
+- 带 Codex 内部标识头的调试请求仍可保留原始英文错误串，便于排查链路问题
 
 ### 改代理/重试/超时
 

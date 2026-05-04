@@ -9,6 +9,7 @@ use codexmanager_core::auth::parse_id_token_claims;
 use codexmanager_core::storage::{now_ts, Account, Storage};
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::Client;
+use tiny_http::{Response, Server};
 
 /// 函数 `build_account`
 ///
@@ -724,4 +725,43 @@ fn obtain_api_key_matches_official_login_server_headers() {
     assert_eq!(find("User-Agent"), None);
     assert!(body.contains("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange"));
     assert!(body.contains("requested_token=openai-api-key"));
+}
+
+#[test]
+fn remote_oauth_issuer_uses_configured_global_upstream_proxy() {
+    let _guard = crate::test_env_guard();
+    crate::gateway::reload_runtime_config_from_env();
+    let original_proxy = crate::gateway::current_upstream_proxy_url();
+
+    let proxy_server = Server::http("127.0.0.1:0").expect("start auth proxy server");
+    let proxy_addr = format!("http://{}", proxy_server.server_addr());
+    crate::gateway::set_upstream_proxy_url(Some(proxy_addr.as_str()))
+        .expect("set auth upstream proxy");
+
+    let handle = std::thread::spawn(move || {
+        let request = proxy_server
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("proxy request timeout")
+            .expect("receive proxy request");
+        assert!(
+            request.url().contains("/oauth/token"),
+            "unexpected proxied url: {}",
+            request.url()
+        );
+        request
+            .respond(Response::from_string("{}").with_status_code(502))
+            .expect("respond proxy");
+    });
+
+    let err = crate::auth_tokens::request_device_code("http://auth.openai.invalid", "client-test")
+        .expect_err("proxy should surface non-success response");
+
+    assert!(
+        err.contains("device code request failed with status 502 Bad Gateway"),
+        "unexpected error: {err}"
+    );
+
+    handle.join().expect("join auth proxy thread");
+    crate::gateway::set_upstream_proxy_url(original_proxy.as_deref())
+        .expect("restore auth upstream proxy");
 }

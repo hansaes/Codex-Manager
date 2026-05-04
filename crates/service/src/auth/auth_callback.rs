@@ -211,6 +211,18 @@ fn is_missing_codex_entitlement_error(error_code: &str, error_description: Optio
         })
 }
 
+fn is_region_restricted_oauth_error(error_description: Option<&str>) -> bool {
+    error_description.is_some_and(|description| {
+        let normalized = description.trim().to_ascii_lowercase();
+        normalized.contains("unsupported_country_region_territory")
+            || normalized.contains("unsupported_country")
+            || normalized.contains("region_restricted")
+            || normalized.contains("restricted region")
+            || (normalized.contains("cloudflare") && normalized.contains("blocked"))
+            || normalized.contains("sorry, you have been blocked")
+    })
+}
+
 /// 函数 `oauth_callback_error_message`
 ///
 /// 作者: gaohongshun
@@ -226,6 +238,10 @@ fn is_missing_codex_entitlement_error(error_code: &str, error_description: Optio
 fn oauth_callback_error_message(error_code: &str, error_description: Option<&str>) -> String {
     if is_missing_codex_entitlement_error(error_code, error_description) {
         return "Codex is not enabled for your workspace. Contact your workspace administrator to request access to Codex.".to_string();
+    }
+
+    if is_region_restricted_oauth_error(error_description) {
+        return "浏览器访问 OpenAI 授权页时被地区或风控限制拦截。浏览器 OAuth 不会走应用内全局代理，请改用系统/浏览器代理，或改用设备码登录。".to_string();
     }
 
     if let Some(description) = error_description {

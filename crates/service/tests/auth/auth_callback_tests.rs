@@ -222,6 +222,17 @@ fn oauth_callback_error_message_maps_missing_entitlement() {
     assert!(message.contains("Codex is not enabled"));
 }
 
+#[test]
+fn oauth_callback_error_message_maps_region_restricted_browser_login() {
+    let message = oauth_callback_error_message(
+        "access_denied",
+        Some("unsupported_country_region_territory"),
+    );
+    assert!(message.contains("浏览器访问 OpenAI 授权页时被地区或风控限制拦截"));
+    assert!(message.contains("浏览器 OAuth 不会走应用内全局代理"));
+    assert!(message.contains("设备码登录"));
+}
+
 /// 函数 `login_start_fails_when_login_server_cannot_bind`
 ///
 /// 作者: gaohongshun

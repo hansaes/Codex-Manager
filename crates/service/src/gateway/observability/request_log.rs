@@ -251,6 +251,18 @@ fn response_adapter_label(value: super::ResponseAdapter) -> &'static str {
         super::ResponseAdapter::GeminiSse => "GeminiSse",
         super::ResponseAdapter::GeminiCliJson => "GeminiCliJson",
         super::ResponseAdapter::GeminiCliSse => "GeminiCliSse",
+        super::ResponseAdapter::OpenAIResponsesJsonFromChatCompletions => {
+            "OpenAIResponsesJsonFromChatCompletions"
+        }
+        super::ResponseAdapter::OpenAIResponsesSseFromChatCompletions => {
+            "OpenAIResponsesSseFromChatCompletions"
+        }
+        super::ResponseAdapter::OpenAIResponsesJsonFromAnthropic => {
+            "OpenAIResponsesJsonFromAnthropic"
+        }
+        super::ResponseAdapter::OpenAIResponsesSseFromAnthropic => {
+            "OpenAIResponsesSseFromAnthropic"
+        }
         super::ResponseAdapter::OpenAIChatCompletionsJson => "OpenAIChatCompletionsJson",
         super::ResponseAdapter::OpenAIChatCompletionsSse => "OpenAIChatCompletionsSse",
         super::ResponseAdapter::OpenAICompletionsJson => "OpenAICompletionsJson",

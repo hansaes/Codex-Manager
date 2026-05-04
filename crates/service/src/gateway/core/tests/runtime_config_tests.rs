@@ -1,4 +1,5 @@
 use super::*;
+use tiny_http::{Response, Server};
 
 struct EnvGuard {
     key: &'static str,
@@ -615,4 +616,35 @@ fn terminal_user_agent_sanitizes_header_like_official_codex() {
         current_codex_terminal_user_agent_token(),
         "Weird_Terminal__/1.2_beta"
     );
+}
+
+#[test]
+fn fresh_upstream_client_without_proxy_ignores_system_proxy_env() {
+    let _guard = crate::test_env_guard();
+    let _http_proxy = EnvGuard::set("HTTP_PROXY", "http://127.0.0.1:9");
+    let _https_proxy = EnvGuard::set("HTTPS_PROXY", "http://127.0.0.1:9");
+    let _all_proxy = EnvGuard::set("ALL_PROXY", "http://127.0.0.1:9");
+    let _upstream_proxy = EnvGuard::clear(ENV_UPSTREAM_PROXY_URL);
+
+    reload_from_env();
+
+    let server = Server::http("127.0.0.1:0").expect("start direct test server");
+    let addr = server.server_addr();
+    let url = format!("http://{addr}/health");
+    let handle = std::thread::spawn(move || {
+        let request = server.recv().expect("proxy-bypassed direct request");
+        assert_eq!(request.url(), "/health");
+        request
+            .respond(Response::from_string("ok"))
+            .expect("respond direct");
+    });
+
+    let response = fresh_upstream_client_without_proxy()
+        .get(url)
+        .send()
+        .expect("direct client should bypass system proxy");
+    assert!(response.status().is_success());
+    assert_eq!(response.text().expect("read body"), "ok");
+
+    handle.join().expect("join direct server thread");
 }

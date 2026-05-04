@@ -2,6 +2,7 @@ use bytes::Bytes;
 use codexmanager_core::storage::{AggregateApi, Storage};
 use reqwest::header::{HeaderName, HeaderValue};
 use serde::Deserialize;
+use serde_json::Value;
 use std::collections::HashSet;
 use std::time::Instant;
 use tiny_http::Request;
@@ -101,6 +102,152 @@ fn build_upstream_url(candidate: &AggregateApi, request_path: &str) -> Result<re
     url.set_path(path_part);
     url.set_query(query_part.filter(|query| !query.trim().is_empty()));
     Ok(url)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AggregateCandidateUpstreamKind {
+    Responses,
+    ChatCompletions,
+    AnthropicMessages,
+}
+
+#[derive(Debug)]
+struct AdaptedAggregateCandidateRequest {
+    path: String,
+    body: Vec<u8>,
+    response_adapter: super::super::super::ResponseAdapter,
+    tool_name_restore_map: super::super::super::ToolNameRestoreMap,
+}
+
+fn candidate_upstream_kind(candidate: &AggregateApi, protocol_type: &str) -> AggregateCandidateUpstreamKind {
+    let provider_type = normalize_provider_type_value(candidate.provider_type.as_str());
+    if provider_type == AGGREGATE_API_PROVIDER_CLAUDE || protocol_type == "anthropic_native" {
+        return AggregateCandidateUpstreamKind::AnthropicMessages;
+    }
+    if candidate.upstream_format.trim().eq_ignore_ascii_case("chat_completions")
+        || candidate
+            .chat_completions_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some()
+    {
+        return AggregateCandidateUpstreamKind::ChatCompletions;
+    }
+    AggregateCandidateUpstreamKind::Responses
+}
+
+fn extract_stream_flag(body: &[u8]) -> Option<bool> {
+    serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|value| value.get("stream").and_then(Value::as_bool))
+}
+
+fn should_force_openai_responses_stream(path: &str, body: &[u8], client_is_stream: bool) -> bool {
+    if client_is_stream {
+        return true;
+    }
+    (path == "/v1/responses" || path.starts_with("/v1/responses?"))
+        && extract_stream_flag(body).unwrap_or(true)
+}
+
+fn adapt_aggregate_candidate_request(
+    candidate: &AggregateApi,
+    protocol_type: &str,
+    path: &str,
+    body: &[u8],
+    client_is_stream: bool,
+) -> Result<AdaptedAggregateCandidateRequest, String> {
+    let upstream_kind = candidate_upstream_kind(candidate, protocol_type);
+    let force_stream = should_force_openai_responses_stream(path, body, client_is_stream);
+    match upstream_kind {
+        AggregateCandidateUpstreamKind::Responses => Ok(AdaptedAggregateCandidateRequest {
+            path: path.to_string(),
+            body: body.to_vec(),
+            response_adapter: super::super::super::ResponseAdapter::Passthrough,
+            tool_name_restore_map: super::super::super::ToolNameRestoreMap::new(),
+        }),
+        AggregateCandidateUpstreamKind::ChatCompletions => {
+            let (mut adapted_path, adapted_body, tool_name_restore_map) =
+                if path == "/v1/responses" || path.starts_with("/v1/responses?") {
+                    let suffix = path.strip_prefix("/v1/responses").unwrap_or_default();
+                    let (adapted_body, _stream, tool_name_restore_map) =
+                        super::super::super::convert_openai_responses_request_to_chat_completions(
+                            body,
+                        )?;
+                    (
+                        format!("/v1/chat/completions{suffix}"),
+                        adapted_body,
+                        tool_name_restore_map,
+                    )
+                } else if path == "/v1/chat/completions"
+                    || path.starts_with("/v1/chat/completions?")
+                {
+                    let adapted = super::super::super::adapt_request_for_protocol(
+                        crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+                        path,
+                        body.to_vec(),
+                    )?;
+                    (path.to_string(), body.to_vec(), adapted.tool_name_restore_map)
+                } else {
+                    (
+                        path.to_string(),
+                        body.to_vec(),
+                        super::super::super::ToolNameRestoreMap::new(),
+                    )
+                };
+
+            if adapted_path == "/v1/responses" || adapted_path.starts_with("/v1/responses?") {
+                let suffix = adapted_path
+                    .strip_prefix("/v1/responses")
+                    .unwrap_or_default();
+                adapted_path = format!("/v1/chat/completions{suffix}");
+            }
+
+            Ok(AdaptedAggregateCandidateRequest {
+                path: adapted_path,
+                body: adapted_body,
+                response_adapter: if force_stream {
+                    super::super::super::ResponseAdapter::OpenAIResponsesSseFromChatCompletions
+                } else {
+                    super::super::super::ResponseAdapter::OpenAIResponsesJsonFromChatCompletions
+                },
+                tool_name_restore_map,
+            })
+        }
+        AggregateCandidateUpstreamKind::AnthropicMessages => {
+            let (adapted_path, adapted_body, tool_name_restore_map) = if path == "/v1/responses"
+                || path.starts_with("/v1/responses?")
+            {
+                let suffix = path.strip_prefix("/v1/responses").unwrap_or_default();
+                let (adapted_body, _stream, tool_name_restore_map) =
+                    super::super::super::convert_openai_responses_request_to_anthropic_messages(
+                        body,
+                    )?;
+                (
+                    format!("/v1/messages{suffix}"),
+                    adapted_body,
+                    tool_name_restore_map,
+                )
+            } else {
+                (
+                    path.to_string(),
+                    body.to_vec(),
+                    super::super::super::ToolNameRestoreMap::new(),
+                )
+            };
+            Ok(AdaptedAggregateCandidateRequest {
+                path: adapted_path,
+                body: adapted_body,
+                response_adapter: if force_stream {
+                    super::super::super::ResponseAdapter::OpenAIResponsesSseFromAnthropic
+                } else {
+                    super::super::super::ResponseAdapter::OpenAIResponsesJsonFromAnthropic
+                },
+                tool_name_restore_map,
+            })
+        }
+    }
 }
 
 fn replace_query_param(mut url: reqwest::Url, name: &str, value: &str) -> reqwest::Url {
@@ -708,6 +855,7 @@ pub(in super::super) struct AggregateProxyRequest<'a> {
     pub method: &'a reqwest::Method,
     pub body: &'a Bytes,
     pub is_stream: bool,
+    pub protocol_type: &'a str,
     pub response_adapter: super::super::super::ResponseAdapter,
     pub model_for_log: Option<&'a str>,
     pub reasoning_for_log: Option<&'a str>,
@@ -740,6 +888,7 @@ pub(in super::super) fn proxy_aggregate_request(
         method,
         body,
         is_stream,
+        protocol_type,
         response_adapter,
         model_for_log,
         reasoning_for_log,
@@ -862,7 +1011,24 @@ pub(in super::super) fn proxy_aggregate_request(
                 });
             }
 
-            let mut url = match build_upstream_url(&candidate, path) {
+            let adapted_request = match adapt_aggregate_candidate_request(
+                &candidate,
+                protocol_type,
+                path,
+                body.as_ref(),
+                is_stream,
+            ) {
+                Ok(value) => value,
+                Err(err) => {
+                    last_attempt_url = Some(candidate_url.clone());
+                    last_attempt_supplier_name = candidate_supplier_name.clone();
+                    last_attempt_error = Some(err);
+                    last_failure_status = 400;
+                    break;
+                }
+            };
+
+            let mut url = match build_upstream_url(&candidate, adapted_request.path.as_str()) {
                 Ok(url) => url,
                 Err(_) => {
                     last_attempt_url = Some(candidate_url.clone());
@@ -891,17 +1057,18 @@ pub(in super::super) fn proxy_aggregate_request(
                 _ => {}
             }
 
+            let adapted_body = Bytes::from(adapted_request.body.clone());
             let builder = build_aggregate_api_request(
                 &client,
                 request.as_ref().expect("request should still be available"),
                 method,
                 url.clone(),
-                body,
+                &adapted_body,
                 secret.as_str(),
                 &auth_config,
                 &injected_headers,
                 request_deadline,
-                is_stream,
+                should_force_openai_responses_stream(path, body.as_ref(), is_stream),
             )?;
 
             let attempt_started_at = Instant::now();
@@ -976,18 +1143,22 @@ pub(in super::super) fn proxy_aggregate_request(
 
             let inflight_guard = super::super::super::acquire_account_inflight(key_id);
             let passthrough_sse_protocol =
-                resolve_passthrough_sse_protocol(&candidate, path, response_adapter);
+                resolve_passthrough_sse_protocol(
+                    &candidate,
+                    adapted_request.path.as_str(),
+                    adapted_request.response_adapter,
+                );
             let bridge = super::super::super::respond_with_upstream(
                 request
                     .take()
                     .expect("request should be available before bridge"),
                 GatewayUpstreamResponse::Blocking(upstream),
                 inflight_guard,
-                response_adapter,
+                adapted_request.response_adapter,
                 passthrough_sse_protocol,
                 None,
                 path,
-                None,
+                Some(&adapted_request.tool_name_restore_map),
                 is_stream,
                 false,
                 Some(trace_id),
@@ -1004,7 +1175,7 @@ pub(in super::super) fn proxy_aggregate_request(
             super::super::super::trace_log::log_bridge_result(
                 super::super::super::trace_log::BridgeResultLog {
                     trace_id,
-                    adapter: format!("{response_adapter:?}").as_str(),
+                    adapter: format!("{:?}", adapted_request.response_adapter).as_str(),
                     path,
                     is_stream,
                     stream_terminal_seen: bridge.stream_terminal_seen,
@@ -1059,9 +1230,9 @@ pub(in super::super) fn proxy_aggregate_request(
                 super::super::super::request_log::RequestLogTraceContext {
                     trace_id: Some(trace_id),
                     original_path: Some(original_path),
-                    adapted_path: Some(path),
-                    response_adapter: Some(response_adapter),
-                    effective_service_tier: effective_service_tier_for_log,
+                        adapted_path: Some(path),
+                        response_adapter: Some(adapted_request.response_adapter),
+                        effective_service_tier: effective_service_tier_for_log,
                     aggregate_api_supplier_name: candidate_supplier_name.as_deref(),
                     aggregate_api_url: Some(candidate_url.as_str()),
                     attempted_aggregate_api_ids: Some(attempted_aggregate_api_ids.as_slice()),
@@ -1106,9 +1277,9 @@ pub(in super::super) fn proxy_aggregate_request(
         .take()
         .expect("request should still be available for failure response");
     super::super::super::record_gateway_request_outcome(path, status_code, Some("aggregate_api"));
-    super::super::super::trace_log::log_request_final(
-        trace_id,
-        status_code,
+            super::super::super::trace_log::log_request_final(
+                trace_id,
+                status_code,
         Some(key_id),
         last_attempt_url.as_deref(),
         Some(message.as_str()),
@@ -1399,10 +1570,12 @@ mod bridge_tests {
 #[cfg(test)]
 mod tests {
     use codexmanager_core::storage::AggregateApi;
+    use serde_json::json;
 
     use super::{
-        build_upstream_url, effective_action_path, normalize_aggregate_api_failure_status,
-        resolve_passthrough_sse_protocol, should_retry_aggregate_api_failure,
+        adapt_aggregate_candidate_request, build_upstream_url, effective_action_path,
+        normalize_aggregate_api_failure_status, resolve_passthrough_sse_protocol,
+        should_retry_aggregate_api_failure,
     };
     use crate::gateway::{PassthroughSseProtocol, ResponseAdapter};
 
@@ -1614,6 +1787,86 @@ mod tests {
     fn incomplete_bridge_without_status_defaults_to_bad_gateway() {
         let status_code = bridge_status_code(None, false, None);
         assert_eq!(status_code, 502);
+    }
+
+    #[test]
+    fn chat_completions_candidate_bridges_responses_request_for_codex_clients() {
+        let mut api = aggregate_api_with_action(None);
+        api.provider_type = "codex".to_string();
+        api.upstream_format = "chat_completions".to_string();
+        api.chat_completions_path = Some("/v1/chat/completions".to_string());
+
+        let body = serde_json::to_vec(&json!({
+            "model": "mimo-v2.5-pro",
+            "input": "hello"
+        }))
+        .expect("serialize request");
+
+        let adapted = adapt_aggregate_candidate_request(
+            &api,
+            crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+            "/v1/responses",
+            &body,
+            false,
+        )
+        .expect("adapt request");
+
+        assert_eq!(adapted.path, "/v1/chat/completions");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&adapted.body).expect("parse adapted body");
+        assert_eq!(payload["messages"][0]["role"], "user");
+        assert_eq!(payload["messages"][0]["content"], "hello");
+        assert_eq!(payload["stream"], false);
+        assert_eq!(
+            adapted.response_adapter,
+            ResponseAdapter::OpenAIResponsesJsonFromChatCompletions
+        );
+    }
+
+    #[test]
+    fn anthropic_candidate_bridges_responses_request_for_codex_clients() {
+        let mut api = aggregate_api_with_action(None);
+        api.provider_type = crate::aggregate_api::AGGREGATE_API_PROVIDER_CLAUDE.to_string();
+        api.upstream_format = "responses".to_string();
+
+        let body = serde_json::to_vec(&json!({
+            "model": "claude-sonnet-4-5",
+            "instructions": "你是一个代码助手",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        { "type": "input_text", "text": "hello" }
+                    ]
+                }
+            ],
+            "stream": false
+        }))
+        .expect("serialize request");
+
+        let adapted = adapt_aggregate_candidate_request(
+            &api,
+            crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+            "/v1/responses",
+            &body,
+            false,
+        )
+        .expect("adapt request");
+
+        assert_eq!(adapted.path, "/v1/messages");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&adapted.body).expect("parse adapted body");
+        assert_eq!(payload["model"], "claude-sonnet-4-5");
+        assert_eq!(payload["system"], "你是一个代码助手");
+        assert_eq!(payload["messages"][0]["role"], "user");
+        assert_eq!(payload["messages"][0]["content"][0]["type"], "text");
+        assert_eq!(payload["messages"][0]["content"][0]["text"], "hello");
+        assert_eq!(payload["stream"], false);
+        assert_eq!(
+            adapted.response_adapter,
+            ResponseAdapter::OpenAIResponsesJsonFromAnthropic
+        );
     }
 
     /// 函数 `bridge_status_code`

@@ -389,6 +389,49 @@ fn append_sse_data_frame(buffer: &mut String, payload: &Value) {
     buffer.push_str("\n\n");
 }
 
+pub(in crate::gateway) fn synthesize_openai_responses_sse_from_json(value: &Value) -> Vec<u8> {
+    if value.get("error").is_some() {
+        let payload = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string());
+        return format!("data: {payload}\n\ndata: [DONE]\n\n").into_bytes();
+    }
+
+    let response_id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("resp_proxy");
+    let created = value.get("created").and_then(Value::as_i64).unwrap_or(0);
+    let model = value
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let output_text = value
+        .get("output_text")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty());
+
+    let mut out = String::new();
+    if let Some(text) = output_text {
+        let delta = json!({
+            "type": "response.output_text.delta",
+            "response_id": response_id,
+            "created": created,
+            "model": model,
+            "delta": text,
+        });
+        out.push_str("event: response.output_text.delta\n");
+        append_sse_data_frame(&mut out, &delta);
+    }
+    let completed = json!({
+        "type": "response.completed",
+        "response": value,
+    });
+    out.push_str("event: response.completed\n");
+    append_sse_data_frame(&mut out, &completed);
+    out.push_str("data: [DONE]\n\n");
+    out.into_bytes()
+}
+
 /// 函数 `collect_text_for_sse_delta`
 ///
 /// 作者: gaohongshun

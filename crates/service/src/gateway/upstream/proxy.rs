@@ -281,6 +281,7 @@ fn run_aggregate_route_family(
             method,
             body: &variant.body,
             is_stream: variant.is_stream,
+            protocol_type: variant.protocol_type.as_str(),
             response_adapter: variant.response_adapter,
             model_for_log: variant.model_for_log.as_deref(),
             reasoning_for_log: variant.reasoning_for_log.as_deref(),

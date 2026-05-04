@@ -10,6 +10,8 @@ mod response_conversion;
 mod types;
 
 pub(super) use self::request_router::adapt_request_for_protocol;
+pub(crate) use self::request_mapping::convert_openai_responses_request_to_chat_completions;
+pub(crate) use self::request_mapping::convert_openai_responses_request_to_anthropic_messages;
 pub(super) use self::types::{
     AdaptedGatewayRequest, GeminiStreamOutputMode, ResponseAdapter, ToolNameRestoreMap,
 };

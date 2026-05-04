@@ -3,6 +3,10 @@ use serde_json::{json, Map, Value};
 use super::tool_mapping::restore_openai_tool_name;
 use super::ToolNameRestoreMap;
 
+fn parse_json_value(body: &[u8], err: &str) -> Result<Value, String> {
+    serde_json::from_slice(body).map_err(|_| err.to_string())
+}
+
 /// 函数 `map_openai_error_to_anthropic`
 ///
 /// 作者: gaohongshun
@@ -58,8 +62,7 @@ pub(super) fn convert_openai_json_to_anthropic(
     body: &[u8],
     tool_name_restore_map: Option<&ToolNameRestoreMap>,
 ) -> Result<(Vec<u8>, &'static str), String> {
-    let value: Value =
-        serde_json::from_slice(body).map_err(|_| "invalid upstream json response".to_string())?;
+    let value = parse_json_value(body, "invalid upstream json response")?;
     if let Some(error_payload) = map_openai_error_to_anthropic(&value) {
         return serde_json::to_vec(&error_payload)
             .map(|bytes| (bytes, "application/json"))
@@ -75,6 +78,447 @@ pub(super) fn convert_openai_json_to_anthropic(
     serde_json::to_vec(&payload)
         .map(|bytes| (bytes, "application/json"))
         .map_err(|err| format!("serialize claude response failed: {err}"))
+}
+
+fn map_openai_error_to_responses(value: &Value) -> Option<Value> {
+    let error = value.get("error")?.as_object()?;
+    let message = error
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("upstream request failed");
+    let error_type = error
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("server_error");
+    Some(json!({
+        "error": {
+            "message": message,
+            "type": error_type,
+        }
+    }))
+}
+
+fn normalize_response_usage_from_chat(usage: Option<&Map<String, Value>>) -> Option<Value> {
+    let usage = usage?;
+    let input_tokens = extract_usage_i64(Some(usage), &["input_tokens", "prompt_tokens"]);
+    let output_tokens = extract_usage_i64(Some(usage), &["output_tokens", "completion_tokens"]);
+    let total_tokens = extract_usage_i64(Some(usage), &["total_tokens"]);
+    let cached_tokens = extract_usage_i64(
+        Some(usage),
+        &["input_tokens_details.cached_tokens", "prompt_tokens_details.cached_tokens"],
+    );
+    let reasoning_tokens = extract_usage_i64(
+        Some(usage),
+        &["output_tokens_details.reasoning_tokens", "completion_tokens_details.reasoning_tokens"],
+    );
+
+    let mut out = Map::new();
+    if let Some(value) = input_tokens {
+        out.insert("input_tokens".to_string(), Value::from(value));
+    }
+    if let Some(value) = output_tokens {
+        out.insert("output_tokens".to_string(), Value::from(value));
+    }
+    if let Some(value) = total_tokens {
+        out.insert("total_tokens".to_string(), Value::from(value));
+    }
+    if let Some(value) = cached_tokens {
+        out.insert(
+            "input_tokens_details".to_string(),
+            json!({ "cached_tokens": value }),
+        );
+    }
+    if let Some(value) = reasoning_tokens {
+        out.insert(
+            "output_tokens_details".to_string(),
+            json!({ "reasoning_tokens": value }),
+        );
+    }
+
+    if out.is_empty() {
+        None
+    } else {
+        Some(Value::Object(out))
+    }
+}
+
+fn extract_openai_chat_message_output_items(
+    message: Option<&Map<String, Value>>,
+    tool_name_restore_map: Option<&ToolNameRestoreMap>,
+) -> Vec<Value> {
+    let Some(message) = message else {
+        return Vec::new();
+    };
+    let mut output = Vec::new();
+
+    let text = message
+        .get("content")
+        .map(extract_openai_text_content)
+        .transpose()
+        .unwrap_or_default()
+        .unwrap_or_default();
+    if !text.trim().is_empty() {
+        output.push(json!({
+            "type": "message",
+            "role": "assistant",
+            "content": [{
+                "type": "output_text",
+                "text": text.trim(),
+            }]
+        }));
+    }
+
+    if let Some(tool_calls) = message.get("tool_calls").and_then(Value::as_array) {
+        for tool_call in tool_calls {
+            let Some(tool_call_obj) = tool_call.as_object() else {
+                continue;
+            };
+            let call_id = tool_call_obj
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("call_{}", output.len()));
+            let Some(function_name) = tool_call_obj
+                .get("function")
+                .and_then(Value::as_object)
+                .and_then(|function| function.get("name"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            let function_name = restore_openai_tool_name(function_name, tool_name_restore_map);
+            let arguments = tool_call_obj
+                .get("function")
+                .and_then(Value::as_object)
+                .and_then(|function| function.get("arguments"))
+                .and_then(Value::as_str)
+                .unwrap_or("{}");
+            output.push(json!({
+                "type": "function_call",
+                "call_id": call_id,
+                "name": function_name,
+                "arguments": arguments,
+            }));
+        }
+    }
+
+    output
+}
+
+fn build_responses_output_from_chat_completion(
+    value: &Value,
+    tool_name_restore_map: Option<&ToolNameRestoreMap>,
+) -> Result<Value, String> {
+    let choice = value
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .ok_or_else(|| "missing upstream choice".to_string())?;
+    let message = choice.get("message").and_then(Value::as_object);
+    Ok(Value::Array(extract_openai_chat_message_output_items(
+        message,
+        tool_name_restore_map,
+    )))
+}
+
+fn anthropic_content_blocks_to_responses_output(content: Option<&[Value]>) -> Vec<Value> {
+    let Some(content) = content else {
+        return Vec::new();
+    };
+
+    let mut text_parts = Vec::new();
+    let mut output = Vec::new();
+    for block in content {
+        let Some(block_obj) = block.as_object() else {
+            continue;
+        };
+        match block_obj.get("type").and_then(Value::as_str).unwrap_or_default() {
+            "text" => {
+                if let Some(text) = block_obj.get("text").and_then(Value::as_str) {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        text_parts.push(trimmed.to_string());
+                    }
+                }
+            }
+            "thinking" => {
+                let mut summary = Vec::new();
+                if let Some(text) = block_obj.get("thinking").and_then(Value::as_str) {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        summary.push(json!({
+                            "type": "summary_text",
+                            "text": trimmed,
+                        }));
+                    }
+                }
+                let mut item = Map::new();
+                item.insert("type".to_string(), Value::String("reasoning".to_string()));
+                if let Some(id) = block_obj.get("id").and_then(Value::as_str) {
+                    item.insert("id".to_string(), Value::String(id.to_string()));
+                }
+                if !summary.is_empty() {
+                    item.insert("summary".to_string(), Value::Array(summary));
+                }
+                if let Some(signature) = block_obj
+                    .get("signature")
+                    .or_else(|| block_obj.get("encrypted_content"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    item.insert(
+                        "encrypted_content".to_string(),
+                        Value::String(signature.to_string()),
+                    );
+                }
+                output.push(Value::Object(item));
+            }
+            "tool_use" => {
+                let Some(name) = block_obj
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                else {
+                    continue;
+                };
+                let call_id = block_obj
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("call_{}", output.len()));
+                let arguments = block_obj
+                    .get("input")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                let arguments = if arguments.is_string() {
+                    arguments
+                } else {
+                    Value::String(
+                        serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_string()),
+                    )
+                };
+                output.push(json!({
+                    "type": "function_call",
+                    "call_id": call_id,
+                    "name": name,
+                    "arguments": arguments.as_str().unwrap_or("{}"),
+                }));
+            }
+            _ => {}
+        }
+    }
+
+    if !text_parts.is_empty() {
+        output.insert(
+            0,
+            json!({
+                "type": "message",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": text_parts.join("\n"),
+                }]
+            }),
+        );
+    }
+
+    output
+}
+
+fn normalize_response_usage_from_anthropic(usage: Option<&Map<String, Value>>) -> Option<Value> {
+    let usage = usage?;
+    let mut out = Map::new();
+
+    if let Some(value) = usage.get("input_tokens").and_then(Value::as_i64) {
+        out.insert("input_tokens".to_string(), Value::from(value));
+    }
+    if let Some(value) = usage.get("output_tokens").and_then(Value::as_i64) {
+        out.insert("output_tokens".to_string(), Value::from(value));
+    }
+    if let Some(value) = usage.get("total_tokens").and_then(Value::as_i64) {
+        out.insert("total_tokens".to_string(), Value::from(value));
+    } else {
+        let total = usage.get("input_tokens").and_then(Value::as_i64).unwrap_or(0)
+            + usage.get("output_tokens").and_then(Value::as_i64).unwrap_or(0);
+        if total > 0 {
+            out.insert("total_tokens".to_string(), Value::from(total));
+        }
+    }
+    if let Some(value) = usage.get("cache_read_input_tokens").and_then(Value::as_i64) {
+        out.insert(
+            "input_tokens_details".to_string(),
+            json!({ "cached_tokens": value }),
+        );
+    }
+    if let Some(value) = usage.get("reasoning_output_tokens").and_then(Value::as_i64) {
+        out.insert(
+            "output_tokens_details".to_string(),
+            json!({ "reasoning_tokens": value }),
+        );
+    }
+
+    if out.is_empty() {
+        None
+    } else {
+        Some(Value::Object(out))
+    }
+}
+
+pub(super) fn convert_openai_chat_json_to_responses(
+    body: &[u8],
+    tool_name_restore_map: Option<&ToolNameRestoreMap>,
+) -> Result<(Vec<u8>, &'static str), String> {
+    let value = parse_json_value(body, "invalid upstream chat json response")?;
+    if let Some(error_payload) = map_openai_error_to_responses(&value) {
+        return serde_json::to_vec(&error_payload)
+            .map(|bytes| (bytes, "application/json"))
+            .map_err(|err| format!("serialize responses error response failed: {err}"));
+    }
+
+    let output = if value.get("output").is_some() {
+        value.get("output").cloned().unwrap_or_else(|| Value::Array(vec![]))
+    } else {
+        build_responses_output_from_chat_completion(&value, tool_name_restore_map)?
+    };
+
+    let output_text = value
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(Value::as_object)
+        .and_then(|message| message.get("content"))
+        .map(extract_openai_text_content)
+        .transpose()
+        .unwrap_or_default()
+        .unwrap_or_default();
+
+    let usage = value
+        .get("usage")
+        .and_then(Value::as_object)
+        .and_then(|usage| normalize_response_usage_from_chat(Some(usage)));
+    let mut out = Map::new();
+    out.insert(
+        "id".to_string(),
+        value.get("id").cloned().unwrap_or_else(|| Value::String("resp_proxy".to_string())),
+    );
+    out.insert("object".to_string(), Value::String("response".to_string()));
+    out.insert(
+        "created".to_string(),
+        value.get("created").cloned().unwrap_or_else(|| Value::Number(0.into())),
+    );
+    out.insert(
+        "model".to_string(),
+        value
+            .get("model")
+            .cloned()
+            .unwrap_or_else(|| Value::String("unknown".to_string())),
+    );
+    out.insert("status".to_string(), Value::String("completed".to_string()));
+    out.insert("output".to_string(), output);
+    if !output_text.trim().is_empty() {
+        out.insert(
+            "output_text".to_string(),
+            Value::String(output_text.trim().to_string()),
+        );
+    }
+    if let Some(usage) = usage {
+        out.insert("usage".to_string(), usage);
+    }
+
+    serde_json::to_vec(&Value::Object(out))
+        .map(|bytes| (bytes, "application/json"))
+        .map_err(|err| format!("serialize responses json failed: {err}"))
+}
+
+pub(super) fn convert_anthropic_json_to_responses(
+    body: &[u8],
+) -> Result<(Vec<u8>, &'static str), String> {
+    let value = parse_json_value(body, "invalid upstream anthropic json response")?;
+
+    if value.get("error").is_some() {
+        let message = value
+            .get("error")
+            .and_then(Value::as_object)
+            .and_then(|error| error.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or("upstream request failed");
+        let error_type = value
+            .get("error")
+            .and_then(Value::as_object)
+            .and_then(|error| error.get("type"))
+            .and_then(Value::as_str)
+            .unwrap_or("server_error");
+        let payload = json!({
+            "error": {
+                "message": message,
+                "type": error_type,
+            }
+        });
+        return serde_json::to_vec(&payload)
+            .map(|bytes| (bytes, "application/json"))
+            .map_err(|err| format!("serialize responses error response failed: {err}"));
+    }
+
+    let output = anthropic_content_blocks_to_responses_output(
+        value.get("content").and_then(Value::as_array).map(Vec::as_slice),
+    );
+    let output_text = value
+        .get("content")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items.iter()
+                .filter_map(|item| item.get("text").and_then(Value::as_str))
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+    let usage = value
+        .get("usage")
+        .and_then(Value::as_object)
+        .and_then(|usage| normalize_response_usage_from_anthropic(Some(usage)));
+
+    let mut out = Map::new();
+    out.insert(
+        "id".to_string(),
+        value
+            .get("id")
+            .cloned()
+            .unwrap_or_else(|| Value::String("resp_proxy".to_string())),
+    );
+    out.insert("object".to_string(), Value::String("response".to_string()));
+    out.insert(
+        "created".to_string(),
+        value.get("created").cloned().unwrap_or_else(|| Value::Number(0.into())),
+    );
+    out.insert(
+        "model".to_string(),
+        value
+            .get("model")
+            .cloned()
+            .unwrap_or_else(|| Value::String("unknown".to_string())),
+    );
+    out.insert("status".to_string(), Value::String("completed".to_string()));
+    out.insert("output".to_string(), Value::Array(output));
+    if !output_text.trim().is_empty() {
+        out.insert(
+            "output_text".to_string(),
+            Value::String(output_text.trim().to_string()),
+        );
+    }
+    if let Some(usage) = usage {
+        out.insert("usage".to_string(), usage);
+    }
+
+    serde_json::to_vec(&Value::Object(out))
+        .map(|bytes| (bytes, "application/json"))
+        .map_err(|err| format!("serialize responses json failed: {err}"))
 }
 
 /// 函数 `build_anthropic_message_from_chat_completions`

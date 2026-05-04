@@ -182,9 +182,11 @@ pub(super) fn respond_with_upstream(
 }
 pub(super) use stream_readers::{
     AnthropicSseReader, GeminiSseReader, OpenAIChatCompletionsSseReader,
-    OpenAICompletionsSseReader, OpenAIResponsesPassthroughSseReader, PassthroughSseCollector,
-    PassthroughSseUsageReader, SseKeepAliveFrame,
+    OpenAICompletionsSseReader, OpenAIResponsesBridgeSseReader,
+    OpenAIResponsesPassthroughSseReader, PassthroughSseCollector, PassthroughSseUsageReader,
+    SseKeepAliveFrame,
 };
+pub(in crate::gateway) use openai::synthesize_openai_responses_sse_from_json;
 
 #[cfg(test)]
 #[path = "../tests/http_bridge_tests.rs"]

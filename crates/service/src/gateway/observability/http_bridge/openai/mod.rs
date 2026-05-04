@@ -8,3 +8,4 @@ pub(super) use stream::{
     synthesize_chat_completion_sse_from_json, synthesize_completions_sse_from_json,
     update_openai_stream_meta, OpenAIStreamMeta,
 };
+pub(in crate::gateway) use stream::synthesize_openai_responses_sse_from_json;

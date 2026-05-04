@@ -1,6 +1,7 @@
 #[allow(unused_imports)]
 use super::{
     adapt_request_for_protocol, adapt_upstream_response_with_tool_name_restore_map,
+    convert_openai_responses_request_to_chat_completions,
     convert_openai_chat_stream_chunk_with_tool_name_restore_map, ResponseAdapter,
     ToolNameRestoreMap,
 };
@@ -684,6 +685,103 @@ fn openai_responses_passthrough_keeps_responses_path() {
     assert_eq!(adapted.path, "/v1/responses");
     assert_eq!(adapted.body, body);
     assert_eq!(adapted.response_adapter, ResponseAdapter::Passthrough);
+}
+
+#[test]
+fn openai_responses_can_be_converted_back_to_chat_completions() {
+    let original_tool_name =
+        "mcp__tool_server_namespace_for_codex_manager_gateway_adapter_alignment__very_long_tool_operation_name";
+    let body = serde_json::json!({
+        "model": "mimo-v2.5-pro",
+        "instructions": "你是一个代码助手",
+        "input": [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [
+                    { "type": "input_text", "text": "先列目录" },
+                    { "type": "input_image", "image_url": "https://example.com/cat.png" }
+                ]
+            },
+            {
+                "type": "function_call",
+                "call_id": "call_list_1",
+                "name": original_tool_name,
+                "arguments": "{\"path\":\"README.md\"}"
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_list_1",
+                "output": [
+                    { "type": "input_text", "text": "README 内容" }
+                ]
+            }
+        ],
+        "tools": [{
+            "type": "function",
+            "name": original_tool_name,
+            "description": "test tool",
+            "parameters": { "type": "object", "properties": {} }
+        }],
+        "tool_choice": {
+            "type": "function",
+            "name": original_tool_name
+        },
+        "parallel_tool_calls": true,
+        "reasoning": { "effort": "high" },
+        "text": {
+            "verbosity": "low",
+            "format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "answer",
+                    "schema": { "type": "object" }
+                }
+            }
+        },
+        "service_tier": "priority",
+        "stream": true
+    });
+    let (adapted_body, stream, restore_map): (Vec<u8>, bool, ToolNameRestoreMap) = convert_openai_responses_request_to_chat_completions(
+        serde_json::to_vec(&body).expect("serialize body").as_slice(),
+    )
+    .expect("convert responses request");
+    let value: serde_json::Value =
+        serde_json::from_slice(&adapted_body).expect("parse adapted body");
+
+    assert!(stream);
+    assert_eq!(value["model"], "mimo-v2.5-pro");
+    assert_eq!(value["stream"], true);
+    assert_eq!(value["stream_options"]["include_usage"], true);
+    assert_eq!(value["reasoning_effort"], "high");
+    assert_eq!(value["service_tier"], "priority");
+    assert_eq!(value["verbosity"], "low");
+    assert_eq!(value["response_format"]["type"], "json_schema");
+    assert_eq!(
+        value["messages"][0]["role"],
+        "system"
+    );
+    assert_eq!(
+        value["messages"][0]["content"],
+        "你是一个代码助手"
+    );
+    assert_eq!(value["messages"][1]["role"], "user");
+    assert_eq!(value["messages"][1]["content"][0]["type"], "text");
+    assert_eq!(value["messages"][1]["content"][0]["text"], "先列目录");
+    assert_eq!(value["messages"][1]["content"][1]["type"], "image_url");
+    let shortened_name = value["messages"][2]["tool_calls"][0]["function"]["name"]
+        .as_str()
+        .expect("shortened tool name")
+        .to_string();
+    assert_ne!(shortened_name, original_tool_name);
+    assert_eq!(
+        restore_map.get(&shortened_name),
+        Some(&original_tool_name.to_string())
+    );
+    assert_eq!(value["messages"][3]["role"], "tool");
+    assert_eq!(value["messages"][3]["tool_call_id"], "call_list_1");
+    assert_eq!(value["tools"][0]["function"]["name"], shortened_name);
+    assert_eq!(value["tool_choice"]["function"]["name"], shortened_name);
 }
 
 /// 函数 `openai_completions_are_adapted_to_responses`

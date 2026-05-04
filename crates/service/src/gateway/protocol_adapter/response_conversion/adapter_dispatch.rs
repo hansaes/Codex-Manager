@@ -9,7 +9,10 @@ use super::gemini::{
     convert_openai_sse_to_gemini_cli, convert_openai_sse_to_gemini_cli_json,
     convert_openai_sse_to_gemini_json,
 };
-use super::json_conversion::convert_openai_json_to_anthropic;
+use super::json_conversion::{
+    convert_anthropic_json_to_responses, convert_openai_chat_json_to_responses,
+    convert_openai_json_to_anthropic,
+};
 use super::openai_chat::{
     convert_openai_json_to_chat_completions, convert_openai_sse_to_chat_completions_json,
 };
@@ -20,6 +23,7 @@ use super::sse_conversion::{
     convert_anthropic_json_to_sse, convert_anthropic_sse_to_json, convert_openai_sse_to_anthropic,
 };
 use super::ToolNameRestoreMap;
+use crate::gateway::http_bridge::synthesize_openai_responses_sse_from_json;
 
 /// 函数 `adapt_upstream_response`
 ///
@@ -88,6 +92,57 @@ pub(super) fn adapt_upstream_response(
                 return convert_gemini_cli_json_to_sse(&gemini_cli_json);
             }
             convert_openai_sse_to_gemini_cli(body, tool_name_restore_map)
+        }
+        ResponseAdapter::OpenAIResponsesJsonFromChatCompletions => {
+            reject_html_challenge(upstream_content_type)?;
+            if is_sse_payload(upstream_content_type, body) {
+                let (json_body, _) =
+                    convert_openai_sse_to_chat_completions_json(body, tool_name_restore_map)?;
+                return convert_openai_chat_json_to_responses(
+                    json_body.as_slice(),
+                    tool_name_restore_map,
+                );
+            }
+            convert_openai_chat_json_to_responses(body, tool_name_restore_map)
+        }
+        ResponseAdapter::OpenAIResponsesSseFromChatCompletions => {
+            reject_html_challenge(upstream_content_type)?;
+            let json_body = if is_sse_payload(upstream_content_type, body) {
+                convert_openai_sse_to_chat_completions_json(body, tool_name_restore_map)?.0
+            } else {
+                body.to_vec()
+            };
+            let (responses_json, _) =
+                convert_openai_chat_json_to_responses(json_body.as_slice(), tool_name_restore_map)?;
+            let value: serde_json::Value = serde_json::from_slice(&responses_json)
+                .map_err(|_| "invalid synthesized responses json".to_string())?;
+            Ok((
+                synthesize_openai_responses_sse_from_json(&value),
+                "text/event-stream",
+            ))
+        }
+        ResponseAdapter::OpenAIResponsesJsonFromAnthropic => {
+            reject_html_challenge(upstream_content_type)?;
+            if is_sse_payload(upstream_content_type, body) {
+                let (anthropic_json, _) = convert_anthropic_sse_to_json(body)?;
+                return convert_anthropic_json_to_responses(&anthropic_json);
+            }
+            convert_anthropic_json_to_responses(body)
+        }
+        ResponseAdapter::OpenAIResponsesSseFromAnthropic => {
+            reject_html_challenge(upstream_content_type)?;
+            let anthropic_json = if is_sse_payload(upstream_content_type, body) {
+                convert_anthropic_sse_to_json(body)?.0
+            } else {
+                body.to_vec()
+            };
+            let (responses_json, _) = convert_anthropic_json_to_responses(&anthropic_json)?;
+            let value: serde_json::Value = serde_json::from_slice(&responses_json)
+                .map_err(|_| "invalid synthesized responses json".to_string())?;
+            Ok((
+                synthesize_openai_responses_sse_from_json(&value),
+                "text/event-stream",
+            ))
         }
         ResponseAdapter::OpenAIChatCompletionsJson | ResponseAdapter::OpenAIChatCompletionsSse => {
             reject_html_challenge(upstream_content_type)?;

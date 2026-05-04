@@ -11,10 +11,12 @@ const DEFAULT_ANTHROPIC_REASONING: &str = "high";
 const DEFAULT_ANTHROPIC_INSTRUCTIONS: &str =
     "You are Codex, a coding assistant that responds clearly and safely.";
 pub(super) use self::anthropic::convert_anthropic_messages_request;
+pub(crate) use self::anthropic::convert_openai_responses_request_to_anthropic_messages;
 pub(super) use self::gemini::convert_gemini_generate_content_request;
 use self::openai::shorten_openai_tool_name_with_map;
-pub(super) use self::openai::{
+pub(crate) use self::openai::{
     convert_openai_chat_completions_request, convert_openai_completions_request,
+    convert_openai_responses_request_to_chat_completions,
 };
 
 /// 函数 `resolve_prompt_cache_key`

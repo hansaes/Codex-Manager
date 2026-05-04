@@ -4,6 +4,54 @@ use super::{
     convert_openai_completions_stream_chunk, ResponseAdapter,
 };
 
+#[test]
+fn openai_chat_response_is_converted_to_responses_json() {
+    let upstream = br#"{
+        "id":"chatcmpl_1",
+        "object":"chat.completion",
+        "created":1700002000,
+        "model":"mimo-v2.5-pro",
+        "choices":[{"index":0,"message":{"role":"assistant","content":"hello from chat only"},"finish_reason":"stop"}],
+        "usage":{"prompt_tokens":10,"completion_tokens":4,"total_tokens":14}
+    }"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::OpenAIResponsesJsonFromChatCompletions,
+        Some("application/json"),
+        upstream,
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(value["object"], "response");
+    assert_eq!(value["model"], "mimo-v2.5-pro");
+    assert_eq!(value["output_text"], "hello from chat only");
+    assert_eq!(value["usage"]["input_tokens"], 10);
+    assert_eq!(value["usage"]["output_tokens"], 4);
+}
+
+#[test]
+fn openai_chat_sse_response_is_converted_to_responses_json() {
+    let upstream = br#"data: {"id":"chatcmpl_stream_1","object":"chat.completion.chunk","created":1700002001,"model":"mimo-v2.5-pro","choices":[{"index":0,"delta":{"role":"assistant","content":"hello "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_stream_1","object":"chat.completion.chunk","created":1700002001,"model":"mimo-v2.5-pro","usage":{"prompt_tokens":11,"completion_tokens":2,"total_tokens":13},"choices":[{"index":0,"delta":{"content":"world"},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::OpenAIResponsesJsonFromChatCompletions,
+        Some("text/event-stream"),
+        upstream,
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(value["object"], "response");
+    assert_eq!(value["output_text"], "hello world");
+    assert_eq!(value["usage"]["input_tokens"], 11);
+    assert_eq!(value["usage"]["output_tokens"], 2);
+}
+
 /// 函数 `openai_chat_response_is_converted_from_responses_json`
 ///
 /// 作者: gaohongshun

@@ -14,9 +14,9 @@ use super::{
     extract_error_message_from_json, looks_like_sse_payload, merge_usage, parse_usage_from_json,
     push_trace_id_header, usage_has_signal, AnthropicSseReader, GeminiSseReader,
     OpenAIChatCompletionsSseReader, OpenAICompletionsSseReader,
-    OpenAIResponsesPassthroughSseReader, PassthroughSseCollector, PassthroughSseProtocol,
-    PassthroughSseUsageReader, SseKeepAliveFrame, UpstreamResponseBridgeResult,
-    UpstreamResponseUsage,
+    OpenAIResponsesBridgeSseReader, OpenAIResponsesPassthroughSseReader,
+    PassthroughSseCollector, PassthroughSseProtocol, PassthroughSseUsageReader,
+    SseKeepAliveFrame, UpstreamResponseBridgeResult, UpstreamResponseUsage,
 };
 
 const REQUEST_ID_HEADER_CANDIDATES: &[&str] = &["x-request-id", "x-oai-request-id"];
@@ -1325,7 +1325,11 @@ pub(crate) fn respond_with_upstream(
                 None,
             ))
         }
-        ResponseAdapter::OpenAIChatCompletionsJson
+        ResponseAdapter::OpenAIResponsesJsonFromChatCompletions
+        | ResponseAdapter::OpenAIResponsesSseFromChatCompletions
+        | ResponseAdapter::OpenAIResponsesJsonFromAnthropic
+        | ResponseAdapter::OpenAIResponsesSseFromAnthropic
+        | ResponseAdapter::OpenAIChatCompletionsJson
         | ResponseAdapter::OpenAIChatCompletionsSse
         | ResponseAdapter::OpenAICompletionsJson
         | ResponseAdapter::OpenAICompletionsSse => {
@@ -1353,7 +1357,10 @@ pub(crate) fn respond_with_upstream(
                 .unwrap_or(false);
             let use_openai_sse_adapter = matches!(
                 response_adapter,
-                ResponseAdapter::OpenAIChatCompletionsSse | ResponseAdapter::OpenAICompletionsSse
+                ResponseAdapter::OpenAIResponsesSseFromChatCompletions
+                    | ResponseAdapter::OpenAIResponsesSseFromAnthropic
+                    | ResponseAdapter::OpenAIChatCompletionsSse
+                    | ResponseAdapter::OpenAICompletionsSse
             );
 
             if use_openai_sse_adapter && is_stream && !is_sse {
@@ -1385,6 +1392,35 @@ pub(crate) fn respond_with_upstream(
                                 tool_name_restore_map.cloned(),
                                 request_started_at,
                             ),
+                            None,
+                            None,
+                        );
+                        request.respond(response).err().map(|err| err.to_string())
+                    } else if matches!(
+                        response_adapter,
+                        ResponseAdapter::OpenAIResponsesSseFromChatCompletions
+                            | ResponseAdapter::OpenAIResponsesSseFromAnthropic
+                    ) {
+                        let response = Response::new(
+                            status,
+                            headers,
+                            if response_adapter
+                                == ResponseAdapter::OpenAIResponsesSseFromChatCompletions
+                            {
+                                OpenAIResponsesBridgeSseReader::new_chat_completions(
+                                    upstream,
+                                    Arc::clone(&usage_collector),
+                                    tool_name_restore_map.cloned(),
+                                    request_started_at,
+                                )
+                            } else {
+                                OpenAIResponsesBridgeSseReader::new_anthropic(
+                                    upstream,
+                                    Arc::clone(&usage_collector),
+                                    tool_name_restore_map.cloned(),
+                                    request_started_at,
+                                )
+                            },
                             None,
                             None,
                         );
@@ -1490,7 +1526,13 @@ pub(crate) fn respond_with_upstream(
             {
                 if let Ok(mapped_json) = serde_json::from_slice::<Value>(body.as_ref()) {
                     merge_usage(&mut usage, parse_usage_from_json(&mapped_json));
-                    body = if response_adapter == ResponseAdapter::OpenAIChatCompletionsSse {
+                    body = if matches!(
+                        response_adapter,
+                        ResponseAdapter::OpenAIResponsesSseFromChatCompletions
+                            | ResponseAdapter::OpenAIResponsesSseFromAnthropic
+                    ) {
+                        super::synthesize_openai_responses_sse_from_json(&mapped_json)
+                    } else if response_adapter == ResponseAdapter::OpenAIChatCompletionsSse {
                         super::synthesize_chat_completion_sse_from_json(&mapped_json)
                     } else {
                         super::synthesize_completions_sse_from_json(&mapped_json)
@@ -1828,7 +1870,7 @@ pub(crate) fn respond_with_stream_upstream(
     _passthrough_sse_protocol: Option<PassthroughSseProtocol>,
     _gemini_stream_output_mode: Option<GeminiStreamOutputMode>,
     request_path: &str,
-    _tool_name_restore_map: Option<&ToolNameRestoreMap>,
+    tool_name_restore_map: Option<&ToolNameRestoreMap>,
     is_stream: bool,
     _allow_failover_for_deactivation: bool,
     trace_id: Option<&str>,
@@ -2194,19 +2236,42 @@ pub(crate) fn respond_with_stream_upstream(
 
             if is_sse || is_stream {
                 let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
-                let response_body: Box<dyn std::io::Read + Send> =
-                    if request_path.starts_with("/v1/responses") {
-                        Box::new(OpenAIResponsesPassthroughSseReader::from_stream_response(
-                            upstream,
-                            Arc::clone(&usage_collector),
-                            keepalive_frame,
-                            request_started_at,
-                        ))
+                let response_body: Box<dyn std::io::Read + Send> = if matches!(
+                    response_adapter,
+                    ResponseAdapter::OpenAIResponsesSseFromChatCompletions
+                        | ResponseAdapter::OpenAIResponsesSseFromAnthropic
+                ) {
+                    if response_adapter == ResponseAdapter::OpenAIResponsesSseFromChatCompletions {
+                        Box::new(
+                            OpenAIResponsesBridgeSseReader::new_chat_completions_from_stream_response(
+                                upstream,
+                                Arc::clone(&usage_collector),
+                                tool_name_restore_map.cloned(),
+                                request_started_at,
+                            ),
+                        )
                     } else {
-                        return Err(format!(
-                            "stream upstream response is not supported for path {request_path}"
-                        ));
-                    };
+                        Box::new(
+                            OpenAIResponsesBridgeSseReader::new_anthropic_from_stream_response(
+                                upstream,
+                                Arc::clone(&usage_collector),
+                                tool_name_restore_map.cloned(),
+                                request_started_at,
+                            ),
+                        )
+                    }
+                } else if request_path.starts_with("/v1/responses") {
+                    Box::new(OpenAIResponsesPassthroughSseReader::from_stream_response(
+                        upstream,
+                        Arc::clone(&usage_collector),
+                        keepalive_frame,
+                        request_started_at,
+                    ))
+                } else {
+                    return Err(format!(
+                        "stream upstream response is not supported for path {request_path}"
+                    ));
+                };
                 let response = Response::new(status, headers, response_body, None, None);
                 let delivery_error = request.respond(response).err().map(|err| err.to_string());
                 let collector = usage_collector
@@ -2315,8 +2380,12 @@ fn resolve_stream_keepalive_frame(
         ResponseAdapter::OpenAIChatCompletionsSse => SseKeepAliveFrame::OpenAIChatCompletions,
         ResponseAdapter::OpenAICompletionsSse => SseKeepAliveFrame::OpenAICompletions,
         ResponseAdapter::AnthropicSse => SseKeepAliveFrame::Anthropic,
+        ResponseAdapter::OpenAIResponsesSseFromChatCompletions
+        | ResponseAdapter::OpenAIResponsesSseFromAnthropic => SseKeepAliveFrame::OpenAIResponses,
         ResponseAdapter::GeminiSse | ResponseAdapter::GeminiCliSse => SseKeepAliveFrame::Comment,
-        ResponseAdapter::OpenAIChatCompletionsJson
+        ResponseAdapter::OpenAIResponsesJsonFromChatCompletions
+        | ResponseAdapter::OpenAIResponsesJsonFromAnthropic
+        | ResponseAdapter::OpenAIChatCompletionsJson
         | ResponseAdapter::OpenAICompletionsJson
         | ResponseAdapter::AnthropicJson
         | ResponseAdapter::GeminiJson

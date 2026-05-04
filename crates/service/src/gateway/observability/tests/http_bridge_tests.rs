@@ -5,8 +5,9 @@ use super::{
     should_skip_chat_live_text_event, should_skip_completion_live_text_event,
     synthesize_chat_completion_sse_from_json, synthesize_completions_sse_from_json,
     GeminiSseReader, OpenAIChatCompletionsSseReader, OpenAICompletionsSseReader,
-    OpenAIResponsesPassthroughSseReader, OpenAIStreamMeta, PassthroughSseCollector,
-    PassthroughSseProtocol, PassthroughSseUsageReader, SseKeepAliveFrame,
+    OpenAIResponsesBridgeSseReader, OpenAIResponsesPassthroughSseReader, OpenAIStreamMeta,
+    PassthroughSseCollector, PassthroughSseProtocol, PassthroughSseUsageReader,
+    SseKeepAliveFrame,
 };
 use crate::gateway::GeminiStreamOutputMode;
 use serde_json::json;
@@ -1190,6 +1191,85 @@ fn openai_completions_sse_reader_requires_terminal_event_before_success() {
     assert_eq!(
         collector.terminal_error.as_deref(),
         Some("连接中断（可能是网络波动或客户端主动取消）")
+    );
+}
+
+#[test]
+fn openai_responses_passthrough_reader_keeps_responses_event_shape() {
+    let upstream = open_mock_http_response(
+        "text/event-stream",
+        concat!(
+            "event: response.created\n",
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_bridge_1\",\"created\":1,\"model\":\"mimo-v2.5-pro\"}}\n\n",
+            "event: response.output_text.delta\n",
+            "data: {\"type\":\"response.output_text.delta\",\"response_id\":\"resp_bridge_1\",\"created\":1,\"model\":\"mimo-v2.5-pro\",\"delta\":\"桥接成功\"}\n\n",
+            "event: response.completed\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_bridge_1\",\"created\":1,\"model\":\"mimo-v2.5-pro\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"桥接成功\"}]}],\"usage\":{\"input_tokens\":3,\"output_tokens\":2,\"total_tokens\":5}}}\n\n",
+            "data: [DONE]\n\n"
+        ),
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = OpenAIResponsesPassthroughSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        SseKeepAliveFrame::OpenAIResponses,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read mapped responses sse");
+
+    let collector = usage_collector
+        .lock()
+        .expect("lock usage collector")
+        .clone();
+    assert!(mapped.contains("event: response.output_text.delta"));
+    assert!(mapped.contains("\"type\":\"response.output_text.delta\""));
+    assert!(mapped.contains("event: response.completed"));
+    assert!(!mapped.contains("\"object\":\"text_completion\""));
+    assert_eq!(collector.usage.output_text.as_deref(), Some("桥接成功"));
+    assert_eq!(collector.usage.total_tokens, Some(5));
+    assert!(collector.saw_terminal);
+}
+
+#[test]
+fn openai_responses_bridge_reader_maps_chat_completion_chunks_to_responses_events() {
+    let upstream = open_mock_http_response(
+        "text/event-stream",
+        concat!(
+            "data: {\"id\":\"chatcmpl_bridge_1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"mimo-v2.5-pro\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"桥接\"},\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"chatcmpl_bridge_1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"mimo-v2.5-pro\",\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5},\"choices\":[{\"index\":0,\"delta\":{\"content\":\"成功\"},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: [DONE]\n\n"
+        ),
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = OpenAIResponsesBridgeSseReader::new_chat_completions(
+        upstream,
+        Arc::clone(&usage_collector),
+        None,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read mapped responses bridge sse");
+
+    let collector = usage_collector
+        .lock()
+        .expect("lock usage collector")
+        .clone();
+    assert!(mapped.contains("event: response.output_text.delta"));
+    assert!(mapped.contains("\"delta\":\"桥接\""));
+    assert!(mapped.contains("\"delta\":\"成功\""));
+    assert!(mapped.contains("event: response.completed"));
+    assert!(!mapped.contains("chat.completion.chunk"));
+    assert_eq!(collector.usage.output_text.as_deref(), Some("桥接成功"));
+    assert_eq!(collector.usage.total_tokens, Some(5));
+    assert!(collector.saw_terminal);
+    assert_eq!(
+        collector.last_event_type.as_deref(),
+        Some("response.completed")
     );
 }
 

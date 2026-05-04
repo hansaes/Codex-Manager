@@ -745,12 +745,29 @@ pub(crate) fn next_account_sort(storage: &codexmanager_core::storage::Storage) -
 /// 返回函数执行结果
 fn openai_auth_http_client() -> &'static Client {
     OPENAI_AUTH_HTTP_CLIENT.get_or_init(|| {
-        Client::builder()
-            .connect_timeout(OPENAI_AUTH_CONNECT_TIMEOUT)
-            .timeout(OPENAI_AUTH_TOTAL_TIMEOUT)
-            .build()
-            .unwrap_or_else(|_| Client::new())
+        build_openai_auth_http_client(crate::gateway::current_upstream_proxy_url().as_deref())
     })
+}
+
+fn build_openai_auth_http_client(proxy_url: Option<&str>) -> Client {
+    let mut builder = Client::builder()
+        .connect_timeout(OPENAI_AUTH_CONNECT_TIMEOUT)
+        .timeout(OPENAI_AUTH_TOTAL_TIMEOUT);
+    if let Some(proxy_url) = proxy_url {
+        let proxy = match reqwest::Proxy::all(proxy_url) {
+            Ok(proxy) => proxy,
+            Err(err) => {
+                log::warn!("event=auth_proxy_invalid proxy={} err={}", proxy_url, err);
+                return Client::builder()
+                    .connect_timeout(OPENAI_AUTH_CONNECT_TIMEOUT)
+                    .timeout(OPENAI_AUTH_TOTAL_TIMEOUT)
+                    .build()
+                    .unwrap_or_else(|_| Client::new());
+            }
+        };
+        builder = builder.proxy(proxy);
+    }
+    builder.build().unwrap_or_else(|_| Client::new())
 }
 
 /// 函数 `issuer_uses_loopback_host`
@@ -790,6 +807,10 @@ fn auth_http_client_for_issuer(issuer: &str) -> Client {
             .no_proxy()
             .build()
             .unwrap_or_else(|_| Client::new());
+    }
+
+    if let Some(proxy_url) = crate::gateway::current_upstream_proxy_url() {
+        return build_openai_auth_http_client(Some(proxy_url.as_str()));
     }
 
     openai_auth_http_client().clone()

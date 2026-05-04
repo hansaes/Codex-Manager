@@ -140,11 +140,58 @@
 - 平台 Key：生成、禁用、删除、模型绑定、推理等级、服务等级（跟随请求 / Fast / Flex）
 - 模型管理：维护结构化模型目录、远端并入、自定义模型、`visibility` / `supportedInApi` 管理，以及桌面端 Codex 缓存同步 / Web 端缓存导出
 - 聚合 API：管理第三方最小转发上游，支持创建、编辑、测试连通性、供应商名称、顺序优先级，以及按 Codex / Claude 分类展示
+- 网关路由：支持 `ordered`、`balanced`、`global_balanced` 三种策略；全局通道优先级开启后，可让账号和聚合 API 按优先级一起轮转，并在 401/403/429/5xx/超时等运行期失败时自动切换
 - 插件中心：路由为 `/plugins/`，支持内置精选、企业私有、自定义源三种市场模式，并提供插件清单、任务、日志与 Rhai 对接接口
 - 设置页：支持“系统推导”按钮、单账号并发上限，以及更保守的高并发退化策略
 - 系统内部接口总表：列出当前桌面端与服务端所有可对接命令、RPC 方法、以及插件内建函数
 - 本地服务：自动拉起、可自定义端口与监听地址
 - 本地网关：为 Codex CLI、Gemini CLI、Claude Code 和第三方工具提供统一 OpenAI 兼容入口；Gemini 请求可转发到 `/v1/responses`，并兼容 SSE、tools、MCP、skill 等调用链路
+
+## 聚合 API 与 `/v1/responses` 桥接
+
+- 如果外部客户端调用的是 `/v1/responses`，但你配置的聚合 API 上游只支持 `/v1/chat/completions`，网关会自动把请求改写成 chat 请求，并把上游返回的 JSON / SSE 实时桥接回标准 OpenAI Responses 形状。
+- 如果聚合 API 上游是 Anthropic 原生 `POST /v1/messages`，同样会自动把 `/v1/responses` 请求改写成 messages 请求，并把返回结果桥接回 OpenAI Responses JSON / SSE。
+- 这意味着像 Codex 这类默认发 `responses` 请求的客户端，不需要改成 `chat_completions` 模式，也不需要改调用路径。
+- 流式场景下，对外会返回 `response.output_text.delta`、`response.output_item.added`、`response.function_call_arguments.delta`、`response.completed` 这类 Responses 事件，而不是直接透传 `chat.completion.chunk` 或 Anthropic 原生事件。
+
+### 适用场景
+
+- 聚合 API 的 `/v1/responses` 不能用，但 `/v1/chat/completions` 可用
+- 聚合 API 只有 Anthropic `messages` 接口
+- 外部工具固定调用 `/v1/responses`，不方便修改
+
+### 配置方式
+
+- 在“聚合 API”里把 `upstreamFormat` 设为 `chat_completions` 时，网关会把外部 `/v1/responses` 自动桥接到该聚合 API 的 `chatCompletionsPath`
+- 在“聚合 API”里把供应商类型设为 Claude / Anthropic，或协议命中 Anthropic Native 时，网关会把外部 `/v1/responses` 自动桥接到该聚合 API 的 `messages` 路径
+- 获取上游模型列表时，也会遵循聚合 API 自己的代理方式；`proxyMode=direct` 就直连，配置了代理就走对应代理
+
+### 示例
+
+以下这类 chat-only 聚合 API 配置，可以直接承接外部 `/v1/responses`：
+
+```json
+{
+  "apikey": "tp-swh3d7foy03km96jt0zffg50g9brl59lg4jryu736fpb4nw5",
+  "apibase": "https://token-plan-sgp.xiaomimimo.com/v1",
+  "model": "mimo-v2.5-pro",
+  "api_mode": "chat_completions"
+}
+```
+
+外部仍然可以直接请求：
+
+```bash
+curl http://127.0.0.1:48760/v1/responses \
+  -H "Authorization: Bearer <你的平台Key>" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"mimo-v2.5-pro","input":"hello","stream":true}'
+```
+
+网关会自动完成：
+
+- `/v1/responses` 请求体 -> `/v1/chat/completions` 或 `/v1/messages` 请求体
+- 上游 chat / anthropic 返回 -> 标准 OpenAI Responses JSON / SSE
 
 ## 生态搭配
 
@@ -182,6 +229,8 @@
 - 账号管理：集中导入、导出、刷新账号与用量，支持低配额 / 封禁筛选与重置时间展示
 - 平台 Key：按模型、推理等级、服务等级绑定平台 Key，并查看调用日志
 - 模型管理：桌面端修改后会自动同步本地 `~/.codex/models_cache.json`
+- 聚合 API：密钥默认以星号遮罩，点击后可查看原始值；模型目录支持同步到外部可访问的聚合 API，并可在设置里配置全局轮转策略
+- 聚合 API：如果上游只支持 `chat_completions` 或 `anthropic messages`，外部仍可继续走 `/v1/responses`，网关会自动完成协议桥接
 - 插件中心：`/plugins/` 路由，内置精选 / 企业私有 / 自定义源市场切换，插件安装、启停、任务、日志、Rhai 对接
 - 设置页：统一管理端口、监听地址、代理、主题、自动更新、后台行为
 

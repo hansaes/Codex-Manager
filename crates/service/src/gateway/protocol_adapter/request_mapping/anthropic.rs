@@ -1,5 +1,148 @@
 use serde_json::{json, Value};
 
+pub(crate) fn convert_openai_responses_request_to_anthropic_messages(
+    body: &[u8],
+) -> Result<(Vec<u8>, bool, super::ToolNameRestoreMap), String> {
+    let payload: Value = serde_json::from_slice(body)
+        .map_err(|_| "invalid responses request json".to_string())?;
+    let Some(obj) = payload.as_object() else {
+        return Err("responses request body must be an object".to_string());
+    };
+
+    let tool_name_map = collect_responses_tool_names(obj);
+    let tool_name_restore_map = super::build_shortened_tool_name_maps(tool_name_map).1;
+    let stream = obj.get("stream").and_then(Value::as_bool).unwrap_or(false);
+
+    let mut messages = Vec::<Value>::new();
+    if let Some(input) = obj.get("input") {
+        match input {
+            Value::String(text) => {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    messages.push(json!({
+                        "role": "user",
+                        "content": trimmed,
+                    }));
+                }
+            }
+            Value::Array(items) => {
+                for item in items {
+                    append_responses_input_item_as_anthropic_message(
+                        item,
+                        &mut messages,
+                        Some(&tool_name_restore_map),
+                    );
+                }
+            }
+            Value::Object(_) => {
+                append_responses_input_item_as_anthropic_message(
+                    input,
+                    &mut messages,
+                    Some(&tool_name_restore_map),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    let mut out = serde_json::Map::new();
+    if let Some(model) = obj.get("model") {
+        out.insert("model".to_string(), model.clone());
+    }
+    if let Some(instructions) = obj
+        .get("instructions")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        out.insert("system".to_string(), Value::String(instructions.to_string()));
+    }
+    out.insert("messages".to_string(), Value::Array(messages));
+    out.insert("stream".to_string(), Value::Bool(stream));
+
+    if let Some(max_output_tokens) = obj.get("max_output_tokens") {
+        out.insert("max_tokens".to_string(), max_output_tokens.clone());
+    }
+    if let Some(metadata) = obj.get("metadata") {
+        out.insert("metadata".to_string(), metadata.clone());
+    }
+    if let Some(stop) = obj.get("stop") {
+        let mapped = match stop {
+            Value::String(_) => Value::Array(vec![stop.clone()]),
+            Value::Array(_) => stop.clone(),
+            _ => Value::Array(vec![]),
+        };
+        if mapped.as_array().is_some_and(|items| !items.is_empty()) {
+            out.insert("stop_sequences".to_string(), mapped);
+        }
+    }
+    if let Some(temperature) = obj.get("temperature") {
+        out.insert("temperature".to_string(), temperature.clone());
+    }
+    if let Some(top_p) = obj.get("top_p") {
+        out.insert("top_p".to_string(), top_p.clone());
+    }
+
+    let reasoning_effort = obj
+        .get("reasoning_effort")
+        .and_then(Value::as_str)
+        .and_then(crate::reasoning_effort::normalize_reasoning_effort)
+        .or_else(|| {
+            obj.get("reasoning")
+                .and_then(|reasoning| reasoning.get("effort"))
+                .and_then(Value::as_str)
+                .and_then(crate::reasoning_effort::normalize_reasoning_effort)
+        });
+    if let Some(reasoning_effort) = reasoning_effort {
+        out.insert(
+            "output_config".to_string(),
+            json!({
+                "effort": reasoning_effort,
+            }),
+        );
+    }
+
+    let thinking_enabled = obj
+        .get("reasoning")
+        .and_then(|reasoning| reasoning.get("summary"))
+        .and_then(Value::as_str)
+        .map(|summary| !summary.trim().eq_ignore_ascii_case("none"))
+        .or_else(|| {
+            obj.get("reasoning")
+                .and_then(|reasoning| reasoning.get("effort"))
+                .and_then(Value::as_str)
+                .map(|_| true)
+        })
+        .unwrap_or(false);
+    if thinking_enabled {
+        out.insert(
+            "thinking".to_string(),
+            json!({
+                "type": "enabled",
+                "budget_tokens": 1024
+            }),
+        );
+    }
+
+    let mapped_tools = map_responses_tools_to_anthropic(obj, &tool_name_restore_map);
+    if !mapped_tools.is_empty() {
+        out.insert("tools".to_string(), Value::Array(mapped_tools));
+        if !obj.contains_key("tool_choice") {
+            out.insert("tool_choice".to_string(), json!({ "type": "auto" }));
+        }
+    }
+    if let Some(tool_choice) = obj
+        .get("tool_choice")
+        .and_then(|value| map_responses_tool_choice_to_anthropic(value, &tool_name_restore_map))
+    {
+        out.insert("tool_choice".to_string(), tool_choice);
+    }
+
+    serde_json::to_vec(&Value::Object(out))
+        .map(|bytes| (bytes, stream, tool_name_restore_map))
+        .map_err(|err| format!("convert responses request failed: {err}"))
+}
+
 /// 函数 `convert_anthropic_messages_request`
 ///
 /// 作者: gaohongshun
@@ -669,4 +812,436 @@ fn extract_text_from_block(block: &serde_json::Map<String, Value>) -> Result<Str
         .and_then(Value::as_str)
         .map(|v| v.to_string())
         .ok_or_else(|| "claude text block missing text".to_string())
+}
+
+fn collect_responses_tool_names(obj: &serde_json::Map<String, Value>) -> Vec<String> {
+    let mut names = Vec::new();
+
+    if let Some(tools) = obj.get("tools").and_then(Value::as_array) {
+        for tool in tools {
+            let Some(tool_obj) = tool.as_object() else {
+                continue;
+            };
+            let Some(name) = tool_obj
+                .get("name")
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    tool_obj
+                        .get("function")
+                        .and_then(|function| function.get("name"))
+                        .and_then(Value::as_str)
+                })
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            names.push(name.to_string());
+        }
+    }
+
+    if let Some(name) = obj
+        .get("tool_choice")
+        .and_then(Value::as_object)
+        .and_then(|tool_choice| {
+            tool_choice
+                .get("name")
+                .or_else(|| {
+                    tool_choice
+                        .get("function")
+                        .and_then(|function| function.get("name"))
+                })
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+    {
+        names.push(name.to_string());
+    }
+
+    if let Some(input) = obj.get("input") {
+        collect_responses_tool_names_from_input(input, &mut names);
+    }
+
+    names
+}
+
+fn collect_responses_tool_names_from_input(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_responses_tool_names_from_input(item, out);
+            }
+        }
+        Value::Object(obj) => {
+            let item_type = obj.get("type").and_then(Value::as_str).unwrap_or_default();
+            if matches!(item_type, "function_call" | "custom_tool_call") {
+                if let Some(name) = obj
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    out.push(name.to_string());
+                }
+            }
+            if item_type == "message" {
+                if let Some(content) = obj.get("content").and_then(Value::as_array) {
+                    for part in content {
+                        collect_responses_tool_names_from_input(part, out);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn append_responses_input_item_as_anthropic_message(
+    item: &Value,
+    out: &mut Vec<Value>,
+    tool_name_restore_map: Option<&super::ToolNameRestoreMap>,
+) {
+    let Some(item_obj) = item.as_object() else {
+        return;
+    };
+    let item_type = item_obj.get("type").and_then(Value::as_str).unwrap_or_default();
+    match item_type {
+        "function_call" | "custom_tool_call" => {
+            let Some(name) = item_obj
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                return;
+            };
+            let call_id = item_obj
+                .get("call_id")
+                .or_else(|| item_obj.get("id"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("toolu_0");
+            let restored_name = restore_tool_name(name, tool_name_restore_map);
+            let input = extract_function_input(item_obj);
+            out.push(json!({
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "id": call_id,
+                    "name": restored_name,
+                    "input": input,
+                }]
+            }));
+        }
+        "function_call_output" | "custom_tool_call_output" => {
+            let call_id = item_obj
+                .get("call_id")
+                .or_else(|| item_obj.get("id"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or_default();
+            if call_id.is_empty() {
+                return;
+            }
+            let content = map_responses_tool_output_to_anthropic_content(item_obj.get("output"));
+            out.push(json!({
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": call_id,
+                    "content": content,
+                }]
+            }));
+        }
+        "message" => {
+            let role = item_obj
+                .get("role")
+                .and_then(Value::as_str)
+                .map(normalize_responses_role_to_anthropic)
+                .unwrap_or("user");
+            let content = map_responses_message_content_to_anthropic(item_obj.get("content"));
+            if content.is_null() {
+                return;
+            }
+            out.push(json!({
+                "role": role,
+                "content": content,
+            }));
+        }
+        _ => {
+            if let Some(text) = extract_responses_item_text(item_obj) {
+                out.push(json!({
+                    "role": "user",
+                    "content": text,
+                }));
+            }
+        }
+    }
+}
+
+fn normalize_responses_role_to_anthropic(role: &str) -> &'static str {
+    match role.trim().to_ascii_lowercase().as_str() {
+        "assistant" => "assistant",
+        _ => "user",
+    }
+}
+
+fn map_responses_message_content_to_anthropic(content: Option<&Value>) -> Value {
+    let Some(content) = content else {
+        return Value::Null;
+    };
+    if let Some(text) = content.as_str() {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return Value::Null;
+        }
+        return Value::String(trimmed.to_string());
+    }
+    let Some(items) = content.as_array() else {
+        return Value::Null;
+    };
+    let mut blocks = Vec::new();
+    for item in items {
+        let Some(item_obj) = item.as_object() else {
+            continue;
+        };
+        match item_obj.get("type").and_then(Value::as_str).unwrap_or_default() {
+            "input_text" | "output_text" | "text" => {
+                if let Some(text) = item_obj
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    blocks.push(json!({
+                        "type": "text",
+                        "text": text,
+                    }));
+                }
+            }
+            "input_image" => {
+                if let Some(block) = map_responses_image_to_anthropic(item_obj) {
+                    blocks.push(block);
+                }
+            }
+            _ => {}
+        }
+    }
+    if blocks.is_empty() {
+        Value::Null
+    } else {
+        Value::Array(blocks)
+    }
+}
+
+fn map_responses_image_to_anthropic(
+    item_obj: &serde_json::Map<String, Value>,
+) -> Option<Value> {
+    let image_url = item_obj
+        .get("image_url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    if let Some(data) = image_url.strip_prefix("data:") {
+        let (meta, encoded) = data.split_once(',')?;
+        let media_type = meta
+            .split(';')
+            .next()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("image/png");
+        return Some(json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": encoded,
+            }
+        }));
+    }
+    Some(json!({
+        "type": "image",
+        "source": {
+            "type": "url",
+            "url": image_url,
+        }
+    }))
+}
+
+fn map_responses_tool_output_to_anthropic_content(output: Option<&Value>) -> Value {
+    let Some(output) = output else {
+        return Value::String(String::new());
+    };
+    if let Some(text) = output.as_str() {
+        return Value::String(text.to_string());
+    }
+    if let Some(items) = output.as_array() {
+        let mut blocks = Vec::new();
+        for item in items {
+            let Some(item_obj) = item.as_object() else {
+                continue;
+            };
+            match item_obj.get("type").and_then(Value::as_str).unwrap_or_default() {
+                "input_text" | "text" | "output_text" => {
+                    if let Some(text) = item_obj
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                    {
+                        blocks.push(json!({
+                            "type": "text",
+                            "text": text,
+                        }));
+                    }
+                }
+                "input_image" => {
+                    if let Some(block) = map_responses_image_to_anthropic(item_obj) {
+                        blocks.push(block);
+                    }
+                }
+                _ => {}
+            }
+        }
+        return if blocks.is_empty() {
+            Value::String(String::new())
+        } else {
+            Value::Array(blocks)
+        };
+    }
+    output.clone()
+}
+
+fn extract_function_input(item_obj: &serde_json::Map<String, Value>) -> Value {
+    item_obj
+        .get("arguments")
+        .and_then(Value::as_str)
+        .and_then(|arguments| serde_json::from_str(arguments).ok())
+        .or_else(|| item_obj.get("input").cloned())
+        .unwrap_or_else(|| json!({}))
+}
+
+fn restore_tool_name(
+    name: &str,
+    tool_name_restore_map: Option<&super::ToolNameRestoreMap>,
+) -> String {
+    tool_name_restore_map
+        .and_then(|map| map.get(name))
+        .cloned()
+        .unwrap_or_else(|| name.to_string())
+}
+
+fn map_responses_tools_to_anthropic(
+    obj: &serde_json::Map<String, Value>,
+    tool_name_restore_map: &super::ToolNameRestoreMap,
+) -> Vec<Value> {
+    let Some(tools) = obj.get("tools").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    tools
+        .iter()
+        .filter_map(|tool| map_responses_tool_to_anthropic(tool, tool_name_restore_map))
+        .collect()
+}
+
+fn map_responses_tool_to_anthropic(
+    tool: &Value,
+    tool_name_restore_map: &super::ToolNameRestoreMap,
+) -> Option<Value> {
+    let obj = tool.as_object()?;
+    let tool_type = obj.get("type").and_then(Value::as_str).unwrap_or("function");
+    if tool_type != "function" {
+        return None;
+    }
+    let name = obj
+        .get("name")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            obj.get("function")
+                .and_then(|function| function.get("name"))
+                .and_then(Value::as_str)
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let restored_name = restore_tool_name(name, Some(tool_name_restore_map));
+    let description = obj
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let input_schema = obj
+        .get("parameters")
+        .or_else(|| obj.get("input_schema"))
+        .cloned()
+        .unwrap_or_else(|| json!({ "type": "object", "properties": {} }));
+    Some(json!({
+        "name": restored_name,
+        "description": description,
+        "input_schema": input_schema,
+    }))
+}
+
+fn map_responses_tool_choice_to_anthropic(
+    value: &Value,
+    tool_name_restore_map: &super::ToolNameRestoreMap,
+) -> Option<Value> {
+    if let Some(text) = value.as_str() {
+        return match text.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(json!({ "type": "auto" })),
+            "required" => Some(json!({ "type": "any" })),
+            "none" => Some(json!({ "type": "none" })),
+            _ => None,
+        };
+    }
+    let obj = value.as_object()?;
+    let choice_type = obj.get("type").and_then(Value::as_str).unwrap_or_default();
+    if choice_type != "function" {
+        return None;
+    }
+    let name = obj
+        .get("name")
+        .or_else(|| {
+            obj.get("function")
+                .and_then(|function| function.get("name"))
+        })
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    Some(json!({
+        "type": "tool",
+        "name": restore_tool_name(name, Some(tool_name_restore_map)),
+    }))
+}
+
+fn extract_responses_item_text(item_obj: &serde_json::Map<String, Value>) -> Option<String> {
+    if let Some(text) = item_obj
+        .get("text")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(text.to_string());
+    }
+    item_obj
+        .get("content")
+        .and_then(Value::as_array)
+        .and_then(|items| {
+            let parts = items
+                .iter()
+                .filter_map(|item| {
+                    item.get("text")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string)
+                })
+                .collect::<Vec<_>>();
+            if parts.is_empty() {
+                None
+            } else {
+                Some(parts.join(""))
+            }
+        })
 }
