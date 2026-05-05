@@ -10,6 +10,7 @@ import {
   STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
 } from "@/lib/api/startup-snapshot";
 import { getAppErrorMessage } from "@/lib/api/transport";
+import { formatUsageRefreshErrorMessage } from "@/lib/api/usage-refresh-errors";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
 import { useLocalDayRange } from "@/hooks/useLocalDayRange";
@@ -68,30 +69,6 @@ function buildImportSummaryMessage(result: ImportByDirectoryResult, t: (message:
     updated,
     failed,
   });
-}
-
-/**
- * 函数 `formatUsageRefreshErrorMessage`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - error: 参数 error
- *
- * # 返回
- * 返回函数执行结果
- */
-function formatUsageRefreshErrorMessage(
-  error: unknown,
-  t: (message: string, values?: Record<string, string | number>) => string,
-): string {
-  const message = getAppErrorMessage(error);
-  if (message.toLowerCase().includes("refresh token failed with status 401")) {
-    return t("账号长期未登录，refresh 已过期，已改为不可用状态");
-  }
-  return message;
 }
 
 /**

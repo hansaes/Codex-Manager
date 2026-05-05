@@ -892,6 +892,12 @@ export const EN_MESSAGES: MessageCatalog = {
   账号用量已刷新: "Account usage refreshed",
   "账号长期未登录，refresh 已过期，已改为不可用状态":
     "Account inactive for a long time; refresh expired and marked unavailable.",
+  "refresh token 已被使用，当前账号登录态失效，请重新登录":
+    "Refresh token was already used. The account session is invalid, please sign in again.",
+  "refresh token 已被吊销，当前账号登录态失效，请重新登录":
+    "Refresh token was revoked. The account session is invalid, please sign in again.",
+  "账号登录态已失效，请重新登录":
+    "The account session is invalid, please sign in again.",
   "正在等待服务连接。": "Waiting for service connection.",
   "正在刷新...": "Refreshing...",
   "正在推导...": "Deriving...",
