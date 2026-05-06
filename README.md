@@ -139,13 +139,14 @@
 - 授权登录：浏览器授权 + 手动回调解析
 - 平台 Key：生成、禁用、删除、模型绑定、推理等级、服务等级（跟随请求 / Fast / Flex）
 - 模型管理：维护结构化模型目录、远端并入、自定义模型、`visibility` / `supportedInApi` 管理，以及桌面端 Codex 缓存同步 / Web 端缓存导出
-- 聚合 API：管理第三方最小转发上游，支持创建、编辑、测试连通性、供应商名称、顺序优先级，以及按 Codex / Claude 分类展示
-- 网关路由：支持 `ordered`、`balanced`、`global_balanced` 三种策略；全局通道优先级开启后，可让账号和聚合 API 按优先级一起轮转，并在 401/403/429/5xx/超时等运行期失败时自动切换
+- 聚合 API：管理第三方最小转发上游，支持创建、编辑、测试连通性、供应商名称、顺序优先级、单独代理模式、密钥遮罩与查看，以及按 Codex / Claude 分类展示
+- 网关路由：支持 `ordered`、`balanced`、`global_balanced` 三种策略；全局通道优先级开启后，可让账号和聚合 API 合并到同一套优先级里轮转，并在无候选、模型不支持、401/403/429/5xx/超时等运行期失败时自动切换
 - 插件中心：路由为 `/plugins/`，支持内置精选、企业私有、自定义源三种市场模式，并提供插件清单、任务、日志与 Rhai 对接接口
 - 设置页：支持“系统推导”按钮、单账号并发上限，以及更保守的高并发退化策略
 - 系统内部接口总表：列出当前桌面端与服务端所有可对接命令、RPC 方法、以及插件内建函数
 - 本地服务：自动拉起、可自定义端口与监听地址
 - 本地网关：为 Codex CLI、Gemini CLI、Claude Code 和第三方工具提供统一 OpenAI 兼容入口；Gemini 请求可转发到 `/v1/responses`，并兼容 SSE、tools、MCP、skill 等调用链路
+- 账号刷新错误提示：手动刷新账号时，refresh token 的 `expired`、`reused`、`revoked`、未知 401 已拆分为更准确的中文提示，不再统一误报成“refresh 已过期”
 
 ## 聚合 API 与 `/v1/responses` 桥接
 
@@ -165,6 +166,20 @@
 - 在“聚合 API”里把 `upstreamFormat` 设为 `chat_completions` 时，网关会把外部 `/v1/responses` 自动桥接到该聚合 API 的 `chatCompletionsPath`
 - 在“聚合 API”里把供应商类型设为 Claude / Anthropic，或协议命中 Anthropic Native 时，网关会把外部 `/v1/responses` 自动桥接到该聚合 API 的 `messages` 路径
 - 获取上游模型列表时，也会遵循聚合 API 自己的代理方式；`proxyMode=direct` 就直连，配置了代理就走对应代理
+- 聚合 API 的密钥在管理页默认会以 `*` 遮罩显示；需要核对时可点击查看原始密钥
+
+### 路由与切换
+
+- 如果平台密钥本身走 `aggregate_api_rotation`，请求会优先走聚合 API 候选链
+- 如果设置里开启“全局通道优先级”，账号和聚合 API 会合并到同一套候选顺序里；你可以选择：
+  - `账号优先，聚合兜底`
+  - `聚合优先，账号兜底`
+- 路由策略说明：
+  - `ordered`：账号与聚合 API 各自保持当前顺序，默认只在头部小窗口内做轻微健康换头
+  - `balanced`：账号与聚合 API 各自在各自 family 内按“平台密钥 + 模型”维度做均衡轮询
+  - `global_balanced`：在均衡轮询基础上，如果开启“全局通道优先级”，账号和聚合 API 会按优先级轮流作为每次请求的首选 family
+- 同一次请求内，以下运行期失败会触发自动切换：无候选、模型不支持、`401`、`403`、`429`、`5xx`、连接/总超时
+- 请求日志里会记录 `aggregateApiSupplierName`、`initialAggregateApiId`、`attemptedAggregateApiIds`、`upstreamUrl` 等字段，方便确认实际命中的聚合 API
 
 ### 示例
 
@@ -192,6 +207,40 @@ curl http://127.0.0.1:48760/v1/responses \
 
 - `/v1/responses` 请求体 -> `/v1/chat/completions` 或 `/v1/messages` 请求体
 - 上游 chat / anthropic 返回 -> 标准 OpenAI Responses JSON / SSE
+
+### DeepSeek 示例
+
+DeepSeek 这类 OpenAI 兼容上游也可以按聚合 API 接入。一个可工作的示例配置是：
+
+```json
+{
+  "supplierName": "DeepSeek",
+  "url": "https://api.deepseek.com",
+  "authType": "apikey",
+  "upstreamFormat": "chat_completions",
+  "modelsPath": "/models",
+  "chatCompletionsPath": "/chat/completions",
+  "proxyMode": "direct"
+}
+```
+
+实际验证中，以下链路已可直接使用：
+
+```bash
+curl http://127.0.0.1:48760/v1/chat/completions \
+  -H "Authorization: Bearer <你的平台Key>" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"Reply with exactly: pong"}]}'
+```
+
+```bash
+curl http://127.0.0.1:48760/v1/responses \
+  -H "Authorization: Bearer <你的平台Key>" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-v4-flash","input":"Reply with exactly: bridge-ok"}'
+```
+
+如果你的上游只有 `/chat/completions`，第二种 `/v1/responses` 调用仍然可以工作，网关会自动做协议桥接。
 
 ## 生态搭配
 
@@ -227,10 +276,13 @@ curl http://127.0.0.1:48760/v1/responses \
 ## 页面展示
 ### 桌面端
 - 账号管理：集中导入、导出、刷新账号与用量，支持低配额 / 封禁筛选与重置时间展示
+- 账号管理：手动刷新时，如果 refresh token 失败原因是已过期、已复用、已吊销或未知 401，会分别返回更准确的中文提示
 - 平台 Key：按模型、推理等级、服务等级绑定平台 Key，并查看调用日志
 - 模型管理：桌面端修改后会自动同步本地 `~/.codex/models_cache.json`
 - 聚合 API：密钥默认以星号遮罩，点击后可查看原始值；模型目录支持同步到外部可访问的聚合 API，并可在设置里配置全局轮转策略
 - 聚合 API：如果上游只支持 `chat_completions` 或 `anthropic messages`，外部仍可继续走 `/v1/responses`，网关会自动完成协议桥接
+- 聚合 API：支持 `direct`、跟随全局、自定义代理三种代理方式；拉取上游模型时也会沿用对应代理
+- 设置页：支持全局通道优先级开关、账号优先/聚合优先顺序，以及 `global_balanced` 全局轮转模式
 - 插件中心：`/plugins/` 路由，内置精选 / 企业私有 / 自定义源市场切换，插件安装、启停、任务、日志、Rhai 对接
 - 设置页：统一管理端口、监听地址、代理、主题、自动更新、后台行为
 
